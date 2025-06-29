@@ -1,6 +1,6 @@
 # Centralized Configuration
 
-All application settings are now managed in a single file: `src/config/appConfig.ts`
+All application settings are now managed in a single file: `config.json`
 
 ## Configuration Structure
 
@@ -50,7 +50,7 @@ tree: {
 
 ## Adding New Nodes
 
-Simply add nodes to the `tree.nodes` array in `appConfig.ts`:
+Simply add nodes to the `tree.nodes` array in `config.json`:
 
 ```typescript
 {

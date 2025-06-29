@@ -1,7 +1,225 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { appConfig, type TreeNode } from '../config/appConfig';
+import { createRoot } from 'react-dom/client';
+import configData from '../../config.json';
+import type { TreeNode, AppConfig } from '../types/config';
 import { useNodeStatus } from '../hooks/useNodeStatus';
 import StatusCard from './StatusCard';
+import * as LucideIcons from 'lucide-react';
+
+const appConfig = configData as AppConfig;
+
+// Function to get a Lucide icon component by name
+const getLucideIcon = (iconName: string) => {
+  // Convert kebab-case to PascalCase for component names
+  const componentName = iconName
+    .split('-')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join('');
+  
+  // Try to get the icon component
+  const iconComponent = (LucideIcons as any)[componentName];
+  
+  if (iconComponent) {
+    console.log(`Found Lucide icon component: ${componentName} for ${iconName}`);
+    return iconComponent;
+  } else {
+    console.warn(`Lucide icon component not found: ${componentName} for ${iconName}, using Server as fallback`);
+    return LucideIcons.Server;
+  }
+};
+
+// Cache for rendered icon SVGs to avoid re-rendering
+const iconSvgCache = new Map<string, string>();
+
+// Function to extract SVG content from a Lucide React icon
+const extractIconSvg = async (iconName: string, color: string = '#ffffff'): Promise<string> => {
+  const cacheKey = `${iconName}-${color}`;
+  
+  if (iconSvgCache.has(cacheKey)) {
+    return iconSvgCache.get(cacheKey)!;
+  }
+
+  return new Promise((resolve) => {
+    try {
+      // Create a temporary container
+      const tempContainer = document.createElement('div');
+      tempContainer.style.position = 'absolute';
+      tempContainer.style.left = '-9999px';
+      tempContainer.style.top = '-9999px';
+      tempContainer.style.width = '24px';
+      tempContainer.style.height = '24px';
+      tempContainer.style.visibility = 'hidden';
+      document.body.appendChild(tempContainer);
+
+      // Get the icon component
+      const IconComponent = getLucideIcon(iconName);
+      
+      // Render the icon using React with a longer timeout for complex icons
+      const root = createRoot(tempContainer);
+      root.render(
+        React.createElement(IconComponent, {
+          size: 24,
+          color: color,
+          strokeWidth: 2,
+          fill: 'none',
+          stroke: color
+        })
+      );
+
+      // Wait longer for render and extract SVG
+      setTimeout(() => {
+        try {
+          const svgElement = tempContainer.querySelector('svg');
+          if (svgElement) {
+            // Clone the SVG to avoid issues with the original
+            const clonedSvg = svgElement.cloneNode(true) as SVGElement;
+            
+            // Ensure all necessary attributes are set
+            clonedSvg.setAttribute('width', '24');
+            clonedSvg.setAttribute('height', '24');
+            clonedSvg.setAttribute('viewBox', '0 0 24 24');
+            clonedSvg.setAttribute('fill', 'none');
+            clonedSvg.setAttribute('stroke', color);
+            clonedSvg.setAttribute('stroke-width', '2');
+            clonedSvg.setAttribute('stroke-linecap', 'round');
+            clonedSvg.setAttribute('stroke-linejoin', 'round');
+            
+            const svgContent = new XMLSerializer().serializeToString(clonedSvg);
+            iconSvgCache.set(cacheKey, svgContent);
+            console.log(`Successfully extracted icon: ${iconName}`, svgContent);
+            resolve(svgContent);
+          } else {
+            console.warn(`No SVG found for icon: ${iconName}, using fallback`);
+            const fallbackSvg = getFallbackSvg(iconName, color);
+            iconSvgCache.set(cacheKey, fallbackSvg);
+            resolve(fallbackSvg);
+          }
+        } catch (extractError) {
+          console.error(`Error extracting SVG for ${iconName}:`, extractError);
+          const fallbackSvg = getFallbackSvg(iconName, color);
+          iconSvgCache.set(cacheKey, fallbackSvg);
+          resolve(fallbackSvg);
+        }
+        
+        // Clean up
+        try {
+          root.unmount();
+          if (document.body.contains(tempContainer)) {
+            document.body.removeChild(tempContainer);
+          }
+        } catch (cleanupError) {
+          console.warn('Error during cleanup:', cleanupError);
+        }
+      }, 50); // Increased timeout to 50ms
+    } catch (error) {
+      console.error(`Error in extractIconSvg for ${iconName}:`, error);
+      const fallbackSvg = getFallbackSvg(iconName, color);
+      iconSvgCache.set(cacheKey, fallbackSvg);
+      resolve(fallbackSvg);
+    }
+  });
+};
+
+// Fallback SVGs for when extraction fails
+const getFallbackSvg = (iconName: string, color: string): string => {
+  const fallbackSvgs: Record<string, string> = {
+    server: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6" y1="6" y2="6"/><line x1="6" x2="6" y1="18" y2="18"/></svg>`,
+    clapperboard: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m20.2 6-3-3H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14l3-3"/><path d="m7 4 3 3-3 3"/><path d="M4 8h8"/><path d="M4 12h8"/></svg>`,
+    tv: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="15" x="2" y="7" rx="2" ry="2"/><polyline points="17,2 12,7 7,2"/></svg>`
+  };
+  
+  return fallbackSvgs[iconName] || fallbackSvgs.server;
+};
+
+// Function to draw Lucide icons on canvas using actual SVG paths
+// Cache for rendered icon images to avoid re-rendering
+const iconImageCache = new Map<string, HTMLImageElement>();
+
+// Function to preload all icons used in the configuration
+const preloadIcons = async () => {
+  const iconPromises = appConfig.tree.nodes.map(async (node) => {
+    if (node.icon) {
+      const cacheKey = `${node.icon}-#ffffff`;
+      if (!iconImageCache.has(cacheKey)) {
+        try {
+          const svgContent = await extractIconSvg(node.icon, '#ffffff');
+          const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+          const url = URL.createObjectURL(svgBlob);
+          
+          const img = new Image();
+          await new Promise<void>((resolve, reject) => {
+            img.onload = () => {
+              iconImageCache.set(cacheKey, img);
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            img.onerror = () => {
+              URL.revokeObjectURL(url);
+              reject(new Error(`Failed to load icon: ${node.icon}`));
+            };
+            img.src = url;
+          });
+        } catch (error) {
+          console.warn(`Failed to preload icon ${node.icon}:`, error);
+        }
+      }
+    }
+  });
+  
+  await Promise.all(iconPromises);
+};
+
+// Function to draw Lucide icons on canvas using preloaded images
+const drawIconOnCanvas = (
+  ctx: CanvasRenderingContext2D,
+  iconName: string,
+  centerX: number,
+  centerY: number,
+  size: number,
+  color: string = '#ffffff'
+) => {
+  const cacheKey = `${iconName}-${color}`;
+  const cachedImage = iconImageCache.get(cacheKey);
+  
+  if (cachedImage) {
+    ctx.save();
+    
+    // Scale and position the icon
+    const scale = size / 24;
+    ctx.translate(centerX - (size / 2), centerY - (size / 2));
+    ctx.scale(scale, scale);
+    
+    ctx.drawImage(cachedImage, 0, 0, 24, 24);
+    ctx.restore();
+  } else {
+    // Fallback: draw a simple circle if icon not loaded
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, size * 0.3, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+    
+    // Try to load the icon asynchronously for next time
+    extractIconSvg(iconName, color).then(svgContent => {
+      const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(svgBlob);
+      
+      const img = new Image();
+      img.onload = () => {
+        iconImageCache.set(cacheKey, img);
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    }).catch(error => {
+      console.warn(`Failed to load icon ${iconName}:`, error);
+    });
+  }
+};
 
 interface PositionedNode extends TreeNode {
   x: number;
@@ -44,8 +262,8 @@ const Canvas: React.FC = () => {
   const { getNodeStatus } = useNodeStatus();
   
   // Node dimensions and spacing
-  const NODE_WIDTH = 240;
-  const NODE_HEIGHT = 100;
+  const NODE_WIDTH = 200; // Decreased from 240
+  const NODE_HEIGHT = 80; // Decreased from 100
   const HORIZONTAL_SPACING = 60;
   const VERTICAL_SPACING = 80;
 
@@ -57,6 +275,19 @@ const Canvas: React.FC = () => {
       setBackgroundLoaded(true);
     };
     img.src = '/src/assets/ChatGPT Image Jun 29, 2025, 10_39_29 AM.png';
+  }, []);
+
+  // Preload all icons
+  useEffect(() => {
+    // Clear caches to ensure fresh icon extraction
+    iconSvgCache.clear();
+    iconImageCache.clear();
+    
+    preloadIcons().then(() => {
+      console.log('Icons preloaded successfully');
+    }).catch(error => {
+      console.warn('Failed to preload some icons:', error);
+    });
   }, []);
 
   // Calculate positions for tree nodes in a proper vertical tree layout
@@ -165,12 +396,21 @@ const Canvas: React.FC = () => {
     return null;
   }, [transform, calculateNodePositions]);
 
-  // Function to open node URL
+  // Function to open node URL with debouncing to prevent double-opens
   const openNodeUrl = useCallback((node: PositionedNode) => {
     if (node.url) {
       // Use the URL as-is if it already has a protocol, otherwise add https://
       const url = node.url.includes('://') ? node.url : `https://${node.url}`;
-      window.open(url, '_blank', 'noopener,noreferrer');
+      
+      // Simple debouncing: check if we already opened this URL recently
+      const now = Date.now();
+      const lastOpenKey = `lastOpen_${node.id}`;
+      const lastOpenTime = (window as any)[lastOpenKey] || 0;
+      
+      if (now - lastOpenTime > 1000) { // 1 second debounce
+        (window as any)[lastOpenKey] = now;
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
     }
   }, []);
 
@@ -275,10 +515,12 @@ const Canvas: React.FC = () => {
     const textAreaWidth = (width * 2) / 3;
     const textAreaX = x + circleAreaWidth;
     
-    // Draw status circle (centered in the left 1/3) with color based on status
-    const circleRadius = Math.min(circleAreaWidth * 0.25, height * 0.2);
-    const circleCenterX = x + circleAreaWidth / 2;
-    const circleCenterY = y + height * 0.3;
+    // Draw status circle with equal padding on left, top, and bottom
+    const padding = 12; // Equal padding for left, top, bottom
+    const maxCircleSize = Math.min(circleAreaWidth - padding, height - (padding * 2));
+    const circleRadius = maxCircleSize * 0.4; // Increased from 0.25 to 0.4 for larger circle
+    const circleCenterX = x + padding + (circleAreaWidth - padding) / 2;
+    const circleCenterY = y + height / 2; // Centered vertically
     
     // Set circle color based on node status
     let circleColor = '#6b7280'; // Default gray for checking
@@ -292,6 +534,12 @@ const Canvas: React.FC = () => {
     ctx.beginPath();
     ctx.arc(circleCenterX, circleCenterY, circleRadius, 0, Math.PI * 2);
     ctx.fill();
+    
+    // Draw icon in the center of the circle
+    if (node.icon) {
+      const iconSize = circleRadius * 1.2; // Icon size relative to circle
+      drawIconOnCanvas(ctx, node.icon, circleCenterX, circleCenterY, iconSize, '#ffffff');
+    }
     
     // Add a subtle pulse effect for checking status
     if (nodeStatus.status === 'checking') {
@@ -545,6 +793,8 @@ const Canvas: React.FC = () => {
   };
 
   const handleMouseUp = (e: React.MouseEvent) => {
+    if (!isDragging) return; // Prevent handling if not dragging
+    
     const canvas = canvasRef.current;
     if (!canvas) return;
     
@@ -568,6 +818,11 @@ const Canvas: React.FC = () => {
     }
     
     setIsDragging(false);
+  };
+
+  const handleMouseLeave = () => {
+    setIsDragging(false);
+    setIsHoveringNode(false);
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -637,7 +892,7 @@ const Canvas: React.FC = () => {
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
         onWheel={handleWheel}
       />
       

@@ -17,6 +17,7 @@
         "subtitle": "Primary application server",
         "ip": "proxmox.lan:8006",
         "url": "proxmox.koenvogel.com",
+        "icon": "server",
         "children": [
           {
             "id": "child-1-1",
@@ -24,13 +25,15 @@
             "subtitle": "User interface application",
             "ip": "pirate.lan:7878",
             "url": "radarr.koenvogel.com",
+            "icon": "clapperboard",
             "children": [
               {
                 "id": "grandchild-1-1-1",
                 "title": "Sonarr",
                 "subtitle": "Authentication module",
                 "ip": "pirate.lan:8989",
-                "url": "sonarr.koenvogel.com"
+                "url": "sonarr.koenvogel.com",
+                "icon": "tv"
               }
             ]
           }

@@ -32,7 +32,7 @@ The backend provides these REST API endpoints:
 
 ### Data Flow
 
-1. **Configuration Loading**: The server reads IP addresses from `src/config/appConfig.ts` on startup
+1. **Configuration Loading**: The server reads IP addresses from `config.json` on startup
 2. **Health Monitoring**: Server pings all configured IPs every 20 seconds
 3. **Frontend Polling**: React app polls the server every 5 seconds for status updates
 4. **Real-time Updates**: Frontend displays color-coded node statuses based on server response
@@ -82,7 +82,7 @@ npm run dev
 
 ### Adding New Nodes
 
-To monitor additional nodes, edit `src/config/appConfig.ts` and add nodes with their IP addresses. The server will automatically pick up all IP addresses from this configuration file.
+To monitor additional nodes, edit `config.json` and add nodes with their IP addresses. The server will automatically pick up all IP addresses from this configuration file.
 
 Example:
 ```typescript

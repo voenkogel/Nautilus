@@ -1,37 +1,7 @@
 import configData from '../../config.json';
+import type { TreeNode, AppConfig } from '../types/config';
 
-export interface TreeNode {
-  id: string;
-  title: string;
-  subtitle: string;
-  ip: string;
-  url: string;
-  icon?: string; // Optional icon name from lucide-react
-  children?: TreeNode[];
-}
-
-export interface ServerConfig {
-  port: number;
-  healthCheckInterval: number;
-  corsOrigins: string[];
-}
-
-export interface ClientConfig {
-  port: number;
-  apiPollingInterval: number;
-  host: string;
-}
-
-export interface AppConfig {
-  server: ServerConfig;
-  client: ClientConfig;
-  tree: {
-    nodes: TreeNode[];
-  };
-}
-
-// Import config directly from JSON
-export const appConfig: AppConfig = configData as AppConfig;
+const appConfig = configData as AppConfig;
 
 // Helper function to extract all IPs from the tree
 export function extractAllIPs(nodes: TreeNode[] = appConfig.tree.nodes): string[] {
@@ -55,5 +25,3 @@ export function getServerUrl(port?: number): string {
   const serverPort = port || appConfig.server.port;
   return `http://${appConfig.client.host}:${serverPort}`;
 }
-
-export default appConfig;

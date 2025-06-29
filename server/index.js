@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
-import axios from 'axios';
+import fetch from 'node-fetch';
+import https from 'https';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -95,27 +96,113 @@ nodeIPs.forEach(ip => {
   nodeStatuses.set(ip, { status: 'offline', lastChecked: new Date() });
 });
 
-// Function to check a single node's health
+// Create HTTPS agent that ignores self-signed certificates
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false // Accept self-signed certificates
+});
+
+// Helper function to find node data by IP
+function findNodeByIP(targetIP) {
+  function searchNodes(nodes) {
+    for (const node of nodes) {
+      if (node.ip === targetIP) {
+        return node;
+      }
+      if (node.children) {
+        const found = searchNodes(node.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  
+  return searchNodes(appConfig.tree.nodes);
+}
+
+// Function to check a single node's health with simple single endpoint approach
 async function checkNodeHealth(ip) {
+  const startTime = Date.now();
+  
+  // Get the node data to access URL
+  const nodeData = findNodeByIP(ip);
+  
+  // Use URL if available, otherwise use IP with HTTPS
+  let endpoint;
+  if (nodeData && nodeData.url) {
+    endpoint = nodeData.url.includes('://') ? nodeData.url : `https://${nodeData.url}`;
+  } else {
+    endpoint = ip.includes('://') ? ip : `https://${ip}`;
+  }
+  
+  console.log(`Checking health of ${ip} via ${endpoint}`);
+  
   try {
-    // For demo purposes, randomly set some nodes as online
-    const isOnline = Math.random() > 0.3; // 70% chance of being online
+    const attemptStart = Date.now();
+    
+    // Create AbortController for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Nautilus-Monitor/1.0'
+      },
+      agent: endpoint.startsWith('https://') ? httpsAgent : undefined,
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    const responseTime = Date.now() - attemptStart;
+    
+    // Consider 2xx, 3xx, and some 4xx responses as "online"
+    const isOnline = response.status < 500;
+    
+    const result = {
+      status: isOnline ? 'online' : 'offline',
+      lastChecked: new Date(),
+      responseTime: responseTime,
+      statusCode: response.status,
+      endpoint: endpoint,
+      error: isOnline ? undefined : `HTTP ${response.status}`
+    };
+    
+    nodeStatuses.set(ip, result);
     
     if (isOnline) {
-      nodeStatuses.set(ip, { 
-        status: 'online', 
-        lastChecked: new Date(),
-        responseTime: Math.floor(Math.random() * 100) + 10
-      });
+      console.log(`✅ ${ip}: ${response.status} via ${endpoint} (${responseTime}ms)`);
     } else {
-      throw new Error('Node unreachable');
+      console.log(`❌ ${ip}: HTTP ${response.status} via ${endpoint} (${responseTime}ms)`);
     }
+    
   } catch (error) {
-    nodeStatuses.set(ip, { 
-      status: 'offline', 
+    const responseTime = Date.now() - attemptStart;
+    
+    let errorMessage = 'Unknown error';
+    if (error.name === 'AbortError') {
+      errorMessage = 'Request timeout (5s)';
+    } else if (error.code === 'ENOTFOUND') {
+      errorMessage = 'Host not found (DNS failed)';
+    } else if (error.code === 'ECONNREFUSED') {
+      errorMessage = 'Connection refused (service down)';
+    } else if (error.code === 'ECONNRESET') {
+      errorMessage = 'Connection reset (network issue)';
+    } else if (error.code === 'ETIMEDOUT') {
+      errorMessage = 'Connection timeout';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    const result = {
+      status: 'offline',
       lastChecked: new Date(),
-      error: error.message || 'Network unreachable'
-    });
+      responseTime: responseTime,
+      endpoint: endpoint,
+      error: errorMessage
+    };
+    
+    nodeStatuses.set(ip, result);
+    console.log(`❌ ${ip}: ${errorMessage} via ${endpoint} (${responseTime}ms)`);
   }
 }
 
@@ -196,8 +283,10 @@ app.get('/health', (req, res) => {
 // Start server
 app.listen(appConfig.server.port, () => {
   console.log(`🚀 Nautilus server running on http://localhost:${appConfig.server.port}`);
-  console.log(`📊 Monitoring ${nodeIPs.length} nodes`);
+  console.log(`📊 Monitoring ${nodeIPs.length} nodes with REAL HTTP health checks`);
   console.log(`⏰ Health checks every ${appConfig.server.healthCheckInterval / 1000} seconds`);
+  console.log(`🔍 Health check method: HTTP GET requests with 5s timeout`);
+  console.log(`🎯 Using single endpoint per node (URL preferred over IP)`);
   console.log('API endpoints:');
   console.log(`  GET /api/status - Get all node statuses`);
   console.log(`  GET /api/status/:ip - Get specific node status`);
