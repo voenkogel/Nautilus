@@ -6,44 +6,89 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const app = express();
-const PORT = 3001;
 
 // Get current directory (ES module equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Enable CORS for all routes
-app.use(cors());
+// Load centralized config
+let appConfig;
+try {
+  const configPath = join(__dirname, '../config.json');
+  const configContent = readFileSync(configPath, 'utf8');
+  appConfig = JSON.parse(configContent);
+  console.log('✅ Loaded centralized config from config.json');
+} catch (error) {
+  console.warn('Failed to load centralized config, using defaults:', error.message);
+  appConfig = {
+    server: {
+      port: 3069,
+      healthCheckInterval: 20000,
+      corsOrigins: ['http://localhost:3070']
+    },
+    tree: {
+      nodes: [
+        {
+          id: "root-1",
+          title: "Proxmox",
+          subtitle: "Primary application server",
+          ip: "proxmox.lan:8006",
+          url: "proxmox.koenvogel.com",
+          children: [
+            {
+              id: "child-1-1",
+              title: "Radarr",
+              subtitle: "User interface application",
+              ip: "pirate.lan:7878",
+              url: "radarr.koenvogel.com",
+              children: [
+                {
+                  id: "grandchild-1-1-1",
+                  title: "Sonarr",
+                  subtitle: "Authentication module",
+                  ip: "pirate.lan:8989",
+                  url: "sonarr.koenvogel.com"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  };
+}
+
+// Configure CORS with centralized origins
+app.use(cors({
+  origin: appConfig.server.corsOrigins,
+  credentials: true
+}));
+
 app.use(express.json());
 
 // Store for node statuses
 const nodeStatuses = new Map();
 
-// Function to extract all IPs from the tree config
-function extractIPsFromTreeConfig() {
-  try {
-    const configPath = join(__dirname, '../src/config/treeConfig.ts');
-    const configContent = readFileSync(configPath, 'utf8');
-    
-    // Extract IP addresses using regex
-    const ipRegex = /ip:\s*["']([^"']+)["']/g;
-    const ips = [];
-    let match;
-    
-    while ((match = ipRegex.exec(configContent)) !== null) {
-      ips.push(match[1]);
+// Function to extract all IPs from the tree recursively
+function extractAllIPs(nodes = appConfig.tree.nodes) {
+  const ips = [];
+  
+  function traverse(nodeList) {
+    for (const node of nodeList) {
+      ips.push(node.ip);
+      if (node.children) {
+        traverse(node.children);
+      }
     }
-    
-    console.log(`Loaded ${ips.length} IPs from tree config:`, ips);
-    return ips;
-  } catch (error) {
-    console.error('Failed to load tree config:', error.message);
-    return [];
   }
+  
+  traverse(nodes);
+  return ips;
 }
 
-// Load IPs from tree config
-const nodeIPs = extractIPsFromTreeConfig();
+// Load IPs from centralized config
+const nodeIPs = extractAllIPs();
+console.log(`Loaded ${nodeIPs.length} IPs from centralized config:`, nodeIPs);
 
 // Initialize all nodes as offline
 nodeIPs.forEach(ip => {
@@ -85,8 +130,8 @@ async function checkAllNodes() {
   console.log(`Health check complete: ${onlineCount}/${nodeIPs.length} nodes online`);
 }
 
-// Start the health checking interval (every 20 seconds)
-setInterval(checkAllNodes, 20000);
+// Start the health checking interval (from centralized config)
+setInterval(checkAllNodes, appConfig.server.healthCheckInterval);
 
 // Initial health check
 checkAllNodes();
@@ -101,6 +146,19 @@ app.get('/api/status', (req, res) => {
   res.json({
     timestamp: new Date().toISOString(),
     statuses: statusObject
+  });
+});
+
+// API endpoint to get centralized config
+app.get('/api/config', (req, res) => {
+  res.json({
+    tree: appConfig.tree,
+    server: {
+      healthCheckInterval: appConfig.server.healthCheckInterval
+    },
+    client: {
+      apiPollingInterval: appConfig.client?.apiPollingInterval || 5000
+    }
   });
 });
 
@@ -125,15 +183,31 @@ app.get('/health', (req, res) => {
     status: 'healthy', 
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    monitoredNodes: nodeIPs.length
+    config: {
+      server: {
+        port: appConfig.server.port,
+        healthCheckInterval: appConfig.server.healthCheckInterval
+      },
+      monitoredNodes: nodeIPs.length
+    }
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Status monitoring server running on http://localhost:${PORT}`);
-  console.log(`Monitoring ${nodeIPs.length} nodes with 20-second intervals`);
+// Start server
+app.listen(appConfig.server.port, () => {
+  console.log(`🚀 Nautilus server running on http://localhost:${appConfig.server.port}`);
+  console.log(`📊 Monitoring ${nodeIPs.length} nodes`);
+  console.log(`⏰ Health checks every ${appConfig.server.healthCheckInterval / 1000} seconds`);
   console.log('API endpoints:');
   console.log(`  GET /api/status - Get all node statuses`);
   console.log(`  GET /api/status/:ip - Get specific node status`);
+  console.log(`  GET /api/config - Get configuration`);
   console.log(`  GET /health - Server health check`);
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${appConfig.server.port} is already in use. Please close other applications using this port.`);
+  } else {
+    console.error('❌ Server failed to start:', err);
+  }
+  process.exit(1);
 });

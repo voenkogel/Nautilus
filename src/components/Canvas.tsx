@@ -1,7 +1,5 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { Link, Globe } from 'lucide-react';
-import type { CardProps } from './Card';
-import { defaultTreeConfig, type TreeNode } from '../config/treeConfig';
+import { appConfig, type TreeNode } from '../config/appConfig';
 import { useNodeStatus } from '../hooks/useNodeStatus';
 import StatusCard from './StatusCard';
 
@@ -39,6 +37,8 @@ const Canvas: React.FC = () => {
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
   const [backgroundLoaded, setBackgroundLoaded] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [mouseDownPos, setMouseDownPos] = useState({ x: 0, y: 0 });
+  const [isHoveringNode, setIsHoveringNode] = useState(false);
   
   // Use the status monitoring hook
   const { getNodeStatus } = useNodeStatus();
@@ -64,10 +64,10 @@ const Canvas: React.FC = () => {
     const positionedNodes: PositionedNode[] = [];
     const connections: Connection[] = [];
     
-    if (defaultTreeConfig.nodes.length === 0) return { nodes: positionedNodes, connections };
+    if (appConfig.tree.nodes.length === 0) return { nodes: positionedNodes, connections };
     
     // Start with the single root node
-    const rootNode = defaultTreeConfig.nodes[0];
+    const rootNode = appConfig.tree.nodes[0];
     
     // First pass: calculate the width requirement for each subtree
     const calculateSubtreeWidth = (node: TreeNode): number => {
@@ -83,8 +83,8 @@ const Canvas: React.FC = () => {
       return Math.max(NODE_WIDTH, totalChildrenWidth + spacingWidth);
     };
     
-    // Calculate the total width of the root subtree
-    const totalWidth = calculateSubtreeWidth(rootNode);
+    // Calculate the total width of the root subtree for positioning
+    calculateSubtreeWidth(rootNode);
     
     // Second pass: position all nodes
     const positionNode = (node: TreeNode, centerX: number, y: number, level: number): PositionedNode => {
@@ -140,6 +140,38 @@ const Canvas: React.FC = () => {
     positionNode(rootNode, 0, 50, 0);
     
     return { nodes: positionedNodes, connections };
+  }, []);
+
+  // Function to check if a point is inside a node
+  const getNodeAtPosition = useCallback((canvasX: number, canvasY: number): PositionedNode | null => {
+    // Convert canvas coordinates to world coordinates
+    const worldX = (canvasX - transform.x) / transform.scale;
+    const worldY = (canvasY - transform.y) / transform.scale;
+    
+    const { nodes } = calculateNodePositions();
+    
+    // Find the node that contains this point
+    for (const node of nodes) {
+      if (
+        worldX >= node.x &&
+        worldX <= node.x + node.width &&
+        worldY >= node.y &&
+        worldY <= node.y + node.height
+      ) {
+        return node;
+      }
+    }
+    
+    return null;
+  }, [transform, calculateNodePositions]);
+
+  // Function to open node URL
+  const openNodeUrl = useCallback((node: PositionedNode) => {
+    if (node.url) {
+      // Use the URL as-is if it already has a protocol, otherwise add https://
+      const url = node.url.includes('://') ? node.url : `https://${node.url}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
   }, []);
 
   const drawRoundedRect = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
@@ -474,11 +506,30 @@ const Canvas: React.FC = () => {
   }, [transform, initialTransform, isInitialized]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+    
     setIsDragging(true);
     setLastMousePos({ x: e.clientX, y: e.clientY });
+    setMouseDownPos({ x: canvasX, y: canvasY });
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+    
+    // Check if hovering over a node for cursor management
+    const hoveredNode = getNodeAtPosition(canvasX, canvasY);
+    setIsHoveringNode(!!hoveredNode);
+    
     if (!isDragging) return;
     
     const deltaX = e.clientX - lastMousePos.x;
@@ -493,7 +544,29 @@ const Canvas: React.FC = () => {
     setLastMousePos({ x: e.clientX, y: e.clientY });
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e: React.MouseEvent) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const canvasX = e.clientX - rect.left;
+    const canvasY = e.clientY - rect.top;
+    
+    // Check if this was a click (minimal movement) vs a drag
+    const dragDistance = Math.sqrt(
+      Math.pow(canvasX - mouseDownPos.x, 2) + 
+      Math.pow(canvasY - mouseDownPos.y, 2)
+    );
+    
+    const wasClick = dragDistance < 5; // Less than 5 pixels movement = click
+    
+    if (wasClick) {
+      const clickedNode = getNodeAtPosition(canvasX, canvasY);
+      if (clickedNode) {
+        openNodeUrl(clickedNode);
+      }
+    }
+    
     setIsDragging(false);
   };
 
@@ -560,7 +633,7 @@ const Canvas: React.FC = () => {
     <div className="w-full h-full relative font-roboto" ref={containerRef}>
       <canvas
         ref={canvasRef}
-        className="w-full h-full cursor-grab active:cursor-grabbing"
+        className={`w-full h-full ${isHoveringNode ? 'cursor-pointer' : isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}

@@ -1,28 +1,12 @@
 import React from 'react';
 import { useNodeStatus } from '../hooks/useNodeStatus';
-import { defaultTreeConfig } from '../config/treeConfig';
+import { appConfig, extractAllIPs } from '../config/appConfig';
 
 const StatusCard: React.FC = () => {
-  const { statuses, isLoading, error } = useNodeStatus();
+  const { statuses, isLoading, error, isConnected } = useNodeStatus();
 
-  // Get all node IPs from the tree config
-  const getAllNodeIPs = (nodes: any[]): string[] => {
-    const ips: string[] = [];
-    
-    const traverse = (nodeList: any[]) => {
-      nodeList.forEach(node => {
-        ips.push(node.ip);
-        if (node.children) {
-          traverse(node.children);
-        }
-      });
-    };
-    
-    traverse(nodes);
-    return ips;
-  };
-
-  const allNodeIPs = getAllNodeIPs(defaultTreeConfig.nodes);
+  // Get all node IPs from the centralized config
+  const allNodeIPs = extractAllIPs(appConfig.tree.nodes);
   const totalNodes = allNodeIPs.length;
   
   // Count healthy nodes
@@ -58,13 +42,18 @@ const StatusCard: React.FC = () => {
 
   return (
     <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-lg p-4 min-w-[200px] border border-gray-200">
-      {/* Header */}
+      {/* Header with connection status */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center space-x-2">
-          <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+          <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
           <span className="text-sm font-medium text-gray-800 font-roboto">System Health</span>
         </div>
-        <span className="text-xs text-gray-500 font-roboto">{Math.round(healthPercentage)}%</span>
+        <div className="flex items-center space-x-2">
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
+          <span className={`text-xs font-roboto ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
+            {isConnected ? 'Connected' : 'Disconnected'}
+          </span>
+        </div>
       </div>
 
       {/* Health count */}

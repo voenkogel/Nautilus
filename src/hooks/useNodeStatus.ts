@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { appConfig, getServerUrl } from '../config/appConfig';
 
 export interface NodeStatus {
   status: 'online' | 'offline' | 'checking';
@@ -16,10 +17,14 @@ export const useNodeStatus = () => {
   const [statuses, setStatuses] = useState<Record<string, NodeStatus>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
 
   const fetchStatuses = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/status');
+      const serverUrl = getServerUrl();
+      console.log(`Fetching status from: ${serverUrl}/api/status`);
+      
+      const response = await fetch(`${serverUrl}/api/status`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -27,9 +32,11 @@ export const useNodeStatus = () => {
       const data: StatusResponse = await response.json();
       setStatuses(data.statuses);
       setError(null);
+      setIsConnected(true);
     } catch (err) {
       console.error('Failed to fetch node statuses:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
+      setIsConnected(false);
       
       // Set all nodes to offline if we can't reach the status server
       setStatuses(prev => {
@@ -52,8 +59,8 @@ export const useNodeStatus = () => {
     // Initial fetch
     fetchStatuses();
 
-    // Set up polling every 5 seconds (more frequent than the server's 20-second checks)
-    const interval = setInterval(fetchStatuses, 5000);
+    // Set up polling with interval from centralized config
+    const interval = setInterval(fetchStatuses, appConfig.client.apiPollingInterval);
 
     return () => clearInterval(interval);
   }, []);
@@ -69,6 +76,7 @@ export const useNodeStatus = () => {
     statuses,
     isLoading,
     error,
+    isConnected,
     getNodeStatus,
     refresh: fetchStatuses
   };
