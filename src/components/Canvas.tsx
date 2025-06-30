@@ -1,223 +1,168 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { createRoot } from 'react-dom/client';
 import configData from '../../config.json';
 import type { TreeNode, AppConfig } from '../types/config';
 import { useNodeStatus } from '../hooks/useNodeStatus';
+import { useAppearance } from '../hooks/useAppearance';
 import StatusCard from './StatusCard';
+import Settings from './Settings';
+import { NodeEditor } from './NodeEditor';
 import * as LucideIcons from 'lucide-react';
+import { createElement } from 'react';
+import { renderToString } from 'react-dom/server';
 
 const appConfig = configData as AppConfig;
 
-// Function to get a Lucide icon component by name
-const getLucideIcon = (iconName: string) => {
-  // Convert kebab-case to PascalCase for component names
-  const componentName = iconName
-    .split('-')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+// Dynamic icon management using Lucide React
+const iconImageCache = new Map<string, HTMLImageElement>();
+const iconSvgCache = new Map<string, string>();
+
+// Extract all unique icon names from config tree
+const extractIconsFromConfig = (nodes: TreeNode[]): Set<string> => {
+  const icons = new Set<string>();
+  const traverse = (nodeList: TreeNode[]) => {
+    nodeList.forEach(node => {
+      if (node.icon) {
+        icons.add(node.icon);
+      }
+      if (node.children && node.children.length > 0) {
+        traverse(node.children);
+      }
+    });
+  };
+  traverse(nodes);
+  
+  // Always include these essential icons for UI elements
+  icons.add('wrench'); // Edit button
+  icons.add('server'); // Default fallback
+  
+  return icons;
+};
+
+// Convert camelCase/kebab-case to PascalCase for Lucide component names
+const iconNameToPascalCase = (iconName: string): string => {
+  return iconName
+    .split(/[-_]/)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join('');
-  
-  // Try to get the icon component
-  const iconComponent = (LucideIcons as any)[componentName];
-  
-  if (iconComponent) {
-    console.log(`Found Lucide icon component: ${componentName} for ${iconName}`);
-    return iconComponent;
-  } else {
-    console.warn(`Lucide icon component not found: ${componentName} for ${iconName}, using Server as fallback`);
-    return LucideIcons.Server;
+};
+
+// Generate SVG string using Lucide React components
+const generateIconSvg = (iconName: string, color: string): string => {
+  try {
+    // Convert icon name to PascalCase for Lucide component lookup
+    const pascalCaseIcon = iconNameToPascalCase(iconName);
+    const IconComponent = (LucideIcons as any)[pascalCaseIcon];
+    
+    if (IconComponent) {
+      // Use Lucide React to generate SVG
+      const iconElement = createElement(IconComponent, {
+        size: 24,
+        color: color,
+        strokeWidth: 2
+      });
+      
+      const svgString = renderToString(iconElement);
+      return svgString;
+    } else {
+      // Fallback to server icon if not found
+      const ServerIcon = LucideIcons.Server;
+      const fallbackElement = createElement(ServerIcon, {
+        size: 24,
+        color: color,
+        strokeWidth: 2
+      });
+      return renderToString(fallbackElement);
+    }
+  } catch (error) {
+    console.warn(`Failed to generate SVG for icon "${iconName}":`, error);
+    // Ultimate fallback - basic server SVG
+    return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6" y1="6" y2="6"/><line x1="6" x2="6" y1="18" y2="18"/></svg>`;
   }
 };
 
-// Cache for rendered icon SVGs to avoid re-rendering
-const iconSvgCache = new Map<string, string>();
-
-// Function to extract SVG content from a Lucide React icon
-const extractIconSvg = async (iconName: string, color: string = '#ffffff'): Promise<string> => {
+// Get or generate icon SVG with caching
+const getIconSvg = (iconName: string, color: string): string => {
   const cacheKey = `${iconName}-${color}`;
   
   if (iconSvgCache.has(cacheKey)) {
     return iconSvgCache.get(cacheKey)!;
   }
-
-  return new Promise((resolve) => {
-    try {
-      // Create a temporary container
-      const tempContainer = document.createElement('div');
-      tempContainer.style.position = 'absolute';
-      tempContainer.style.left = '-9999px';
-      tempContainer.style.top = '-9999px';
-      tempContainer.style.width = '24px';
-      tempContainer.style.height = '24px';
-      tempContainer.style.visibility = 'hidden';
-      document.body.appendChild(tempContainer);
-
-      // Get the icon component
-      const IconComponent = getLucideIcon(iconName);
-      
-      // Render the icon using React with a longer timeout for complex icons
-      const root = createRoot(tempContainer);
-      root.render(
-        React.createElement(IconComponent, {
-          size: 24,
-          color: color,
-          strokeWidth: 2,
-          fill: 'none',
-          stroke: color
-        })
-      );
-
-      // Wait longer for render and extract SVG
-      setTimeout(() => {
-        try {
-          const svgElement = tempContainer.querySelector('svg');
-          if (svgElement) {
-            // Clone the SVG to avoid issues with the original
-            const clonedSvg = svgElement.cloneNode(true) as SVGElement;
-            
-            // Ensure all necessary attributes are set
-            clonedSvg.setAttribute('width', '24');
-            clonedSvg.setAttribute('height', '24');
-            clonedSvg.setAttribute('viewBox', '0 0 24 24');
-            clonedSvg.setAttribute('fill', 'none');
-            clonedSvg.setAttribute('stroke', color);
-            clonedSvg.setAttribute('stroke-width', '2');
-            clonedSvg.setAttribute('stroke-linecap', 'round');
-            clonedSvg.setAttribute('stroke-linejoin', 'round');
-            
-            const svgContent = new XMLSerializer().serializeToString(clonedSvg);
-            iconSvgCache.set(cacheKey, svgContent);
-            console.log(`Successfully extracted icon: ${iconName}`, svgContent);
-            resolve(svgContent);
-          } else {
-            console.warn(`No SVG found for icon: ${iconName}, using fallback`);
-            const fallbackSvg = getFallbackSvg(iconName, color);
-            iconSvgCache.set(cacheKey, fallbackSvg);
-            resolve(fallbackSvg);
-          }
-        } catch (extractError) {
-          console.error(`Error extracting SVG for ${iconName}:`, extractError);
-          const fallbackSvg = getFallbackSvg(iconName, color);
-          iconSvgCache.set(cacheKey, fallbackSvg);
-          resolve(fallbackSvg);
-        }
-        
-        // Clean up
-        try {
-          root.unmount();
-          if (document.body.contains(tempContainer)) {
-            document.body.removeChild(tempContainer);
-          }
-        } catch (cleanupError) {
-          console.warn('Error during cleanup:', cleanupError);
-        }
-      }, 50); // Increased timeout to 50ms
-    } catch (error) {
-      console.error(`Error in extractIconSvg for ${iconName}:`, error);
-      const fallbackSvg = getFallbackSvg(iconName, color);
-      iconSvgCache.set(cacheKey, fallbackSvg);
-      resolve(fallbackSvg);
-    }
-  });
-};
-
-// Fallback SVGs for when extraction fails
-const getFallbackSvg = (iconName: string, color: string): string => {
-  const fallbackSvgs: Record<string, string> = {
-    server: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6" y1="6" y2="6"/><line x1="6" x2="6" y1="18" y2="18"/></svg>`,
-    clapperboard: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m20.2 6-3-3H3a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14l3-3"/><path d="m7 4 3 3-3 3"/><path d="M4 8h8"/><path d="M4 12h8"/></svg>`,
-    tv: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="15" x="2" y="7" rx="2" ry="2"/><polyline points="17,2 12,7 7,2"/></svg>`
-  };
   
-  return fallbackSvgs[iconName] || fallbackSvgs.server;
+  const svgString = generateIconSvg(iconName, color);
+  iconSvgCache.set(cacheKey, svgString);
+  return svgString;
 };
 
-// Function to draw Lucide icons on canvas using actual SVG paths
-// Cache for rendered icon images to avoid re-rendering
-const iconImageCache = new Map<string, HTMLImageElement>();
-
-// Function to preload all icons used in the configuration
-const preloadIcons = async () => {
-  const iconPromises = appConfig.tree.nodes.map(async (node) => {
-    if (node.icon) {
-      const cacheKey = `${node.icon}-#ffffff`;
-      if (!iconImageCache.has(cacheKey)) {
-        try {
-          const svgContent = await extractIconSvg(node.icon, '#ffffff');
-          const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
-          const url = URL.createObjectURL(svgBlob);
-          
-          const img = new Image();
-          await new Promise<void>((resolve, reject) => {
-            img.onload = () => {
-              iconImageCache.set(cacheKey, img);
-              URL.revokeObjectURL(url);
-              resolve();
-            };
-            img.onerror = () => {
-              URL.revokeObjectURL(url);
-              reject(new Error(`Failed to load icon: ${node.icon}`));
-            };
-            img.src = url;
-          });
-        } catch (error) {
-          console.warn(`Failed to preload icon ${node.icon}:`, error);
-        }
-      }
-    }
-  });
-  
-  await Promise.all(iconPromises);
-};
-
-// Function to draw Lucide icons on canvas using preloaded images
+// Fast and reliable icon rendering using preloaded Lucide icons
 const drawIconOnCanvas = (
   ctx: CanvasRenderingContext2D,
   iconName: string,
   centerX: number,
   centerY: number,
   size: number,
-  color: string = '#ffffff'
+  color: string = '#ffffff',
+  onIconLoaded?: () => void
 ) => {
   const cacheKey = `${iconName}-${color}`;
   const cachedImage = iconImageCache.get(cacheKey);
   
-  if (cachedImage) {
+  if (cachedImage && cachedImage.complete) {
+    // Icon is cached and fully loaded, draw it immediately
     ctx.save();
-    
-    // Scale and position the icon
     const scale = size / 24;
     ctx.translate(centerX - (size / 2), centerY - (size / 2));
     ctx.scale(scale, scale);
-    
     ctx.drawImage(cachedImage, 0, 0, 24, 24);
     ctx.restore();
+    return true;
   } else {
-    // Fallback: draw a simple circle if icon not loaded
+    // Icon not in cache, try to load it
+    const svgContent = getIconSvg(iconName, color);
+    const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    
+    const img = new Image();
+    img.onload = () => {
+      iconImageCache.set(cacheKey, img);
+      URL.revokeObjectURL(url);
+      if (onIconLoaded) {
+        onIconLoaded();
+      }
+    };
+    img.onerror = () => {
+      // Try fallback to server icon
+      console.warn(`Failed to load icon "${iconName}", falling back to server icon`);
+      const fallbackSvg = getIconSvg('server', color);
+      const fallbackBlob = new Blob([fallbackSvg], { type: 'image/svg+xml;charset=utf-8' });
+      const fallbackUrl = URL.createObjectURL(fallbackBlob);
+      
+      const fallbackImg = new Image();
+      fallbackImg.onload = () => {
+        iconImageCache.set(cacheKey, fallbackImg); // Cache the fallback
+        URL.revokeObjectURL(fallbackUrl);
+        if (onIconLoaded) {
+          onIconLoaded();
+        }
+      };
+      fallbackImg.onerror = () => {
+        URL.revokeObjectURL(fallbackUrl);
+      };
+      fallbackImg.src = fallbackUrl;
+      
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+    
+    // Draw a small loading indicator while icon loads
     ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.3;
     ctx.beginPath();
-    ctx.arc(centerX, centerY, size * 0.3, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.arc(centerX, centerY, size * 0.15, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
     
-    // Try to load the icon asynchronously for next time
-    extractIconSvg(iconName, color).then(svgContent => {
-      const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
-      const url = URL.createObjectURL(svgBlob);
-      
-      const img = new Image();
-      img.onload = () => {
-        iconImageCache.set(cacheKey, img);
-        URL.revokeObjectURL(url);
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-      };
-      img.src = url;
-    }).catch(error => {
-      console.warn(`Failed to load icon ${iconName}:`, error);
-    });
+    return false; // Icon is loading
   }
 };
 
@@ -257,13 +202,207 @@ const Canvas: React.FC = () => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [mouseDownPos, setMouseDownPos] = useState({ x: 0, y: 0 });
   const [isHoveringNode, setIsHoveringNode] = useState(false);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [hoveredEditButtonNodeId, setHoveredEditButtonNodeId] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [focusNodeId, setFocusNodeId] = useState<string | undefined>(undefined);
+  const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
+  const [currentConfig, setCurrentConfig] = useState<AppConfig>(appConfig);
+  const [iconLoadCounter, setIconLoadCounter] = useState(0); // Track icon loading to trigger redraws
+  const [iconsPreloaded, setIconsPreloaded] = useState(false); // Track icon preloading status
+  
+  // Use refs for values that should not trigger draw function recreation
+  const transformRef = useRef(transform);
+  const hoveredNodeIdRef = useRef(hoveredNodeId);
+  const hoveredEditButtonNodeIdRef = useRef(hoveredEditButtonNodeId);
   
   // Use the status monitoring hook
   const { getNodeStatus } = useNodeStatus();
+
+  // Apply appearance settings
+  useAppearance(currentConfig.appearance || { title: 'Nautilus', accentColor: '#3b82f6' });
+
+  // Preload all icons used in the config on component mount
+  useEffect(() => {
+    const preloadIcons = async () => {
+      const requiredIcons = extractIconsFromConfig(currentConfig.tree.nodes);
+      const accentColor = currentConfig.appearance?.accentColor || '#3b82f6';
+      
+      console.log('Preloading icons:', Array.from(requiredIcons));
+      
+      // Preload all required icons
+      const preloadPromises = Array.from(requiredIcons).map(iconName => {
+        return new Promise<void>((resolve) => {
+          const cacheKey = `${iconName}-${accentColor}`;
+          const cachedImage = iconImageCache.get(cacheKey);
+          
+          if (cachedImage && cachedImage.complete) {
+            resolve();
+            return;
+          }
+          
+          const svgContent = getIconSvg(iconName, accentColor);
+          const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+          const url = URL.createObjectURL(svgBlob);
+          
+          const img = new Image();
+          img.onload = () => {
+            iconImageCache.set(cacheKey, img);
+            URL.revokeObjectURL(url);
+            resolve();
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(url);
+            resolve(); // Continue even if an icon fails to load
+          };
+          img.src = url;
+        });
+      });
+      
+      await Promise.all(preloadPromises);
+      setIconsPreloaded(true);
+      console.log('All icons preloaded successfully');
+    };
+    
+    preloadIcons();
+  }, [currentConfig.tree.nodes, currentConfig.appearance?.accentColor]);
+
+  // Debug: Log preload status
+  useEffect(() => {
+    if (iconsPreloaded) {
+      console.log('Icons are fully preloaded, ready for canvas rendering');
+    }
+  }, [iconsPreloaded]);
+
+  // Icon loading callback to trigger redraws
+  const handleIconLoaded = useCallback(() => {
+    setIconLoadCounter(prev => prev + 1);
+  }, []);
+
+  // Helper function to find a node by ID in the tree
+  const findNodeById = useCallback((nodes: TreeNode[], nodeId: string): TreeNode | null => {
+    for (const node of nodes) {
+      if (node.id === nodeId) {
+        return node;
+      }
+      if (node.children) {
+        const found = findNodeById(node.children, nodeId);
+        if (found) return found;
+      }
+    }
+    return null;
+  }, []);
+
+  const handleSaveConfig = async (newConfig: AppConfig) => {
+    try {
+      // Update local state immediately for appearance changes
+      setCurrentConfig(newConfig);
+      
+      // Clear icon caches when config changes to force reload of icons with new colors/content
+      iconImageCache.clear();
+      iconSvgCache.clear();
+      setIconsPreloaded(false);
+      
+      // Send the config to the server to update the config.json file
+      const response = await fetch(`http://${appConfig.client.host}:${appConfig.server.port}/api/config`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newConfig),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Server responded with ${response.status}: ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('Configuration saved successfully:', result);
+
+      // Reload the page to apply the new configuration
+      window.location.reload();
+    } catch (error) {
+      console.error('Error saving configuration:', error);
+      alert(`Failed to save configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+  
+  const handleEditNode = (nodeId: string) => {
+    const node = findNodeById(currentConfig.tree.nodes, nodeId);
+    if (node) {
+      setEditingNode(node);
+    }
+  };
+
+  const handleEditChildNode = (childNode: TreeNode) => {
+    // Directly set the editing node to the child with a small delay
+    console.log('Switching to edit child node:', childNode.title);
+    setTimeout(() => {
+      setEditingNode(childNode);
+    }, 10);
+  };
+
+  const handleSaveNode = (updatedNode: TreeNode) => {
+    // Helper function to update node in the tree
+    const updateNodeInTree = (nodes: TreeNode[]): TreeNode[] => {
+      return nodes.map(node => {
+        if (node.id === updatedNode.id) {
+          return updatedNode;
+        }
+        if (node.children) {
+          return {
+            ...node,
+            children: updateNodeInTree(node.children)
+          };
+        }
+        return node;
+      });
+    };
+
+    const newConfig = {
+      ...currentConfig,
+      tree: {
+        ...currentConfig.tree,
+        nodes: updateNodeInTree(currentConfig.tree.nodes)
+      }
+    };
+
+    handleSaveConfig(newConfig);
+    setEditingNode(null);
+  };
+
+  const handleDeleteNode = () => {
+    if (!editingNode) return;
+
+    // Helper function to remove node from the tree
+    const removeNodeFromTree = (nodes: TreeNode[]): TreeNode[] => {
+      return nodes.filter(node => {
+        if (node.id === editingNode.id) {
+          return false;
+        }
+        if (node.children) {
+          node.children = removeNodeFromTree(node.children);
+        }
+        return true;
+      });
+    };
+
+    const newConfig = {
+      ...currentConfig,
+      tree: {
+        ...currentConfig.tree,
+        nodes: removeNodeFromTree(currentConfig.tree.nodes)
+      }
+    };
+
+    handleSaveConfig(newConfig);
+    setEditingNode(null);
+  };
   
   // Node dimensions and spacing
   const NODE_WIDTH = 200; // Decreased from 240
-  const NODE_HEIGHT = 80; // Decreased from 100
+  const NODE_HEIGHT = 70; // Decreased from 80 to better fit text content
   const HORIZONTAL_SPACING = 60;
   const VERTICAL_SPACING = 80;
 
@@ -277,28 +416,71 @@ const Canvas: React.FC = () => {
     img.src = '/src/assets/ChatGPT Image Jun 29, 2025, 10_39_29 AM.png';
   }, []);
 
-  // Preload all icons
+  // Aggressive icon preloading on config change
   useEffect(() => {
-    // Clear caches to ensure fresh icon extraction
-    iconSvgCache.clear();
     iconImageCache.clear();
     
-    preloadIcons().then(() => {
-      console.log('Icons preloaded successfully');
-    }).catch(error => {
-      console.warn('Failed to preload some icons:', error);
+    // Collect all icons that need to be preloaded
+    const iconsToPreload = new Set<string>();
+    
+    // Essential UI icons
+    ['network', 'globe', 'wrench'].forEach(icon => {
+      iconsToPreload.add(`${icon}-#6b7280`);
     });
-  }, []);
+    
+    // Node icons (both white for main circle and grey for UI elements)
+    const processNodes = (nodes: TreeNode[]) => {
+      nodes.forEach(node => {
+        if (node.icon) {
+          iconsToPreload.add(`${node.icon}-#ffffff`); // White for node circles
+          iconsToPreload.add(`${node.icon}-#6b7280`); // Grey for UI elements
+        }
+        if (node.children) {
+          processNodes(node.children);
+        }
+      });
+    };
+    
+    processNodes(currentConfig.tree.nodes);
+    
+    // Preload all icons immediately
+    const preloadPromises = Array.from(iconsToPreload).map(cacheKey => {
+      return new Promise<void>((resolve) => {
+        const [iconName, color] = cacheKey.split('-');
+        const svgContent = getIconSvg(iconName, color);
+        const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+        
+        const img = new Image();
+        img.onload = () => {
+          iconImageCache.set(cacheKey, img);
+          URL.revokeObjectURL(url);
+          resolve();
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve(); // Resolve even on error to not block
+        };
+        img.src = url;
+      });
+    });
+    
+    // Trigger a redraw once all icons are loaded
+    Promise.all(preloadPromises).then(() => {
+      setIconLoadCounter(prev => prev + 1);
+    });
+    
+  }, [currentConfig, handleIconLoaded]);
 
   // Calculate positions for tree nodes in a proper vertical tree layout
   const calculateNodePositions = useCallback((): { nodes: PositionedNode[], connections: Connection[] } => {
     const positionedNodes: PositionedNode[] = [];
     const connections: Connection[] = [];
     
-    if (appConfig.tree.nodes.length === 0) return { nodes: positionedNodes, connections };
+    if (currentConfig.tree.nodes.length === 0) return { nodes: positionedNodes, connections };
     
-    // Start with the single root node
-    const rootNode = appConfig.tree.nodes[0];
+    // Handle multiple root nodes by treating them as siblings
+    const rootNodes = currentConfig.tree.nodes;
     
     // First pass: calculate the width requirement for each subtree
     const calculateSubtreeWidth = (node: TreeNode): number => {
@@ -314,8 +496,11 @@ const Canvas: React.FC = () => {
       return Math.max(NODE_WIDTH, totalChildrenWidth + spacingWidth);
     };
     
-    // Calculate the total width of the root subtree for positioning
-    calculateSubtreeWidth(rootNode);
+    // Calculate total width needed for all root nodes
+    const rootWidths = rootNodes.map(node => calculateSubtreeWidth(node));
+    const totalRootWidth = rootWidths.reduce((sum, width) => sum + width, 0);
+    const totalRootSpacing = (rootNodes.length - 1) * HORIZONTAL_SPACING;
+    const totalRequiredWidth = totalRootWidth + totalRootSpacing;
     
     // Second pass: position all nodes
     const positionNode = (node: TreeNode, centerX: number, y: number, level: number): PositionedNode => {
@@ -367,11 +552,62 @@ const Canvas: React.FC = () => {
       return positionedNode;
     };
     
-    // Start positioning from the root
-    positionNode(rootNode, 0, 50, 0);
+    // Position all root nodes horizontally
+    let currentX = -totalRequiredWidth / 2;
+    rootNodes.forEach((rootNode, index) => {
+      const rootWidth = rootWidths[index];
+      const rootCenterX = currentX + rootWidth / 2;
+      
+      // Position this root node and its descendants
+      positionNode(rootNode, rootCenterX, 50, 0);
+      
+      // Move to next root position
+      currentX += rootWidth + HORIZONTAL_SPACING;
+    });
     
     return { nodes: positionedNodes, connections };
-  }, []);
+  }, [currentConfig]);
+
+  // Function to check if mouse is over an edit button
+  const getEditButtonHover = useCallback((canvasX: number, canvasY: number): string | null => {
+    // Convert canvas coordinates to world coordinates
+    const worldX = (canvasX - transform.x) / transform.scale;
+    const worldY = (canvasY - transform.y) / transform.scale;
+    
+    const { nodes } = calculateNodePositions();
+    
+    // Check each node's edit button area
+    for (const node of nodes) {
+      if (hoveredNodeId === node.id) { // Only check if node is hovered
+        // Calculate edit button position (same logic as in drawNode)
+        const titleFontSize = Math.max(14 / transform.scale, 10);
+        const textAreaX = node.x + (node.width / 3);
+        const titleX = textAreaX + 10;
+        
+        // Temporarily create canvas context to measure title
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
+        if (tempCtx) {
+          tempCtx.font = `500 ${titleFontSize}px Roboto, sans-serif`;
+          const titleWidth = tempCtx.measureText(node.title).width;
+          
+          const editIconSize = Math.max(14 / transform.scale, 12);
+          const editIconX = titleX + titleWidth + 8;
+          const editIconY = node.y + 8 + titleFontSize / 2 - editIconSize / 2;
+          
+          // Check if mouse is within edit button bounds (with some padding for easier hover)
+          if (worldX >= editIconX - 2 && 
+              worldX <= editIconX + editIconSize + 2 && 
+              worldY >= editIconY - 2 && 
+              worldY <= editIconY + editIconSize + 2) {
+            return node.id;
+          }
+        }
+      }
+    }
+    
+    return null;
+  }, [transform, calculateNodePositions, hoveredNodeId]);
 
   // Function to check if a point is inside a node
   const getNodeAtPosition = useCallback((canvasX: number, canvasY: number): PositionedNode | null => {
@@ -412,6 +648,7 @@ const Canvas: React.FC = () => {
         window.open(url, '_blank', 'noopener,noreferrer');
       }
     }
+    // If no URL, do nothing (node is not clickable)
   }, []);
 
   const drawRoundedRect = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
@@ -428,132 +665,149 @@ const Canvas: React.FC = () => {
     ctx.closePath();
   };
 
-  const drawIcon = (ctx: CanvasRenderingContext2D, iconType: 'link' | 'globe', x: number, y: number, size: number, color: string) => {
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    if (iconType === 'link') {
-      // Draw chain link icon
-      const linkSize = size * 0.8;
-      const centerX = x + size / 2;
-      const centerY = y + size / 2;
-      
-      // First link
-      ctx.beginPath();
-      ctx.arc(centerX - linkSize * 0.2, centerY - linkSize * 0.2, linkSize * 0.15, 0, Math.PI * 2);
-      ctx.stroke();
-      
-      // Second link
-      ctx.beginPath();
-      ctx.arc(centerX + linkSize * 0.2, centerY + linkSize * 0.2, linkSize * 0.15, 0, Math.PI * 2);
-      ctx.stroke();
-      
-      // Connecting line
-      ctx.beginPath();
-      ctx.moveTo(centerX - linkSize * 0.1, centerY - linkSize * 0.1);
-      ctx.lineTo(centerX + linkSize * 0.1, centerY + linkSize * 0.1);
-      ctx.stroke();
-    } else if (iconType === 'globe') {
-      // Draw globe icon
-      const globeSize = size * 0.8;
-      const centerX = x + size / 2;
-      const centerY = y + size / 2;
-      const radius = globeSize * 0.3;
-      
-      // Outer circle
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-      ctx.stroke();
-      
-      // Vertical line
-      ctx.beginPath();
-      ctx.moveTo(centerX, centerY - radius);
-      ctx.lineTo(centerX, centerY + radius);
-      ctx.stroke();
-      
-      // Horizontal lines
-      ctx.beginPath();
-      ctx.moveTo(centerX - radius, centerY);
-      ctx.lineTo(centerX + radius, centerY);
-      ctx.stroke();
-      
-      // Curved lines for globe effect
-      ctx.beginPath();
-      ctx.arc(centerX, centerY, radius * 0.6, 0, Math.PI * 2);
-      ctx.stroke();
-    }
+  // Function to draw a perfect pill shape with circular ends
+  const drawPillShape = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) => {
+    const radius = height / 2;
+    ctx.beginPath();
+    // Left semicircle
+    ctx.arc(x + radius, y + radius, radius, Math.PI / 2, 3 * Math.PI / 2);
+    // Top line
+    ctx.lineTo(x + width - radius, y);
+    // Right semicircle
+    ctx.arc(x + width - radius, y + radius, radius, 3 * Math.PI / 2, Math.PI / 2);
+    // Bottom line
+    ctx.lineTo(x + radius, y + height);
+    ctx.closePath();
   };
 
-  const drawNode = (ctx: CanvasRenderingContext2D, node: PositionedNode, scale: number) => {
-    const { x, y, width, height, title, subtitle, ip, url } = node;
-    const borderRadius = 12;
+  // Function to draw an angular shape with diamond-like sides
+  const drawAngularShape = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) => {
+    const cornerSize = Math.min(width * 0.1, height * 0.3); // Diamond corner size
+    ctx.beginPath();
+    // Start from top-left corner
+    ctx.moveTo(x + cornerSize, y);
+    // Top edge
+    ctx.lineTo(x + width - cornerSize, y);
+    // Top-right diamond corner
+    ctx.lineTo(x + width, y + cornerSize);
+    ctx.lineTo(x + width, y + height - cornerSize);
+    // Bottom-right diamond corner
+    ctx.lineTo(x + width - cornerSize, y + height);
+    // Bottom edge
+    ctx.lineTo(x + cornerSize, y + height);
+    // Bottom-left diamond corner
+    ctx.lineTo(x, y + height - cornerSize);
+    ctx.lineTo(x, y + cornerSize);
+    // Top-left diamond corner
+    ctx.lineTo(x + cornerSize, y);
+    ctx.closePath();
+  };
+
+  const drawNode = (ctx: CanvasRenderingContext2D, node: PositionedNode, scale: number, _config: AppConfig, isHovered: boolean = false, isEditButtonHovered: boolean = false) => {
+    const { x, y, width, height, title, subtitle, ip, url, type } = node;
     
-    // Get the current status for this node
-    const nodeStatus = getNodeStatus(ip);
-    
-    // Draw node shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-    drawRoundedRect(ctx, x + 2, y + 2, width, height, borderRadius);
-    ctx.fill();
-    
-    // Draw node background (white)
-    ctx.fillStyle = '#ffffff';
-    drawRoundedRect(ctx, x, y, width, height, borderRadius);
-    ctx.fill();
-    
-    // Draw node border
-    ctx.strokeStyle = '#e5e7eb';
-    ctx.lineWidth = 1 / scale;
-    drawRoundedRect(ctx, x, y, width, height, borderRadius);
-    ctx.stroke();
-    
-    // Calculate layout: 1/3 for circle, 2/3 for text
+    // Pre-calculate layout values
     const circleAreaWidth = width / 3;
     const textAreaWidth = (width * 2) / 3;
     const textAreaX = x + circleAreaWidth;
+    const titleFontSize = Math.max(14 / scale, 10);
+    const subtitleFontSize = Math.max(11 / scale, 8);
+    const detailFontSize = Math.max(10 / scale, 7);
+    const titleX = textAreaX + 10;
+    const titleY = y + 8;
+    
+    // Calculate edit button coordinates (positioned after title text)
+    ctx.font = `500 ${titleFontSize}px Roboto, sans-serif`;
+    const titleWidth = ctx.measureText(title).width;
+    
+    const editIconSize = Math.max(14 / scale, 12); // Smaller grey edit button
+    const editIconX = titleX + titleWidth + 8; // 8px gap after title
+    const editIconY = titleY + titleFontSize / 2 - editIconSize / 2; // Vertically centered with title
+    
+    // Determine border radius based on node type
+    const borderRadius = type === 'circular' ? height / 2 : (type === 'angular' ? 0 : 12); // Perfect pill for circular, no radius for angular, normal radius for square
+    
+    // Get the current status for this node (use IP if available, otherwise URL)
+    const nodeIdentifier = ip || url;
+    const nodeStatus = nodeIdentifier ? getNodeStatus(nodeIdentifier) : { status: 'offline' as const, lastChecked: new Date(), progress: 0 };
+     // Draw node shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+    if (type === 'circular') {
+      drawPillShape(ctx, x + 2, y + 2, width, height);
+    } else if (type === 'angular') {
+      drawAngularShape(ctx, x + 2, y + 2, width, height);
+    } else {
+      drawRoundedRect(ctx, x + 2, y + 2, width, height, borderRadius);
+    }
+    ctx.fill();
+
+    // Draw node background (white)
+    ctx.fillStyle = '#ffffff';
+    if (type === 'circular') {
+      drawPillShape(ctx, x, y, width, height);
+    } else if (type === 'angular') {
+      drawAngularShape(ctx, x, y, width, height);
+    } else {
+      drawRoundedRect(ctx, x, y, width, height, borderRadius);
+    }
+    ctx.fill();
+
+    // Draw node border
+    ctx.strokeStyle = '#e5e7eb';
+    ctx.lineWidth = 1 / scale;
+    if (type === 'circular') {
+      drawPillShape(ctx, x, y, width, height);
+    } else if (type === 'angular') {
+      drawAngularShape(ctx, x, y, width, height);
+    } else {
+      drawRoundedRect(ctx, x, y, width, height, borderRadius);
+    }
+    ctx.stroke();
+    
+    // Calculate layout: 1/3 for circle, 2/3 for text
+    // Use the pre-calculated values from the top of the function
     
     // Draw status circle with equal padding on left, top, and bottom
-    const padding = 12; // Equal padding for left, top, bottom
+    const padding = 10; // Reduced padding for better fit with smaller height
     const maxCircleSize = Math.min(circleAreaWidth - padding, height - (padding * 2));
-    const circleRadius = maxCircleSize * 0.4; // Increased from 0.25 to 0.4 for larger circle
+    const circleRadius = maxCircleSize * 0.5; // Increased from 0.45 back to 0.5 for slightly larger circle
     const circleCenterX = x + padding + (circleAreaWidth - padding) / 2;
     const circleCenterY = y + height / 2; // Centered vertically
     
-    // Set circle color based on node status
-    let circleColor = '#6b7280'; // Default gray for checking
-    if (nodeStatus.status === 'online') {
+    // Set circle color based on node status - gray if no IP or URL provided
+    let circleColor = '#6b7280'; // Default gray for checking or no identifier
+    let circleOpacity = 1.0; // Default full opacity
+    
+    if (nodeIdentifier && nodeStatus.status === 'online') {
       circleColor = '#10b981'; // Green for online
-    } else if (nodeStatus.status === 'offline') {
+    } else if (nodeIdentifier && nodeStatus.status === 'offline') {
       circleColor = '#ef4444'; // Red for offline
+    } else if (nodeIdentifier && nodeStatus.status === 'checking') {
+      // Create subtle shimmer effect for loading state
+      const time = Date.now() / 1000; // Get current time in seconds
+      const pulseSpeed = 1.2; // Medium speed animation - 1.2 cycles per second
+      const minOpacity = 0.55; // Lower minimum opacity for more noticeable effect
+      const maxOpacity = 0.8; // Higher maximum opacity for more pronounced effect
+      const pulse = Math.sin(time * pulseSpeed * Math.PI * 2) * 0.5 + 0.5; // Normalized sine wave (0-1)
+      circleOpacity = minOpacity + (maxOpacity - minOpacity) * pulse;
     }
     
+    ctx.save();
+    ctx.globalAlpha = circleOpacity;
     ctx.fillStyle = circleColor;
     ctx.beginPath();
     ctx.arc(circleCenterX, circleCenterY, circleRadius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
     
     // Draw icon in the center of the circle
     if (node.icon) {
       const iconSize = circleRadius * 1.2; // Icon size relative to circle
-      drawIconOnCanvas(ctx, node.icon, circleCenterX, circleCenterY, iconSize, '#ffffff');
-    }
-    
-    // Add a subtle pulse effect for checking status
-    if (nodeStatus.status === 'checking') {
-      ctx.strokeStyle = circleColor;
-      ctx.lineWidth = 2 / scale;
-      ctx.beginPath();
-      ctx.arc(circleCenterX, circleCenterY, circleRadius + 3, 0, Math.PI * 2);
-      ctx.stroke();
+      drawIconOnCanvas(ctx, node.icon, circleCenterX, circleCenterY, iconSize, '#ffffff', handleIconLoaded);
     }
     
     // Set font for text (Roboto)
-    const titleFontSize = Math.max(14 / scale, 10);
-    const subtitleFontSize = Math.max(11 / scale, 8);
-    const detailFontSize = Math.max(10 / scale, 7);
+    // Use the pre-calculated font sizes from the top of the function
     
     // Draw title in the right 2/3 area
     ctx.fillStyle = '#1f2937';
@@ -561,9 +815,28 @@ const Canvas: React.FC = () => {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     
-    const titleX = textAreaX + 10;
-    const titleY = y + 8;
+    // Use the pre-calculated titleX and titleY values
     ctx.fillText(title, titleX, titleY);
+    
+    // Draw edit button (wrench icon) only on hover
+    if (isHovered) {
+      const iconSize = editIconSize;
+      const iconCenterX = editIconX + iconSize/2;
+      const iconCenterY = editIconY + iconSize/2;
+      
+      // Draw edit button (wrench icon) only on hover
+      if (isEditButtonHovered) {
+        ctx.fillStyle = '#f3f4f6';
+        ctx.strokeStyle = '#d1d5db';
+        ctx.lineWidth = 1 / scale;
+        drawRoundedRect(ctx, editIconX - 2, editIconY - 2, iconSize + 4, iconSize + 4, 4);
+        ctx.fill();
+        ctx.stroke();
+      }
+      
+      // Draw wrench icon in grey color using regular icon system for better performance
+      drawIconOnCanvas(ctx, 'wrench', iconCenterX, iconCenterY, iconSize, '#6b7280', handleIconLoaded);
+    }
     
     // Draw subtitle
     ctx.fillStyle = '#6b7280';
@@ -573,40 +846,53 @@ const Canvas: React.FC = () => {
     const subtitleY = titleY + titleFontSize + 4;
     ctx.fillText(subtitle, subtitleX, subtitleY);
     
-    // Draw IP with link icon
-    const ipY = subtitleY + subtitleFontSize + 8;
-    const iconSize = 12 / scale;
+    let currentY = subtitleY + subtitleFontSize + 8;
+    const iconSize = Math.max(16 / scale, 12); // Larger minimum size, scales better with zoom
     
-    // Draw link icon
-    drawIcon(ctx, 'link', textAreaX + 10, ipY - 1, iconSize, '#6b7280');
-    
-    // Draw IP text
-    ctx.fillStyle = '#6b7280';
-    ctx.font = `400 ${detailFontSize}px Roboto, sans-serif`;
-    ctx.fillText(ip, textAreaX + 10 + iconSize + 4, ipY);
-    
-    // Draw URL with globe icon
-    const urlY = ipY + detailFontSize + 6;
-    
-    // Draw globe icon
-    drawIcon(ctx, 'globe', textAreaX + 10, urlY - 1, iconSize, '#6b7280');
-    
-    // Draw URL text (truncate if too long)
-    ctx.fillStyle = '#6b7280';
-    ctx.font = `400 ${detailFontSize}px Roboto, sans-serif`;
-    
-    const maxUrlWidth = textAreaWidth - 20 - iconSize;
-    let displayUrl = url;
-    
-    // Simple URL truncation
-    if (ctx.measureText(displayUrl).width > maxUrlWidth) {
-      while (ctx.measureText(displayUrl + '...').width > maxUrlWidth && displayUrl.length > 10) {
-        displayUrl = displayUrl.slice(0, -1);
-      }
-      displayUrl += '...';
+    // Draw IP with network icon (only if IP is provided, otherwise show "No IP" if URL exists)
+    if (ip || url) {
+      // Calculate vertical center alignment
+      const textHeight = detailFontSize;
+      const iconCenterY = currentY + textHeight / 2;
+      
+      // Draw network icon using regular icon system for better performance and reliability
+      drawIconOnCanvas(ctx, 'network', textAreaX + 10 + iconSize/2, iconCenterY, iconSize * 0.8, '#6b7280', handleIconLoaded);
+      
+      // Draw IP text or "No IP" if only URL is available
+      ctx.fillStyle = '#6b7280';
+      ctx.font = `400 ${detailFontSize}px Roboto, sans-serif`;
+      const displayText = ip || 'No IP';
+      ctx.fillText(displayText, textAreaX + 10 + iconSize + 6, currentY); // Increased gap to 6px
+      
+      currentY += detailFontSize + 6;
     }
     
-    ctx.fillText(displayUrl, textAreaX + 10 + iconSize + 4, urlY);
+    // Draw URL with globe icon (only if URL is provided)
+    if (url) {
+      // Calculate vertical center alignment
+      const textHeight = detailFontSize;
+      const iconCenterY = currentY + textHeight / 2;
+      
+      // Draw globe icon using regular icon system for better performance and reliability
+      drawIconOnCanvas(ctx, 'globe', textAreaX + 10 + iconSize/2, iconCenterY, iconSize * 0.8, '#6b7280', handleIconLoaded);
+      
+      // Draw URL text (truncate if too long)
+      ctx.fillStyle = '#6b7280';
+      ctx.font = `400 ${detailFontSize}px Roboto, sans-serif`;
+      
+      const maxUrlWidth = textAreaWidth - 20 - iconSize - 2; // Account for increased gap
+      let displayUrl = url;
+      
+      // Simple URL truncation
+      if (ctx.measureText(displayUrl).width > maxUrlWidth) {
+        while (ctx.measureText(displayUrl + '...').width > maxUrlWidth && displayUrl.length > 10) {
+          displayUrl = displayUrl.slice(0, -1);
+        }
+        displayUrl += '...';
+      }
+      
+      ctx.fillText(displayUrl, textAreaX + 10 + iconSize + 6, currentY); // Increased gap to 6px
+    }
   };
 
   const drawConnection = (ctx: CanvasRenderingContext2D, connection: Connection, scale: number) => {
@@ -618,9 +904,9 @@ const Canvas: React.FC = () => {
     const endX = to.x + to.width / 2;
     const endY = to.y;
     
-    // Draw connection line with a slight curve - thick line, no arrowhead
+    // Draw connection line with a slight curve - thicker line, no arrowhead
     ctx.strokeStyle = '#6b7280';
-    ctx.lineWidth = 3 / scale;
+    ctx.lineWidth = Math.max(5 / scale, 3); // Increased thickness with minimum of 3px
     ctx.setLineDash([]);
     
     const midY = startY + (endY - startY) / 2;
@@ -683,12 +969,41 @@ const Canvas: React.FC = () => {
     
     // Draw the nodes
     nodes.forEach(node => {
-      drawNode(ctx, node, transform.scale);
+      const isNodeHovered = hoveredNodeIdRef.current === node.id;
+      const isEditButtonHovered = hoveredEditButtonNodeIdRef.current === node.id;
+      drawNode(ctx, node, transform.scale, currentConfig, isNodeHovered, isEditButtonHovered);
     });
     
     // Restore context state
     ctx.restore();
-  }, [transform, backgroundLoaded, calculateNodePositions, getNodeStatus]);
+  }, [backgroundLoaded, calculateNodePositions, getNodeStatus, iconLoadCounter, currentConfig, transform]);
+
+  // Use requestAnimationFrame for smooth redraws with simple throttling
+  const animationFrameRef = useRef<number | null>(null);
+  
+  const requestDraw = useCallback(() => {
+    if (animationFrameRef.current !== null) {
+      return; // Already have a pending animation frame
+    }
+    
+    animationFrameRef.current = requestAnimationFrame(() => {
+      animationFrameRef.current = null;
+      draw();
+    });
+  }, [draw]);
+  
+  // Simple ref updates (no redraw triggers needed since draw depends on state)
+  useEffect(() => {
+    transformRef.current = transform;
+  }, [transform]);
+  
+  useEffect(() => {
+    hoveredNodeIdRef.current = hoveredNodeId;
+  }, [hoveredNodeId]);
+  
+  useEffect(() => {
+    hoveredEditButtonNodeIdRef.current = hoveredEditButtonNodeId;
+  }, [hoveredEditButtonNodeId]);
 
   const fitToContent = useCallback(() => {
     const canvas = canvasRef.current;
@@ -776,7 +1091,12 @@ const Canvas: React.FC = () => {
     
     // Check if hovering over a node for cursor management
     const hoveredNode = getNodeAtPosition(canvasX, canvasY);
-    setIsHoveringNode(!!hoveredNode);
+    setIsHoveringNode(!!hoveredNode && !!hoveredNode.url); // Only show pointer cursor if node has URL
+    setHoveredNodeId(hoveredNode ? hoveredNode.id : null); // Track which node is hovered for edit button
+    
+    // Check if hovering over an edit button specifically
+    const editButtonHovered = getEditButtonHover(canvasX, canvasY);
+    setHoveredEditButtonNodeId(editButtonHovered);
     
     if (!isDragging) return;
     
@@ -811,6 +1131,44 @@ const Canvas: React.FC = () => {
     const wasClick = dragDistance < 5; // Less than 5 pixels movement = click
     
     if (wasClick) {
+      // Check for edit button click first - only if we're hovering a node
+      if (hoveredNodeId) {
+        const hoveredNode = getNodeAtPosition(canvasX, canvasY);
+        if (hoveredNode && hoveredNode.id === hoveredNodeId) {
+          // Calculate edit button bounds for the hovered node
+          const worldX = (canvasX - transform.x) / transform.scale;
+          const worldY = (canvasY - transform.y) / transform.scale;
+          
+          // Recalculate edit button position (same logic as in drawNode)
+          const titleFontSize = Math.max(14 / transform.scale, 10);
+          const textAreaX = hoveredNode.x + (hoveredNode.width / 3);
+          const titleX = textAreaX + 10;
+          
+          // Temporarily create canvas context to measure title
+          const tempCanvas = document.createElement('canvas');
+          const tempCtx = tempCanvas.getContext('2d');
+          if (tempCtx) {
+            tempCtx.font = `500 ${titleFontSize}px Roboto, sans-serif`;
+            const titleWidth = tempCtx.measureText(hoveredNode.title).width;
+            
+            const editIconSize = Math.max(14 / transform.scale, 12); // Match the drawing function
+            const editIconX = titleX + titleWidth + 8;
+            const editIconY = hoveredNode.y + 8 + titleFontSize / 2 - editIconSize / 2; // Match the drawing function
+            
+            // Check if click is within edit button bounds (without background padding)
+            if (worldX >= editIconX && 
+                worldX <= editIconX + editIconSize && 
+                worldY >= editIconY && 
+                worldY <= editIconY + editIconSize) {
+              // Edit button clicked!
+              handleEditNode(hoveredNode.id);
+              return;
+            }
+          }
+        }
+      }
+      
+      // Check for regular node click
       const clickedNode = getNodeAtPosition(canvasX, canvasY);
       if (clickedNode) {
         openNodeUrl(clickedNode);
@@ -823,6 +1181,8 @@ const Canvas: React.FC = () => {
   const handleMouseLeave = () => {
     setIsDragging(false);
     setIsHoveringNode(false);
+    setHoveredNodeId(null);
+    setHoveredEditButtonNodeId(null);
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -858,7 +1218,7 @@ const Canvas: React.FC = () => {
     const resizeCanvas = () => {
       canvas.width = container.clientWidth;
       canvas.height = container.clientHeight;
-      draw();
+      requestDraw();
     };
 
     resizeCanvas();
@@ -867,11 +1227,42 @@ const Canvas: React.FC = () => {
     return () => {
       window.removeEventListener('resize', resizeCanvas);
     };
-  }, [draw]);
+  }, [requestDraw]);
 
+  // Only redraw on essential changes, not on every draw function recreation
   useEffect(() => {
-    draw();
-  }, [draw]);
+    requestDraw();
+  }, [backgroundLoaded, iconLoadCounter, currentConfig, requestDraw]);
+
+  // Continuous animation for shimmer effect when nodes are checking
+  useEffect(() => {
+    let animationId: number | null = null;
+    
+    const checkForLoadingNodes = () => {
+      // Check if any nodes are in checking state
+      const { nodes } = calculateNodePositions();
+      const hasCheckingNodes = nodes.some(node => {
+        const nodeIdentifier = node.ip || node.url;
+        if (!nodeIdentifier) return false;
+        const status = getNodeStatus(nodeIdentifier);
+        return status.status === 'checking';
+      });
+      
+      if (hasCheckingNodes) {
+        requestDraw();
+        animationId = requestAnimationFrame(checkForLoadingNodes);
+      }
+    };
+    
+    // Start the animation loop
+    checkForLoadingNodes();
+    
+    return () => {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+      }
+    };
+  }, [calculateNodePositions, getNodeStatus, requestDraw]);
 
   // Auto-fit content on initial load only
   useEffect(() => {
@@ -910,13 +1301,32 @@ const Canvas: React.FC = () => {
       
       {/* Status Card */}
       <div className="absolute top-4 right-4">
-        <StatusCard />
+        <StatusCard onOpenSettings={() => setIsSettingsOpen(true)} />
       </div>
-      
-      {/* Info */}
-      <div className="absolute bottom-4 left-4 bg-black/70 text-white px-3 py-2 rounded-lg text-sm font-roboto">
-        Zoom: {Math.round(transform.scale * 100)}% | Pan: ({Math.round(transform.x)}, {Math.round(transform.y)})
-      </div>
+
+      {/* Settings Modal - Rendered at root level for full page overlay */}
+      <Settings
+        isOpen={isSettingsOpen}
+        onClose={() => {
+          setIsSettingsOpen(false);
+          setFocusNodeId(undefined);
+        }}
+        initialConfig={currentConfig}
+        onSave={handleSaveConfig}
+        focusNodeId={focusNodeId}
+      />
+
+      {/* Node Editor Modal */}
+      {editingNode && (
+        <NodeEditor
+          node={editingNode}
+          onSave={handleSaveNode}
+          onClose={() => setEditingNode(null)}
+          onDelete={handleDeleteNode}
+          onEditChild={handleEditChildNode}
+          appearance={currentConfig.appearance}
+        />
+      )}
     </div>
   );
 };

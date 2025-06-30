@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
 import https from 'https';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
@@ -70,13 +70,17 @@ app.use(express.json());
 // Store for node statuses
 const nodeStatuses = new Map();
 
-// Function to extract all IPs from the tree recursively
-function extractAllIPs(nodes = appConfig.tree.nodes) {
-  const ips = [];
+// Function to extract all node identifiers (IP or URL) from the tree recursively
+function extractAllNodeIdentifiers(nodes = appConfig.tree.nodes) {
+  const identifiers = [];
   
   function traverse(nodeList) {
     for (const node of nodeList) {
-      ips.push(node.ip);
+      // Use IP if available, otherwise use URL, otherwise skip
+      const identifier = node.ip || node.url;
+      if (identifier) {
+        identifiers.push(identifier);
+      }
       if (node.children) {
         traverse(node.children);
       }
@@ -84,16 +88,16 @@ function extractAllIPs(nodes = appConfig.tree.nodes) {
   }
   
   traverse(nodes);
-  return ips;
+  return identifiers;
 }
 
-// Load IPs from centralized config
-const nodeIPs = extractAllIPs();
-console.log(`Loaded ${nodeIPs.length} IPs from centralized config:`, nodeIPs);
+// Load node identifiers from centralized config
+const nodeIdentifiers = extractAllNodeIdentifiers();
+console.log(`Loaded ${nodeIdentifiers.length} IPs from centralized config:`, nodeIdentifiers);
 
 // Initialize all nodes as offline
-nodeIPs.forEach(ip => {
-  nodeStatuses.set(ip, { status: 'offline', lastChecked: new Date() });
+nodeIdentifiers.forEach(identifier => {
+  nodeStatuses.set(identifier, { status: 'offline', lastChecked: new Date() });
 });
 
 // Create HTTPS agent that ignores self-signed certificates
@@ -101,11 +105,12 @@ const httpsAgent = new https.Agent({
   rejectUnauthorized: false // Accept self-signed certificates
 });
 
-// Helper function to find node data by IP
-function findNodeByIP(targetIP) {
+// Helper function to find node data by identifier (IP or URL)
+function findNodeByIdentifier(targetIdentifier) {
   function searchNodes(nodes) {
     for (const node of nodes) {
-      if (node.ip === targetIP) {
+      const nodeIdentifier = node.ip || node.url;
+      if (nodeIdentifier === targetIdentifier) {
         return node;
       }
       if (node.children) {
@@ -120,21 +125,27 @@ function findNodeByIP(targetIP) {
 }
 
 // Function to check a single node's health with simple single endpoint approach
-async function checkNodeHealth(ip) {
+async function checkNodeHealth(identifier) {
   const startTime = Date.now();
   
-  // Get the node data to access URL
-  const nodeData = findNodeByIP(ip);
+  // Get the node data to access both IP and URL
+  const nodeData = findNodeByIdentifier(identifier);
   
-  // Use URL if available, otherwise use IP with HTTPS
+  // Determine endpoint: if identifier is IP, use URL if available for prettier URLs, otherwise use IP
   let endpoint;
-  if (nodeData && nodeData.url) {
-    endpoint = nodeData.url.includes('://') ? nodeData.url : `https://${nodeData.url}`;
+  if (nodeData) {
+    if (nodeData.url) {
+      endpoint = nodeData.url.includes('://') ? nodeData.url : `https://${nodeData.url}`;
+    } else if (nodeData.ip) {
+      endpoint = nodeData.ip.includes('://') ? nodeData.ip : `https://${nodeData.ip}`;
+    } else {
+      endpoint = identifier.includes('://') ? identifier : `https://${identifier}`;
+    }
   } else {
-    endpoint = ip.includes('://') ? ip : `https://${ip}`;
+    endpoint = identifier.includes('://') ? identifier : `https://${identifier}`;
   }
   
-  console.log(`Checking health of ${ip} via ${endpoint}`);
+  console.log(`Checking health of ${identifier} via ${endpoint}`);
   
   try {
     const attemptStart = Date.now();
@@ -167,12 +178,12 @@ async function checkNodeHealth(ip) {
       error: isOnline ? undefined : `HTTP ${response.status}`
     };
     
-    nodeStatuses.set(ip, result);
+    nodeStatuses.set(identifier, result);
     
     if (isOnline) {
-      console.log(`✅ ${ip}: ${response.status} via ${endpoint} (${responseTime}ms)`);
+      console.log(`✅ ${identifier}: ${response.status} via ${endpoint} (${responseTime}ms)`);
     } else {
-      console.log(`❌ ${ip}: HTTP ${response.status} via ${endpoint} (${responseTime}ms)`);
+      console.log(`❌ ${identifier}: HTTP ${response.status} via ${endpoint} (${responseTime}ms)`);
     }
     
   } catch (error) {
@@ -201,20 +212,20 @@ async function checkNodeHealth(ip) {
       error: errorMessage
     };
     
-    nodeStatuses.set(ip, result);
-    console.log(`❌ ${ip}: ${errorMessage} via ${endpoint} (${responseTime}ms)`);
+    nodeStatuses.set(identifier, result);
+    console.log(`❌ ${identifier}: ${errorMessage} via ${endpoint} (${responseTime}ms)`);
   }
 }
 
 // Function to check all nodes
 async function checkAllNodes() {
-  console.log(`[${new Date().toISOString()}] Checking health of ${nodeIPs.length} nodes...`);
+  console.log(`[${new Date().toISOString()}] Checking health of ${nodeIdentifiers.length} nodes...`);
   
-  const promises = nodeIPs.map(ip => checkNodeHealth(ip));
+  const promises = nodeIdentifiers.map(identifier => checkNodeHealth(identifier));
   await Promise.allSettled(promises);
   
   const onlineCount = Array.from(nodeStatuses.values()).filter(status => status.status === 'online').length;
-  console.log(`Health check complete: ${onlineCount}/${nodeIPs.length} nodes online`);
+  console.log(`Health check complete: ${onlineCount}/${nodeIdentifiers.length} nodes online`);
 }
 
 // Start the health checking interval (from centralized config)
@@ -226,8 +237,8 @@ checkAllNodes();
 // API endpoint to get all node statuses
 app.get('/api/status', (req, res) => {
   const statusObject = {};
-  nodeStatuses.forEach((status, ip) => {
-    statusObject[ip] = status;
+  nodeStatuses.forEach((status, identifier) => {
+    statusObject[identifier] = status;
   });
   
   res.json({
@@ -247,6 +258,32 @@ app.get('/api/config', (req, res) => {
       apiPollingInterval: appConfig.client?.apiPollingInterval || 5000
     }
   });
+});
+
+// API endpoint to update the configuration
+app.put('/api/config', (req, res) => {
+  try {
+    const newConfig = req.body;
+    
+    // Validate the configuration structure
+    if (!newConfig.server || !newConfig.client || !newConfig.tree) {
+      return res.status(400).json({ error: 'Invalid configuration structure' });
+    }
+    
+    // Write the new configuration to the file
+    const configPath = join(__dirname, '../config.json');
+    writeFileSync(configPath, JSON.stringify(newConfig, null, 2), 'utf8');
+    
+    console.log('✅ Configuration updated successfully');
+    
+    res.json({ 
+      success: true, 
+      message: 'Configuration updated successfully. Please restart the server to apply changes.' 
+    });
+  } catch (error) {
+    console.error('❌ Failed to update configuration:', error);
+    res.status(500).json({ error: 'Failed to update configuration: ' + error.message });
+  }
 });
 
 // API endpoint to get status for a specific node
@@ -275,7 +312,7 @@ app.get('/health', (req, res) => {
         port: appConfig.server.port,
         healthCheckInterval: appConfig.server.healthCheckInterval
       },
-      monitoredNodes: nodeIPs.length
+      monitoredNodes: nodeIdentifiers.length
     }
   });
 });
@@ -283,7 +320,7 @@ app.get('/health', (req, res) => {
 // Start server
 app.listen(appConfig.server.port, () => {
   console.log(`🚀 Nautilus server running on http://localhost:${appConfig.server.port}`);
-  console.log(`📊 Monitoring ${nodeIPs.length} nodes with REAL HTTP health checks`);
+  console.log(`📊 Monitoring ${nodeIdentifiers.length} nodes with REAL HTTP health checks`);
   console.log(`⏰ Health checks every ${appConfig.server.healthCheckInterval / 1000} seconds`);
   console.log(`🔍 Health check method: HTTP GET requests with 5s timeout`);
   console.log(`🎯 Using single endpoint per node (URL preferred over IP)`);
