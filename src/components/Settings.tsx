@@ -16,6 +16,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   const [activeTab, setActiveTab] = useState<'general' | 'nodes' | 'appearance'>('general');
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [iconDropdownOpen, setIconDropdownOpen] = useState<string | null>(null);
+  const [fileErrors, setFileErrors] = useState<{ favicon?: string; backgroundImage?: string }>({});
 
   // Simple list of common/popular icons for suggestions (optional)
   const commonIcons = [
@@ -115,6 +116,13 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }
   }, [isOpen, initialConfig, focusNodeId]);
 
+  // Clear file errors when modal is closed
+  useEffect(() => {
+    if (!isOpen) {
+      setFileErrors({});
+    }
+  }, [isOpen]);
+
   // Close icon dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -168,17 +176,54 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   };
 
   const handleFileUpload = (file: File, field: 'favicon' | 'backgroundImage') => {
+    setFileErrors(prev => ({ ...prev, [field]: undefined })); // Clear previous error
+
+    if (!file) return;
+
+    // Rule 1: Basic type check
+    if (!file.type.startsWith('image/')) {
+      setFileErrors(prev => ({ ...prev, [field]: 'Invalid file type. Please select an image.' }));
+      return;
+    }
+
+    // Rule 2: Size limit
     if (file.size > 5 * 1024 * 1024) { // 5MB limit
-      alert('File size must be less than 5MB');
+      setFileErrors(prev => ({ ...prev, [field]: 'File size exceeds 5MB limit.' }));
       return;
     }
 
     const reader = new FileReader();
+    reader.readAsDataURL(file);
+
     reader.onload = (e) => {
       const base64 = e.target?.result as string;
-      updateAppearanceConfig(field, base64);
+      if (!base64) {
+        setFileErrors(prev => ({ ...prev, [field]: 'Could not read the file.' }));
+        return;
+      }
+
+      // Rule 3: Validate it's a real image by loading it
+      const img = new Image();
+      img.src = base64;
+
+      img.onload = () => {
+        // Optional: Dimension check for favicon
+        if (field === 'favicon' && (img.width > 128 || img.height > 128)) {
+          setFileErrors(prev => ({ ...prev, [field]: 'Favicon dimensions should not exceed 128x128 pixels.' }));
+          return;
+        }
+        // All checks passed, update config
+        updateAppearanceConfig(field, base64);
+      };
+
+      img.onerror = () => {
+        setFileErrors(prev => ({ ...prev, [field]: 'The selected file is not a valid or supported image.' }));
+      };
     };
-    reader.readAsDataURL(file);
+
+    reader.onerror = () => {
+      setFileErrors(prev => ({ ...prev, [field]: 'An error occurred while reading the file.' }));
+    };
   };
 
   const addNode = () => {
@@ -765,9 +810,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                       onDrop={(e) => {
                         e.preventDefault();
                         const file = e.dataTransfer.files[0];
-                        if (file && file.type.startsWith('image/')) {
-                          handleFileUpload(file, 'favicon');
-                        }
+                        handleFileUpload(file, 'favicon');
                       }}
                       onDragOver={(e) => e.preventDefault()}
                       onDragEnter={(e) => e.preventDefault()}
@@ -780,7 +823,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                         <div className="text-sm text-gray-600">
                           <span className="font-medium text-blue-600 hover:text-blue-500">Click to upload</span> or drag and drop
                         </div>
-                        <p className="text-xs text-gray-500">16x16 or 32x32 pixel image (max 5MB)</p>
+                        <p className="text-xs text-gray-500">Recommended: up to 128x128 (max 5MB)</p>
                       </div>
                       <input
                         id="favicon-upload"
@@ -793,6 +836,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                         className="hidden"
                       />
                     </div>
+                    {fileErrors.favicon && (
+                      <p className="text-xs text-red-600 mt-2">{fileErrors.favicon}</p>
+                    )}
                   </div>
 
                   {/* Background Image Upload */}
@@ -822,9 +868,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                       onDrop={(e) => {
                         e.preventDefault();
                         const file = e.dataTransfer.files[0];
-                        if (file && file.type.startsWith('image/')) {
-                          handleFileUpload(file, 'backgroundImage');
-                        }
+                        handleFileUpload(file, 'backgroundImage');
                       }}
                       onDragOver={(e) => e.preventDefault()}
                       onDragEnter={(e) => e.preventDefault()}
@@ -850,6 +894,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                         className="hidden"
                       />
                     </div>
+                    {fileErrors.backgroundImage && (
+                        <p className="text-xs text-red-600 mt-2">{fileErrors.backgroundImage}</p>
+                    )}
                   </div>
                 </div>
               </div>

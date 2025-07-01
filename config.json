@@ -14,7 +14,7 @@
   "appearance": {
     "title": "Nautilus",
     "accentColor": "#1c973a",
-    "favicon": ""
+    "favicon": "data:image/png;base64,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"
   },
   "tree": {
     "nodes": [
@@ -34,7 +34,7 @@
             "ip": "pirate.lan:7878",
             "url": "radarr.koenvogel.com",
             "icon": "clapperboard",
-            "type": "angular",
+            "type": "circular",
             "children": [
               {
                 "id": "grandchild-1-1-1",

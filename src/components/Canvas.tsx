@@ -413,7 +413,7 @@ const Canvas: React.FC = () => {
       backgroundImageRef.current = img;
       setBackgroundLoaded(true);
     };
-    img.src = '/src/assets/ChatGPT Image Jun 29, 2025, 10_39_29 AM.png';
+    img.src = '/src/assets/background.png';
   }, []);
 
   // Aggressive icon preloading on config change
@@ -929,7 +929,7 @@ const Canvas: React.FC = () => {
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    // Draw static background image (not affected by transform)
+    // Draw static background image (not affected by transform) with cover behavior
     if (backgroundLoaded && backgroundImageRef.current) {
       const img = backgroundImageRef.current;
       const canvasAspect = canvas.width / canvas.height;
@@ -937,16 +937,19 @@ const Canvas: React.FC = () => {
       
       let drawWidth, drawHeight, drawX, drawY;
       
+      // Object-fit: cover behavior - scale image to completely fill canvas
       if (canvasAspect > imgAspect) {
+        // Canvas is wider than image - scale to fill width, crop top/bottom
         drawWidth = canvas.width;
         drawHeight = canvas.width / imgAspect;
         drawX = 0;
         drawY = (canvas.height - drawHeight) / 2;
       } else {
-        drawWidth = canvas.height * imgAspect;
+        // Canvas is taller than image - scale to fill height, crop left/right
         drawHeight = canvas.height;
-        drawX = (canvas.width - drawWidth) / 2;
+        drawWidth = canvas.height * imgAspect;
         drawY = 0;
+        drawX = (canvas.width - drawWidth) / 2;
       }
       
       ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);

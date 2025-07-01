@@ -5,6 +5,10 @@ import https from 'https';
 import { readFileSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import dotenv from 'dotenv';
+
+// Load environment variables from .env file
+dotenv.config();
 
 const app = express();
 
@@ -12,51 +16,55 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load centralized config
+// Serve static files from the React build output
+app.use(express.static(join(__dirname, 'public')));
+
+// --- Configuration Loading --- 
+
+// 1. Default configuration from environment variables
+const defaultConfig = {
+  server: {
+    port: parseInt(process.env.NAUTILUS_SERVER_PORT, 10) || 3069,
+    healthCheckInterval: parseInt(process.env.NAUTILUS_HEALTH_CHECK_INTERVAL, 10) || 20000,
+    corsOrigins: [`http://${process.env.NAUTILUS_HOST || 'localhost'}:${parseInt(process.env.NAUTILUS_CLIENT_PORT, 10) || 3070}`]
+  },
+  client: {
+    port: parseInt(process.env.NAUTILUS_CLIENT_PORT, 10) || 3070,
+    host: process.env.NAUTILUS_HOST || 'localhost',
+    apiPollingInterval: parseInt(process.env.NAUTILUS_API_POLLING_INTERVAL, 10) || 5000,
+  },
+  appearance: {
+    title: process.env.NAUTILUS_PAGE_TITLE || 'Nautilus',
+    accentColor: '#3b82f6',
+    favicon: '',
+    backgroundImage: ''
+  },
+  tree: {
+    nodes: [] // Default to no nodes
+  }
+};
+
+// 2. Load configuration from config.json, if it exists
 let appConfig;
 try {
   const configPath = join(__dirname, '../config.json');
   const configContent = readFileSync(configPath, 'utf8');
-  appConfig = JSON.parse(configContent);
-  console.log('✅ Loaded centralized config from config.json');
-} catch (error) {
-  console.warn('Failed to load centralized config, using defaults:', error.message);
+  const savedConfig = JSON.parse(configContent);
+  
+  // Deep merge saved config over default config
   appConfig = {
-    server: {
-      port: 3069,
-      healthCheckInterval: 20000,
-      corsOrigins: ['http://localhost:3070']
-    },
-    tree: {
-      nodes: [
-        {
-          id: "root-1",
-          title: "Proxmox",
-          subtitle: "Primary application server",
-          ip: "proxmox.lan:8006",
-          url: "proxmox.koenvogel.com",
-          children: [
-            {
-              id: "child-1-1",
-              title: "Radarr",
-              subtitle: "User interface application",
-              ip: "pirate.lan:7878",
-              url: "radarr.koenvogel.com",
-              children: [
-                {
-                  id: "grandchild-1-1-1",
-                  title: "Sonarr",
-                  subtitle: "Authentication module",
-                  ip: "pirate.lan:8989",
-                  url: "sonarr.koenvogel.com"
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    }
+    ...defaultConfig,
+    ...savedConfig,
+    server: { ...defaultConfig.server, ...savedConfig.server },
+    client: { ...defaultConfig.client, ...savedConfig.client },
+    appearance: { ...defaultConfig.appearance, ...savedConfig.appearance },
+    tree: savedConfig.tree || defaultConfig.tree
   };
+
+  console.log('✅ Loaded and merged config from config.json and environment variables.');
+} catch (error) {
+  console.log('No config.json found or error reading it. Using environment variables or defaults.');
+  appConfig = defaultConfig;
 }
 
 // Configure CORS with centralized origins
