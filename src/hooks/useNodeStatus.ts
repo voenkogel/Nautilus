@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import configData from '../../config.json';
 import type { AppConfig } from '../types/config';
-import { normalizeNodeIdentifier } from '../utils/config';
 
 const appConfig = configData as AppConfig;
 
