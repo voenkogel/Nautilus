@@ -16,7 +16,7 @@
     "title": "Nautilus",
     "accentColor": "#1c973a",
     "favicon": "/nautilusIcon.png",
-    "background": "/background.png"
+    "backgroundImage": "/background.png"
   },
   "tree": {
     "nodes": [

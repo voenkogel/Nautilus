@@ -133,7 +133,7 @@ const drawIconOnCanvas = (
       // Try fallback to server icon
       console.warn(`Failed to load icon "${iconName}", falling back to server icon`);
       const fallbackSvg = getIconSvg('server', color);
-      const fallbackBlob = new Blob([fallbackSvg], { type: 'image/svg+xml;charset=utf-8' });
+      const fallbackBlob = new Blob([fallbackSvg], { type: 'image/svg+xml' });
       const fallbackUrl = URL.createObjectURL(fallbackBlob);
       
       const fallbackImg = new Image();
@@ -221,6 +221,24 @@ const Canvas: React.FC = () => {
 
   // Apply appearance settings
   useAppearance(currentConfig.appearance || { title: 'Nautilus', accentColor: '#3b82f6' });
+
+  // Fetch current config from server on mount
+  useEffect(() => {
+    const fetchCurrentConfig = async () => {
+      try {
+        const response = await fetch('/api/config');
+        if (response.ok) {
+          const serverConfig = await response.json();
+          setCurrentConfig(serverConfig);
+        }
+      } catch (error) {
+        console.warn('Failed to fetch config from server, using default:', error);
+        // Keep using the imported static config as fallback
+      }
+    };
+
+    fetchCurrentConfig();
+  }, []);
 
   // Preload all icons used in the config on component mount
   useEffect(() => {
@@ -406,15 +424,81 @@ const Canvas: React.FC = () => {
   const HORIZONTAL_SPACING = 60;
   const VERTICAL_SPACING = 80;
 
-  // Load background image
+  // Load background image from config
   useEffect(() => {
-    const img = new Image();
-    img.onload = () => {
-      backgroundImageRef.current = img;
-      setBackgroundLoaded(true);
+    if (!currentConfig.appearance?.backgroundImage) {
+      console.log('No background image specified in config');
+      setBackgroundLoaded(false);
+      backgroundImageRef.current = null;
+      return;
+    }
+
+    console.log('Attempting to load background image:', currentConfig.appearance.backgroundImage);
+    
+    // Try multiple approaches to load the background image
+    const tryLoadImage = (imagePath: string) => {
+      console.log('Trying to load image from:', imagePath);
+      
+      // Create a new image
+      const img = new Image();
+      img.crossOrigin = "anonymous"; // Try with CORS
+      
+      // Set up onload handler
+      img.onload = () => {
+        console.log('Background image loaded successfully from:', imagePath);
+        backgroundImageRef.current = img;
+        setBackgroundLoaded(true);
+      };
+      
+      // Set up error handler
+      img.onerror = () => {
+        console.warn('Failed to load background image from:', imagePath);
+      };
+      
+      // Start loading the image
+      img.src = imagePath;
+      
+      // Return the image for immediate check
+      return img;
     };
-    img.src = '/src/assets/background.png';
-  }, []);
+    
+    // List of paths to try, in order of preference
+    const imagePaths = [
+      currentConfig.appearance.backgroundImage, // Original path from config
+      window.location.origin + currentConfig.appearance.backgroundImage, // Absolute URL
+      '/background.png', // Fallback to default
+      window.location.origin + '/background.png', // Absolute URL of default
+      'public/background.png', // Try public folder directly
+      'public/nautilusIcon.png' // Last resort, try icon instead
+    ];
+    
+    // Try each path in sequence, with a small delay between attempts
+    let index = 0;
+    
+    const tryNextPath = () => {
+      if (index >= imagePaths.length) {
+        console.error('All attempts to load background image failed');
+        setBackgroundLoaded(false);
+        backgroundImageRef.current = null;
+        return;
+      }
+      
+      const img = tryLoadImage(imagePaths[index]);
+      
+      // Check if already loaded (happens with cached images)
+      if (img.complete && img.naturalHeight !== 0) {
+        console.log('Image was already loaded/cached:', imagePaths[index]);
+        backgroundImageRef.current = img;
+        setBackgroundLoaded(true);
+      } else {
+        // Try next path after a short delay
+        index++;
+        setTimeout(tryNextPath, 300);
+      }
+    };
+    
+    tryNextPath();
+  }, [currentConfig.appearance?.backgroundImage]);
 
   // Aggressive icon preloading on config change
   useEffect(() => {
@@ -703,6 +787,7 @@ const Canvas: React.FC = () => {
     ctx.closePath();
   };
 
+  // Draw node (single node drawing)
   const drawNode = (ctx: CanvasRenderingContext2D, node: PositionedNode, scale: number, _config: AppConfig, isHovered: boolean = false, isEditButtonHovered: boolean = false) => {
     const { x, y, width, height, title, subtitle, ip, url, type } = node;
     
@@ -728,8 +813,23 @@ const Canvas: React.FC = () => {
     const borderRadius = type === 'circular' ? height / 2 : (type === 'angular' ? 0 : 12); // Perfect pill for circular, no radius for angular, normal radius for square
     
     // Get the current status for this node (use IP if available, otherwise URL)
-    const nodeIdentifier = ip || url;
-    const nodeStatus = nodeIdentifier ? getNodeStatus(nodeIdentifier) : { status: 'offline' as const, lastChecked: new Date(), progress: 0 };
+    const originalIdentifier = ip || url;
+    
+    // Important: use the original identifier without normalization 
+    // because the backend and API return statuses with these exact keys
+    console.log(`[Node] "${title}" status lookup:`, { 
+      ip, 
+      url, 
+      originalIdentifier
+    });
+    
+    // Get status using the original identifier to match the API response format
+    const nodeStatus = originalIdentifier 
+      ? getNodeStatus(originalIdentifier) 
+      : { status: 'offline' as const, lastChecked: new Date().toISOString(), progress: 0 };
+      
+    // DEBUG: Log the status result
+    console.log(`[Node] "${title}" status result:`, nodeStatus);
      // Draw node shadow
     ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
     if (type === 'circular') {
@@ -778,11 +878,11 @@ const Canvas: React.FC = () => {
     let circleColor = '#6b7280'; // Default gray for checking or no identifier
     let circleOpacity = 1.0; // Default full opacity
     
-    if (nodeIdentifier && nodeStatus.status === 'online') {
+    if (originalIdentifier && nodeStatus.status === 'online') {
       circleColor = '#10b981'; // Green for online
-    } else if (nodeIdentifier && nodeStatus.status === 'offline') {
+    } else if (originalIdentifier && nodeStatus.status === 'offline') {
       circleColor = '#ef4444'; // Red for offline
-    } else if (nodeIdentifier && nodeStatus.status === 'checking') {
+    } else if (originalIdentifier && nodeStatus.status === 'checking') {
       // Create subtle shimmer effect for loading state
       const time = Date.now() / 1000; // Get current time in seconds
       const pulseSpeed = 1.2; // Medium speed animation - 1.2 cycles per second
@@ -1245,8 +1345,11 @@ const Canvas: React.FC = () => {
       // Check if any nodes are in checking state
       const { nodes } = calculateNodePositions();
       const hasCheckingNodes = nodes.some(node => {
+        // Use the original identifier (not normalized) to match API response format
         const nodeIdentifier = node.ip || node.url;
         if (!nodeIdentifier) return false;
+        
+        // Use the original identifier directly to match API response
         const status = getNodeStatus(nodeIdentifier);
         return status.status === 'checking';
       });
@@ -1278,8 +1381,41 @@ const Canvas: React.FC = () => {
     }
   }, [backgroundLoaded, isInitialized, fitToContent]);
 
+  // Effect to test API connectivity when the component mounts
+  useEffect(() => {
+    const testApiConnectivity = async () => {
+      try {
+        console.log('Testing API connectivity...');
+        const response = await fetch('/api/status');
+        const data = await response.json();
+        console.log('API connectivity test result:', {
+          ok: response.ok,
+          status: response.status,
+          dataKeys: Object.keys(data),
+          statusCount: data.statuses ? Object.keys(data.statuses).length : 0,
+          statusValues: data.statuses ? Object.values(data.statuses).map((s: any) => s.status) : []
+        });
+      } catch (error) {
+        console.error('API connectivity test failed:', error);
+      }
+    };
+    
+    testApiConnectivity();
+  }, []);
+
   return (
     <div className="w-full h-full relative font-roboto" ref={containerRef}>
+      {/* Fallback background image as CSS - will be visible if canvas background doesn't load */}
+      {!backgroundLoaded && currentConfig.appearance?.backgroundImage && (
+        <div 
+          className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat" 
+          style={{ 
+            backgroundImage: `url(${currentConfig.appearance.backgroundImage})`,
+            opacity: 0.3 
+          }} 
+        />
+      )}
+      
       <canvas
         ref={canvasRef}
         className={`w-full h-full ${isHoveringNode ? 'cursor-pointer' : isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}

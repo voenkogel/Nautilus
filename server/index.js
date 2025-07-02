@@ -42,8 +42,8 @@ const defaultConfig = {
   appearance: {
     title: process.env.NAUTILUS_PAGE_TITLE || 'Nautilus',
     accentColor: '#3b82f6',
-    favicon: '',
-    backgroundImage: ''
+    favicon: '/nautilusIcon.png',
+    backgroundImage: '/background.png'
   },
   tree: {
     nodes: [] // Default to no nodes
@@ -84,6 +84,18 @@ app.use(express.json());
 // Store for node statuses
 const nodeStatuses = new Map();
 
+// Function to normalize a node identifier (IP or URL)
+function normalizeNodeIdentifier(identifier) {
+  if (!identifier) return '';
+  
+  // Remove protocols (http://, https://)
+  let normalized = identifier.replace(/^https?:\/\//, '');
+  // Remove trailing slashes
+  normalized = normalized.replace(/\/+$/, '');
+  
+  return normalized;
+}
+
 // Function to extract all node identifiers (IP or URL) from the tree recursively
 function extractAllNodeIdentifiers(nodes = appConfig.tree.nodes) {
   const identifiers = [];
@@ -93,7 +105,9 @@ function extractAllNodeIdentifiers(nodes = appConfig.tree.nodes) {
       // Use IP if available, otherwise use URL, otherwise skip
       const identifier = node.ip || node.url;
       if (identifier) {
-        identifiers.push(identifier);
+        // Normalize the identifier to ensure consistent format
+        const normalizedIdentifier = normalizeNodeIdentifier(identifier);
+        identifiers.push(normalizedIdentifier);
       }
       if (node.children) {
         traverse(node.children);
@@ -105,14 +119,30 @@ function extractAllNodeIdentifiers(nodes = appConfig.tree.nodes) {
   return identifiers;
 }
 
-// Load node identifiers from centralized config
-const nodeIdentifiers = extractAllNodeIdentifiers();
-console.log(`Loaded ${nodeIdentifiers.length} IPs from centralized config:`, nodeIdentifiers);
+// Initialize statuses code (moved before health check)
+function initializeNodeStatuses() {
+  // Clear existing statuses
+  nodeStatuses.clear();
+  
+  // Get fresh list of node identifiers
+  const nodeIdentifiers = extractAllNodeIdentifiers();
+  console.log(`Loaded ${nodeIdentifiers.length} node identifiers from config:`, nodeIdentifiers);
+  
+  // Initialize all nodes as offline with normalized keys
+  nodeIdentifiers.forEach(identifier => {
+    // The identifier is already normalized by extractAllNodeIdentifiers
+    nodeStatuses.set(identifier, { 
+      status: 'offline', 
+      lastChecked: new Date(),
+      error: 'Not yet checked'
+    });
+  });
+  
+  return nodeIdentifiers;
+}
 
-// Initialize all nodes as offline
-nodeIdentifiers.forEach(identifier => {
-  nodeStatuses.set(identifier, { status: 'offline', lastChecked: new Date() });
-});
+// Load node identifiers from centralized config and initialize statuses
+const nodeIdentifiers = initializeNodeStatuses();
 
 // Create HTTPS agent that ignores self-signed certificates
 const httpsAgent = new https.Agent({
@@ -121,11 +151,17 @@ const httpsAgent = new https.Agent({
 
 // Helper function to find node data by identifier (IP or URL)
 function findNodeByIdentifier(targetIdentifier) {
+  // Normalize the target identifier for consistent matching
+  const normalizedTarget = normalizeNodeIdentifier(targetIdentifier);
+  
   function searchNodes(nodes) {
     for (const node of nodes) {
       const nodeIdentifier = node.ip || node.url;
-      if (nodeIdentifier === targetIdentifier) {
-        return node;
+      if (nodeIdentifier) {
+        const normalizedNodeId = normalizeNodeIdentifier(nodeIdentifier);
+        if (normalizedNodeId === normalizedTarget) {
+          return node;
+        }
       }
       if (node.children) {
         const found = searchNodes(node.children);
@@ -142,8 +178,11 @@ function findNodeByIdentifier(targetIdentifier) {
 async function checkNodeHealth(identifier) {
   const startTime = Date.now();
   
+  // Normalize the identifier for consistent lookup
+  const normalizedIdentifier = normalizeNodeIdentifier(identifier);
+  
   // Get the node data to access both IP and URL
-  const nodeData = findNodeByIdentifier(identifier);
+  const nodeData = findNodeByIdentifier(normalizedIdentifier);
   
   // Determine endpoint: if identifier is IP, use URL if available for prettier URLs, otherwise use IP
   let endpoint;
@@ -159,7 +198,7 @@ async function checkNodeHealth(identifier) {
     endpoint = identifier.includes('://') ? identifier : `https://${identifier}`;
   }
   
-  console.log(`Checking health of ${identifier} via ${endpoint}`);
+  console.log(`Checking health of ${normalizedIdentifier} via ${endpoint}`);
   
   try {
     const attemptStart = Date.now();
@@ -192,12 +231,13 @@ async function checkNodeHealth(identifier) {
       error: isOnline ? undefined : `HTTP ${response.status}`
     };
     
-    nodeStatuses.set(identifier, result);
+    // Store using normalized identifier for consistent lookups
+    nodeStatuses.set(normalizedIdentifier, result);
     
     if (isOnline) {
-      console.log(`✅ ${identifier}: ${response.status} via ${endpoint} (${responseTime}ms)`);
+      console.log(`✅ ${normalizedIdentifier}: ${response.status} via ${endpoint} (${responseTime}ms)`);
     } else {
-      console.log(`❌ ${identifier}: HTTP ${response.status} via ${endpoint} (${responseTime}ms)`);
+      console.log(`❌ ${normalizedIdentifier}: HTTP ${response.status} via ${endpoint} (${responseTime}ms)`);
     }
     
   } catch (error) {
@@ -226,8 +266,9 @@ async function checkNodeHealth(identifier) {
       error: errorMessage
     };
     
-    nodeStatuses.set(identifier, result);
-    console.log(`❌ ${identifier}: ${errorMessage} via ${endpoint} (${responseTime}ms)`);
+    // Store using normalized identifier for consistent lookups
+    nodeStatuses.set(normalizedIdentifier, result);
+    console.log(`❌ ${normalizedIdentifier}: ${errorMessage} via ${endpoint} (${responseTime}ms)`);
   }
 }
 
@@ -235,11 +276,20 @@ async function checkNodeHealth(identifier) {
 async function checkAllNodes() {
   console.log(`[${new Date().toISOString()}] Checking health of ${nodeIdentifiers.length} nodes...`);
   
+  // Log current node status keys
+  console.log('Current status keys:', Array.from(nodeStatuses.keys()));
+  
   const promises = nodeIdentifiers.map(identifier => checkNodeHealth(identifier));
   await Promise.allSettled(promises);
   
   const onlineCount = Array.from(nodeStatuses.values()).filter(status => status.status === 'online').length;
   console.log(`Health check complete: ${onlineCount}/${nodeIdentifiers.length} nodes online`);
+  
+  // Log status after health check
+  console.log('Status after health check:');
+  nodeStatuses.forEach((status, id) => {
+    console.log(`- ${id}: ${status.status}`);
+  });
 }
 
 // Start the health checking interval (from centralized config)
@@ -251,8 +301,15 @@ checkAllNodes();
 // API endpoint to get all node statuses
 app.get('/api/status', (req, res) => {
   const statusObject = {};
+  
+  // The server stores statuses with normalized keys, but the client may expect 
+  // the original format from the config. To ensure consistency, we'll convert 
+  // back to the original format if needed
+  
   nodeStatuses.forEach((status, identifier) => {
+    // Just use the normalized identifier as stored in the map
     statusObject[identifier] = status;
+    console.log(`Sending status for "${identifier}": ${status.status}`);
   });
   
   res.json({

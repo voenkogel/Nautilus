@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import configData from '../../config.json';
 import type { AppConfig } from '../types/config';
+import { normalizeNodeIdentifier } from '../utils/config';
 
 const appConfig = configData as AppConfig;
 
@@ -28,12 +29,19 @@ export const useNodeStatus = () => {
   const fetchConfig = async () => {
     try {
       // Use a relative path for API calls. This works in both dev and prod.
-      const response = await fetch('/api/config');
+      const response = await fetch('/api/config', {
+        headers: {
+          'Cache-Control': 'no-cache', // Ensure we don't get cached responses
+          'Pragma': 'no-cache'
+        }
+      });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const data = await response.json();
+      console.log('Config fetched successfully:', data);
+      
       // Update appConfig with any dynamic values from the server
       Object.assign(appConfig, data);
     } catch (err) {
@@ -45,25 +53,45 @@ export const useNodeStatus = () => {
   const fetchStatuses = async () => {
     if (!appConfig) return;
     try {
+      console.log('Fetching status data from API...');
+      
       // Use a relative path for API calls.
-      const response = await fetch('/api/status');
+      const response = await fetch('/api/status', {
+        headers: {
+          'Cache-Control': 'no-cache', // Ensure we don't get cached responses
+          'Pragma': 'no-cache'
+        }
+      });
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       
       const data: StatusResponse = await response.json();
-      setStatuses(data.statuses);
-      setError(null);
-      setIsConnected(true);
+      console.log('Status response received:', data);
       
-      // Calculate the last health check time from the most recent lastChecked timestamp
-      const lastCheckedTimes = Object.values(data.statuses)
-        .map(status => status.lastChecked ? new Date(status.lastChecked).getTime() : 0)
-        .filter(time => time > 0);
-      
-      if (lastCheckedTimes.length > 0) {
-        const mostRecent = Math.max(...lastCheckedTimes);
-        setLastHealthCheckTime(mostRecent);
+      // Check if we have valid status data
+      if (data && data.statuses && Object.keys(data.statuses).length > 0) {
+        // Log detailed status data for debugging
+        console.log('-------- STATUS DATA DEBUG --------');
+        console.log('Raw status keys:', Object.keys(data.statuses));
+        console.log('Raw status values:', Object.values(data.statuses).map(s => s.status));
+        
+        // DIRECT USE: Use the statuses exactly as they come from the API
+        // This is the critical fix - we don't normalize on the client side
+        setStatuses(data.statuses);
+        setIsConnected(true);
+        
+        // Calculate the last health check time from the most recent lastChecked timestamp
+        const lastCheckedTimes = Object.values(data.statuses)
+          .map(status => status.lastChecked ? new Date(status.lastChecked).getTime() : 0)
+          .filter(time => time > 0);
+        
+        if (lastCheckedTimes.length > 0) {
+          const mostRecent = Math.max(...lastCheckedTimes);
+          setLastHealthCheckTime(mostRecent);
+        }
+      } else {
+        console.warn('Received empty or invalid status data from server');
       }
     } catch (err) {
       console.error('Failed to fetch node statuses:', err);
@@ -89,8 +117,12 @@ export const useNodeStatus = () => {
 
   useEffect(() => {
     // Initial fetch
-    fetchConfig();
-    fetchStatuses();
+    const initialize = async () => {
+      await fetchConfig();
+      await fetchStatuses();
+    };
+    
+    initialize();
 
     // Set up polling with interval from centralized config
     const interval = setInterval(fetchStatuses, appConfig.client.apiPollingInterval);
@@ -120,8 +152,16 @@ export const useNodeStatus = () => {
     return () => clearInterval(countdownInterval);
   }, [lastHealthCheckTime]);
 
-  const getNodeStatus = (ip: string): NodeStatus => {
-    return statuses[ip] || { 
+  const getNodeStatus = (identifier: string): NodeStatus => {
+    // Use the original identifier directly without normalization
+    // because we're matching against the API response keys
+    console.log(`[STATUS LOOKUP] Looking up "${identifier}"`, { 
+      found: !!statuses[identifier], 
+      availableKeys: Object.keys(statuses),
+      exactMatch: statuses[identifier]
+    });
+    
+    return statuses[identifier] || { 
       status: 'checking', 
       lastChecked: new Date().toISOString() 
     };
