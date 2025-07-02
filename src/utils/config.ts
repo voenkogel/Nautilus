@@ -7,6 +7,6 @@ export const normalizeNodeIdentifier = (identifier: string): string => {
   // Remove trailing slashes
   normalized = normalized.replace(/\/+$/, '');
   
-  console.log(`[Normalize] "${identifier}" -> "${normalized}"`);
+
   return normalized;
 };

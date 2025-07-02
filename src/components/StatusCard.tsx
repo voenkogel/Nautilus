@@ -131,7 +131,7 @@ const StatusCard: React.FC<StatusCardProps> = ({ onOpenSettings }) => {
 
   if (isLoading) {
     return (
-      <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-lg p-4 min-w-[200px] border border-gray-200">
+      <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200 p-4 min-w-[200px]">
         <div className="flex items-center space-x-3">
           <div className="w-4 h-4 bg-gray-300 rounded-full animate-pulse"></div>
           <span className="text-sm font-medium text-gray-600 font-roboto">Loading status...</span>
@@ -142,7 +142,7 @@ const StatusCard: React.FC<StatusCardProps> = ({ onOpenSettings }) => {
 
   if (error) {
     return (
-      <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-lg p-4 min-w-[200px] border border-red-200">
+      <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-red-200 p-4 min-w-[200px]">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-2">
             <div className="w-3 h-3 bg-red-500 rounded-full"></div>

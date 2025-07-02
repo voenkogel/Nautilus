@@ -12,12 +12,6 @@ dotenv.config();
 
 const app = express();
 
-// Middleware to log all incoming requests for debugging
-app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] Received ${req.method} request for ${req.url} from ${req.ip}`);
-  next();
-});
-
 // Get current directory (ES module equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -126,7 +120,7 @@ function initializeNodeStatuses() {
   
   // Get fresh list of node identifiers
   const nodeIdentifiers = extractAllNodeIdentifiers();
-  console.log(`Loaded ${nodeIdentifiers.length} node identifiers from config:`, nodeIdentifiers);
+
   
   // Initialize all nodes as offline with normalized keys
   nodeIdentifiers.forEach(identifier => {
@@ -198,7 +192,7 @@ async function checkNodeHealth(identifier) {
     endpoint = identifier.includes('://') ? identifier : `https://${identifier}`;
   }
   
-  console.log(`Checking health of ${normalizedIdentifier} via ${endpoint}`);
+
   
   try {
     const attemptStart = Date.now();
@@ -235,9 +229,9 @@ async function checkNodeHealth(identifier) {
     nodeStatuses.set(normalizedIdentifier, result);
     
     if (isOnline) {
-      console.log(`✅ ${normalizedIdentifier}: ${response.status} via ${endpoint} (${responseTime}ms)`);
+
     } else {
-      console.log(`❌ ${normalizedIdentifier}: HTTP ${response.status} via ${endpoint} (${responseTime}ms)`);
+
     }
     
   } catch (error) {
@@ -268,28 +262,41 @@ async function checkNodeHealth(identifier) {
     
     // Store using normalized identifier for consistent lookups
     nodeStatuses.set(normalizedIdentifier, result);
-    console.log(`❌ ${normalizedIdentifier}: ${errorMessage} via ${endpoint} (${responseTime}ms)`);
+
   }
 }
 
 // Function to check all nodes
 async function checkAllNodes() {
-  console.log(`[${new Date().toISOString()}] Checking health of ${nodeIdentifiers.length} nodes...`);
+  console.log(`🔍 Checking health of ${nodeIdentifiers.length} nodes...`);
   
-  // Log current node status keys
-  console.log('Current status keys:', Array.from(nodeStatuses.keys()));
+  const promises = nodeIdentifiers.map(async (identifier) => {
+    const result = await checkNodeHealth(identifier);
+    const normalizedIdentifier = normalizeIdentifier(identifier);
+    
+    // Log the result with emoji
+    const emoji = result.status === 'online' ? '✅' : '❌';
+    console.log(`${emoji} ${normalizedIdentifier}: ${result.status}${result.responseTime ? ` (${result.responseTime}ms)` : ''}`);
+    
+    return result;
+  });
   
-  const promises = nodeIdentifiers.map(identifier => checkNodeHealth(identifier));
   await Promise.allSettled(promises);
   
-  const onlineCount = Array.from(nodeStatuses.values()).filter(status => status.status === 'online').length;
-  console.log(`Health check complete: ${onlineCount}/${nodeIdentifiers.length} nodes online`);
+  const statuses = Array.from(nodeStatuses.entries());
+  const onlineCount = statuses.filter(([_, status]) => status.status === 'online').length;
+  const offlineCount = statuses.filter(([_, status]) => status.status === 'offline').length;
   
-  // Log status after health check
-  console.log('Status after health check:');
-  nodeStatuses.forEach((status, id) => {
-    console.log(`- ${id}: ${status.status}`);
-  });
+  console.log(`✨ Health check complete: ${onlineCount}/${nodeIdentifiers.length} nodes online`);
+  
+  // When there are offline nodes, log them
+  if (offlineCount > 0) {
+    const offlineNodes = statuses
+      .filter(([_, status]) => status.status === 'offline')
+      .map(([id, _]) => id);
+    
+    console.log(`❌ ${offlineCount} offline nodes: ${offlineNodes.join(', ')}`);
+  }
 }
 
 // Start the health checking interval (from centralized config)
@@ -309,7 +316,6 @@ app.get('/api/status', (req, res) => {
   nodeStatuses.forEach((status, identifier) => {
     // Just use the normalized identifier as stored in the map
     statusObject[identifier] = status;
-    console.log(`Sending status for "${identifier}": ${status.status}`);
   });
   
   res.json({
@@ -390,16 +396,10 @@ app.get('/health', (req, res) => {
 
 // Start server
 app.listen(appConfig.server.port, () => {
-  console.log(`🚀 Nautilus server running on http://localhost:${appConfig.server.port}`);
-  console.log(`📊 Monitoring ${nodeIdentifiers.length} nodes with REAL HTTP health checks`);
-  console.log(`⏰ Health checks every ${appConfig.server.healthCheckInterval / 1000} seconds`);
-  console.log(`🔍 Health check method: HTTP GET requests with 5s timeout`);
-  console.log(`🎯 Using single endpoint per node (URL preferred over IP)`);
-  console.log('API endpoints:');
-  console.log(`  GET /api/status - Get all node statuses`);
-  console.log(`  GET /api/status/:ip - Get specific node status`);
-  console.log(`  GET /api/config - Get configuration`);
-  console.log(`  GET /health - Server health check`);
+  console.log(` Monitoring ${nodeIdentifiers.length} nodes every ${appConfig.server.healthCheckInterval / 1000}s`);
+  console.log(`🔍 Using HTTP GET requests with 5s timeout (URL preferred over IP)`);
+  console.log('');
+  console.log(`🚀 Server ready at: http://localhost:${appConfig.server.port}`);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`❌ Port ${appConfig.server.port} is already in use. Please close other applications using this port.`);

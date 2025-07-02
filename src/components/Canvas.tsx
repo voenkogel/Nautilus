@@ -246,8 +246,6 @@ const Canvas: React.FC = () => {
       const requiredIcons = extractIconsFromConfig(currentConfig.tree.nodes);
       const accentColor = currentConfig.appearance?.accentColor || '#3b82f6';
       
-      console.log('Preloading icons:', Array.from(requiredIcons));
-      
       // Preload all required icons
       const preloadPromises = Array.from(requiredIcons).map(iconName => {
         return new Promise<void>((resolve) => {
@@ -279,7 +277,6 @@ const Canvas: React.FC = () => {
       
       await Promise.all(preloadPromises);
       setIconsPreloaded(true);
-      console.log('All icons preloaded successfully');
     };
     
     preloadIcons();
@@ -288,7 +285,7 @@ const Canvas: React.FC = () => {
   // Debug: Log preload status
   useEffect(() => {
     if (iconsPreloaded) {
-      console.log('Icons are fully preloaded, ready for canvas rendering');
+
     }
   }, [iconsPreloaded]);
 
@@ -335,8 +332,7 @@ const Canvas: React.FC = () => {
         throw new Error(`Server responded with ${response.status}: ${errorText}`);
       }
 
-      const result = await response.json();
-      console.log('Configuration saved successfully:', result);
+      await response.json();
 
       // Reload the page to apply the new configuration
       window.location.reload();
@@ -355,7 +351,7 @@ const Canvas: React.FC = () => {
 
   const handleEditChildNode = (childNode: TreeNode) => {
     // Directly set the editing node to the child with a small delay
-    console.log('Switching to edit child node:', childNode.title);
+
     setTimeout(() => {
       setEditingNode(childNode);
     }, 10);
@@ -427,25 +423,19 @@ const Canvas: React.FC = () => {
   // Load background image from config
   useEffect(() => {
     if (!currentConfig.appearance?.backgroundImage) {
-      console.log('No background image specified in config');
       setBackgroundLoaded(false);
       backgroundImageRef.current = null;
       return;
     }
-
-    console.log('Attempting to load background image:', currentConfig.appearance.backgroundImage);
     
     // Try multiple approaches to load the background image
     const tryLoadImage = (imagePath: string) => {
-      console.log('Trying to load image from:', imagePath);
-      
       // Create a new image
       const img = new Image();
       img.crossOrigin = "anonymous"; // Try with CORS
       
       // Set up onload handler
       img.onload = () => {
-        console.log('Background image loaded successfully from:', imagePath);
         backgroundImageRef.current = img;
         setBackgroundLoaded(true);
       };
@@ -487,7 +477,6 @@ const Canvas: React.FC = () => {
       
       // Check if already loaded (happens with cached images)
       if (img.complete && img.naturalHeight !== 0) {
-        console.log('Image was already loaded/cached:', imagePaths[index]);
         backgroundImageRef.current = img;
         setBackgroundLoaded(true);
       } else {
@@ -815,33 +804,19 @@ const Canvas: React.FC = () => {
     // Get the current status for this node (use IP if available, otherwise URL)
     const originalIdentifier = ip || url;
     
-    // Important: use the original identifier without normalization 
-    // because the backend and API return statuses with these exact keys
-    console.log(`[Node] "${title}" status lookup:`, { 
-      ip, 
-      url, 
-      originalIdentifier
-    });
-    
     // Get status using the original identifier to match the API response format
     const nodeStatus = originalIdentifier 
       ? getNodeStatus(originalIdentifier) 
       : { status: 'offline' as const, lastChecked: new Date().toISOString(), progress: 0 };
-      
-    // DEBUG: Log the status result
-    console.log(`[Node] "${title}" status result:`, nodeStatus);
-     // Draw node shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-    if (type === 'circular') {
-      drawPillShape(ctx, x + 2, y + 2, width, height);
-    } else if (type === 'angular') {
-      drawAngularShape(ctx, x + 2, y + 2, width, height);
-    } else {
-      drawRoundedRect(ctx, x + 2, y + 2, width, height, borderRadius);
-    }
-    ctx.fill();
-
-    // Draw node background (white)
+    
+    // Apply soft shadow using blur (save context to restore after shadow drawing)
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.18)';
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetX = 2;
+    ctx.shadowOffsetY = 2;
+    
+    // Draw node background with shadow
     ctx.fillStyle = '#ffffff';
     if (type === 'circular') {
       drawPillShape(ctx, x, y, width, height);
@@ -851,6 +826,9 @@ const Canvas: React.FC = () => {
       drawRoundedRect(ctx, x, y, width, height, borderRadius);
     }
     ctx.fill();
+    
+    // Reset shadow
+    ctx.restore();
 
     // Draw node border
     ctx.strokeStyle = '#e5e7eb';
@@ -1385,16 +1363,9 @@ const Canvas: React.FC = () => {
   useEffect(() => {
     const testApiConnectivity = async () => {
       try {
-        console.log('Testing API connectivity...');
         const response = await fetch('/api/status');
-        const data = await response.json();
-        console.log('API connectivity test result:', {
-          ok: response.ok,
-          status: response.status,
-          dataKeys: Object.keys(data),
-          statusCount: data.statuses ? Object.keys(data.statuses).length : 0,
-          statusValues: data.statuses ? Object.values(data.statuses).map((s: any) => s.status) : []
-        });
+        await response.json();
+        // Success is silent - errors will be logged by the error handler
       } catch (error) {
         console.error('API connectivity test failed:', error);
       }
@@ -1431,7 +1402,7 @@ const Canvas: React.FC = () => {
         <div className="absolute top-4 left-4">
           <button
             onClick={fitToContent}
-            className="bg-white/90 hover:bg-white text-gray-800 px-3 py-2 rounded-lg shadow-lg transition-colors text-sm font-medium font-roboto"
+            className="bg-white/90 hover:bg-white text-gray-800 px-3 py-2 rounded-lg shadow-md transition-colors text-sm font-medium font-roboto"
           >
             Fit to Content
           </button>

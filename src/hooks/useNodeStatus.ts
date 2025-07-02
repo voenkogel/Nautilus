@@ -39,7 +39,11 @@ export const useNodeStatus = () => {
       }
       
       const data = await response.json();
-      console.log('Config fetched successfully:', data);
+      
+      // Only log config fetch issues, not successful fetches
+      if (!data) {
+        console.error('Empty or invalid config received from server');
+      }
       
       // Update appConfig with any dynamic values from the server
       Object.assign(appConfig, data);
@@ -52,12 +56,16 @@ export const useNodeStatus = () => {
   const fetchStatuses = async () => {
     if (!appConfig) return;
     try {
-      console.log('Fetching status data from API...');
+      // Only log at start of querying phase and don't log per-node status (server already does this)
+      const addresses = Object.keys(statuses);
+      if (addresses.length > 0) {
+        console.log(`🔍 Querying ${addresses.length} addresses...`);
+      }
       
       // Use a relative path for API calls.
       const response = await fetch('/api/status', {
         headers: {
-          'Cache-Control': 'no-cache', // Ensure we don't get cached responses
+          'Cache-Control': 'no-cache',
           'Pragma': 'no-cache'
         }
       });
@@ -66,15 +74,9 @@ export const useNodeStatus = () => {
       }
       
       const data: StatusResponse = await response.json();
-      console.log('Status response received:', data);
       
       // Check if we have valid status data
       if (data && data.statuses && Object.keys(data.statuses).length > 0) {
-        // Log detailed status data for debugging
-        console.log('-------- STATUS DATA DEBUG --------');
-        console.log('Raw status keys:', Object.keys(data.statuses));
-        console.log('Raw status values:', Object.values(data.statuses).map(s => s.status));
-        
         // DIRECT USE: Use the statuses exactly as they come from the API
         // This is the critical fix - we don't normalize on the client side
         setStatuses(data.statuses);
@@ -93,7 +95,9 @@ export const useNodeStatus = () => {
         console.warn('Received empty or invalid status data from server');
       }
     } catch (err) {
-      console.error('Failed to fetch node statuses:', err);
+      if (isConnected) {
+        console.error('❌ Lost connection to status server:', err instanceof Error ? err.message : 'Unknown error');
+      }
       setError(err instanceof Error ? err.message : 'Unknown error');
       setIsConnected(false);
       
@@ -142,6 +146,13 @@ export const useNodeStatus = () => {
       const isCurrentlyQuerying = remaining === 0 && elapsed < appConfig.server.healthCheckInterval + 5000; // Allow 5s for query time
       setIsQuerying(isCurrentlyQuerying);
       
+      // When we enter querying phase, "freeze" the countdown at 0 rather than resetting
+      // This ensures the progress bar doesn't jump backwards during query
+      if (isCurrentlyQuerying && remaining === 0) {
+        // We're in the querying phase, keep nextCheckCountdown at 0
+        // But don't reset lastHealthCheckTime so the progress calculation stays consistent
+      }
+      
       if (remaining === 0 && elapsed > appConfig.server.healthCheckInterval + 10000) {
         // If we've been at 0 for more than 10 seconds, something might be wrong
         clearInterval(countdownInterval);
@@ -154,12 +165,6 @@ export const useNodeStatus = () => {
   const getNodeStatus = (identifier: string): NodeStatus => {
     // Use the original identifier directly without normalization
     // because we're matching against the API response keys
-    console.log(`[STATUS LOOKUP] Looking up "${identifier}"`, { 
-      found: !!statuses[identifier], 
-      availableKeys: Object.keys(statuses),
-      exactMatch: statuses[identifier]
-    });
-    
     return statuses[identifier] || { 
       status: 'checking', 
       lastChecked: new Date().toISOString() 

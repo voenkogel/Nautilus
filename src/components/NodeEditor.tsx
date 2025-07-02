@@ -242,7 +242,7 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
                         <div
                           onClick={(e) => {
                             e.stopPropagation();
-                            console.log('Edit child clicked for:', child.title);
+
                             onEditChild(child);
                           }}
                           className="p-1 hover:bg-gray-200 rounded text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
