@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import configData from '../../config.json';
-import { Node, Status, AppConfig } from '../types/config';
+import type { AppConfig } from '../types/config';
 
 const appConfig = configData as AppConfig;
 
