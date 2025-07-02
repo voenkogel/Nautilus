@@ -12,6 +12,12 @@ dotenv.config();
 
 const app = express();
 
+// Middleware to log all incoming requests for debugging
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] Received ${req.method} request for ${req.url} from ${req.ip}`);
+  next();
+});
+
 // Get current directory (ES module equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

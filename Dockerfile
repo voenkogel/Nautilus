@@ -43,9 +43,10 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm install --omit=dev
 
-# Copy server source code and the final config.json
+# Copy server source code
 COPY server/ ./server/
-COPY config.json ./server/
+# Copy the final config.json to the root of the app directory
+COPY config.json ./
 
 # Copy the built frontend from the 'builder' stage
 # This places the optimized React app into a 'public' directory that the server will use
