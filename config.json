@@ -3,7 +3,8 @@
     "port": 3069,
     "healthCheckInterval": 20000,
     "corsOrigins": [
-      "http://localhost:3070"
+      "http://localhost:3070",
+      "http://localhost:3069"
     ]
   },
   "client": {
