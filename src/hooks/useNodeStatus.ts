@@ -1,14 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import configData from '../../config.json';
-import type { AppConfig } from '../types/config';
+import { Node, Status, AppConfig } from '../types/config';
 
 const appConfig = configData as AppConfig;
-
-// Helper function to get server URL
-const getServerUrl = (port?: number): string => {
-  const serverPort = port || appConfig.server.port;
-  return `http://${appConfig.client.host}:${serverPort}`;
-};
 
 export interface NodeStatus {
   status: 'online' | 'offline' | 'checking';
