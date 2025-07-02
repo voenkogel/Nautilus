@@ -31,12 +31,28 @@ export const useNodeStatus = () => {
   const [lastHealthCheckTime, setLastHealthCheckTime] = useState<number>(0);
   const [isQuerying, setIsQuerying] = useState(false);
 
-  const fetchStatuses = async () => {
+  const fetchConfig = async () => {
     try {
-      const serverUrl = getServerUrl();
-      console.log(`Fetching status from: ${serverUrl}/api/status`);
+      // Use a relative path for API calls. This works in both dev and prod.
+      const response = await fetch('/api/config');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       
-      const response = await fetch(`${serverUrl}/api/status`);
+      const data = await response.json();
+      // Update appConfig with any dynamic values from the server
+      Object.assign(appConfig, data);
+    } catch (err) {
+      console.error('Failed to fetch config:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    }
+  };
+
+  const fetchStatuses = async () => {
+    if (!appConfig) return;
+    try {
+      // Use a relative path for API calls.
+      const response = await fetch('/api/status');
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -79,6 +95,7 @@ export const useNodeStatus = () => {
 
   useEffect(() => {
     // Initial fetch
+    fetchConfig();
     fetchStatuses();
 
     // Set up polling with interval from centralized config
