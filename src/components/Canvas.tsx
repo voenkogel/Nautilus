@@ -1,168 +1,40 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import configData from '../../config.json';
 import type { TreeNode, AppConfig } from '../types/config';
 import { useNodeStatus } from '../hooks/useNodeStatus';
 import { useAppearance } from '../hooks/useAppearance';
 import StatusCard from './StatusCard';
 import Settings from './Settings';
 import { NodeEditor } from './NodeEditor';
-import * as LucideIcons from 'lucide-react';
-import { createElement } from 'react';
-import { renderToString } from 'react-dom/server';
+import { useDeviceDetection } from '../hooks/useDeviceDetection';
+import MobileNodeList from './MobileNodeList';
+import { 
+  iconImageCache, 
+  iconSvgCache, 
+  getIconSvg, 
+  extractIconsFromConfig,
+  drawIconOnCanvas
+} from '../utils/iconUtils';
 
-const appConfig = configData as AppConfig;
-
-// Dynamic icon management using Lucide React
-const iconImageCache = new Map<string, HTMLImageElement>();
-const iconSvgCache = new Map<string, string>();
-
-// Extract all unique icon names from config tree
-const extractIconsFromConfig = (nodes: TreeNode[]): Set<string> => {
-  const icons = new Set<string>();
-  const traverse = (nodeList: TreeNode[]) => {
-    nodeList.forEach(node => {
-      if (node.icon) {
-        icons.add(node.icon);
-      }
-      if (node.children && node.children.length > 0) {
-        traverse(node.children);
-      }
-    });
-  };
-  traverse(nodes);
-  
-  // Always include these essential icons for UI elements
-  icons.add('wrench'); // Edit button
-  icons.add('server'); // Default fallback
-  
-  return icons;
-};
-
-// Convert camelCase/kebab-case to PascalCase for Lucide component names
-const iconNameToPascalCase = (iconName: string): string => {
-  return iconName
-    .split(/[-_]/)
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-    .join('');
-};
-
-// Generate SVG string using Lucide React components
-const generateIconSvg = (iconName: string, color: string): string => {
-  try {
-    // Convert icon name to PascalCase for Lucide component lookup
-    const pascalCaseIcon = iconNameToPascalCase(iconName);
-    const IconComponent = (LucideIcons as any)[pascalCaseIcon];
-    
-    if (IconComponent) {
-      // Use Lucide React to generate SVG
-      const iconElement = createElement(IconComponent, {
-        size: 24,
-        color: color,
-        strokeWidth: 2
-      });
-      
-      const svgString = renderToString(iconElement);
-      return svgString;
-    } else {
-      // Fallback to server icon if not found
-      const ServerIcon = LucideIcons.Server;
-      const fallbackElement = createElement(ServerIcon, {
-        size: 24,
-        color: color,
-        strokeWidth: 2
-      });
-      return renderToString(fallbackElement);
-    }
-  } catch (error) {
-    console.warn(`Failed to generate SVG for icon "${iconName}":`, error);
-    // Ultimate fallback - basic server SVG
-    return `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6" y1="6" y2="6"/><line x1="6" x2="6" y1="18" y2="18"/></svg>`;
-  }
-};
-
-// Get or generate icon SVG with caching
-const getIconSvg = (iconName: string, color: string): string => {
-  const cacheKey = `${iconName}-${color}`;
-  
-  if (iconSvgCache.has(cacheKey)) {
-    return iconSvgCache.get(cacheKey)!;
-  }
-  
-  const svgString = generateIconSvg(iconName, color);
-  iconSvgCache.set(cacheKey, svgString);
-  return svgString;
-};
-
-// Fast and reliable icon rendering using preloaded Lucide icons
-const drawIconOnCanvas = (
-  ctx: CanvasRenderingContext2D,
-  iconName: string,
-  centerX: number,
-  centerY: number,
-  size: number,
-  color: string = '#ffffff',
-  onIconLoaded?: () => void
-) => {
-  const cacheKey = `${iconName}-${color}`;
-  const cachedImage = iconImageCache.get(cacheKey);
-  
-  if (cachedImage && cachedImage.complete) {
-    // Icon is cached and fully loaded, draw it immediately
-    ctx.save();
-    const scale = size / 24;
-    ctx.translate(centerX - (size / 2), centerY - (size / 2));
-    ctx.scale(scale, scale);
-    ctx.drawImage(cachedImage, 0, 0, 24, 24);
-    ctx.restore();
-    return true;
-  } else {
-    // Icon not in cache, try to load it
-    const svgContent = getIconSvg(iconName, color);
-    const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(svgBlob);
-    
-    const img = new Image();
-    img.onload = () => {
-      iconImageCache.set(cacheKey, img);
-      URL.revokeObjectURL(url);
-      if (onIconLoaded) {
-        onIconLoaded();
-      }
-    };
-    img.onerror = () => {
-      // Try fallback to server icon
-      console.warn(`Failed to load icon "${iconName}", falling back to server icon`);
-      const fallbackSvg = getIconSvg('server', color);
-      const fallbackBlob = new Blob([fallbackSvg], { type: 'image/svg+xml' });
-      const fallbackUrl = URL.createObjectURL(fallbackBlob);
-      
-      const fallbackImg = new Image();
-      fallbackImg.onload = () => {
-        iconImageCache.set(cacheKey, fallbackImg); // Cache the fallback
-        URL.revokeObjectURL(fallbackUrl);
-        if (onIconLoaded) {
-          onIconLoaded();
-        }
-      };
-      fallbackImg.onerror = () => {
-        URL.revokeObjectURL(fallbackUrl);
-      };
-      fallbackImg.src = fallbackUrl;
-      
-      URL.revokeObjectURL(url);
-    };
-    img.src = url;
-    
-    // Draw a small loading indicator while icon loads
-    ctx.save();
-    ctx.fillStyle = color;
-    ctx.globalAlpha = 0.3;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, size * 0.15, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    
-    return false; // Icon is loading
+const initialAppConfig: AppConfig = {
+  appearance: {
+    title: "Nautilus",
+    accentColor: "#3b82f6",
+    backgroundImage: "",
+    favicon: "",
+    logo: ""
+  },
+  tree: {
+    nodes: []
+  },
+  server: {
+    port: 3069,
+    healthCheckInterval: 20000,
+    corsOrigins: ["http://localhost:3070"]
+  },
+  client: {
+    port: 3070,
+    host: "localhost",
+    apiPollingInterval: 5000
   }
 };
 
@@ -207,7 +79,7 @@ const Canvas: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(undefined);
   const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
-  const [currentConfig, setCurrentConfig] = useState<AppConfig>(appConfig);
+  const [currentConfig, setCurrentConfig] = useState<AppConfig>(initialAppConfig);
   const [iconLoadCounter, setIconLoadCounter] = useState(0); // Track icon loading to trigger redraws
   const [iconsPreloaded, setIconsPreloaded] = useState(false); // Track icon preloading status
   
@@ -216,8 +88,20 @@ const Canvas: React.FC = () => {
   const hoveredNodeIdRef = useRef(hoveredNodeId);
   const hoveredEditButtonNodeIdRef = useRef(hoveredEditButtonNodeId);
   
-  // Use the status monitoring hook
-  const { getNodeStatus } = useNodeStatus();
+  // Use device detection
+  const { isMobile } = useDeviceDetection();
+  
+  // Use the status monitoring hook, now passing the live config
+  const { 
+    statuses, 
+    isLoading, 
+    error, 
+    isConnected, 
+    nextCheckCountdown, 
+    totalInterval,
+    isQuerying,
+    getNodeStatus 
+  } = useNodeStatus(currentConfig);
 
   // Apply appearance settings
   useAppearance(currentConfig.appearance || { title: 'Nautilus', accentColor: '#3b82f6' });
@@ -229,11 +113,25 @@ const Canvas: React.FC = () => {
         const response = await fetch('/api/config');
         if (response.ok) {
           const serverConfig = await response.json();
-          setCurrentConfig(serverConfig);
+          
+          // Ensure we always have a complete config with proper defaults
+          const completeConfig = {
+            ...initialAppConfig,
+            ...serverConfig,
+            server: { ...initialAppConfig.server, ...serverConfig.server },
+            client: { ...initialAppConfig.client, ...serverConfig.client },
+            appearance: { ...initialAppConfig.appearance, ...serverConfig.appearance },
+            tree: serverConfig.tree || initialAppConfig.tree
+          };
+          
+          setCurrentConfig(completeConfig);
+        } else {
+          console.warn('Failed to fetch config from server, using default');
+          setCurrentConfig(initialAppConfig);
         }
       } catch (error) {
         console.warn('Failed to fetch config from server, using default:', error);
-        // Keep using the imported static config as fallback
+        setCurrentConfig(initialAppConfig);
       }
     };
 
@@ -310,16 +208,8 @@ const Canvas: React.FC = () => {
 
   const handleSaveConfig = async (newConfig: AppConfig) => {
     try {
-      // Update local state immediately for appearance changes
-      setCurrentConfig(newConfig);
-      
-      // Clear icon caches when config changes to force reload of icons with new colors/content
-      iconImageCache.clear();
-      iconSvgCache.clear();
-      setIconsPreloaded(false);
-      
       // Send the config to the server to update the config.json file
-      const response = await fetch(`http://${appConfig.client.host}:${appConfig.server.port}/api/config`, {
+      const response = await fetch('/api/config', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -333,9 +223,18 @@ const Canvas: React.FC = () => {
       }
 
       await response.json();
-
-      // Reload the page to apply the new configuration
-      window.location.reload();
+      
+      // After successful save, fetch the updated config from server to ensure sync
+      const configResponse = await fetch('/api/config');
+      if (configResponse.ok) {
+        const updatedConfig = await configResponse.json();
+        setCurrentConfig(updatedConfig);
+        
+        // Clear icon caches when config changes to force reload of icons with new colors/content
+        iconImageCache.clear();
+        iconSvgCache.clear();
+        setIconsPreloaded(false);
+      }
     } catch (error) {
       console.error('Error saving configuration:', error);
       alert(`Failed to save configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -343,18 +242,51 @@ const Canvas: React.FC = () => {
   };
   
   const handleEditNode = (nodeId: string) => {
-    const node = findNodeById(currentConfig.tree.nodes, nodeId);
-    if (node) {
-      setEditingNode(node);
+    try {
+      const node = findNodeById(currentConfig.tree.nodes, nodeId);
+      if (node) {
+        // Create a deep copy to avoid reference issues
+        try {
+          const nodeCopy = JSON.parse(JSON.stringify(node));
+          setEditingNode(nodeCopy);
+        } catch (error) {
+          console.error("JSON serialization failed:", error);
+          // Fallback to a simpler manual copy
+          const basicCopy = {
+            ...node,
+            children: node.children ? [...node.children] : []
+          };
+          setEditingNode(basicCopy);
+        }
+      }
+    } catch (error) {
+      console.error("Error setting editing node:", error);
+      // Fallback: If JSON serialization fails, try basic copy
+      const node = findNodeById(currentConfig.tree.nodes, nodeId);
+      if (node) {
+        setEditingNode({...node, children: node.children ? [...node.children] : []});
+      }
     }
   };
 
   const handleEditChildNode = (childNode: TreeNode) => {
-    // Directly set the editing node to the child with a small delay
-
-    setTimeout(() => {
-      setEditingNode(childNode);
-    }, 10);
+    // Create a safe copy of the node before setting it
+    try {
+      const nodeCopy = JSON.parse(JSON.stringify(childNode));
+      setTimeout(() => {
+        setEditingNode(nodeCopy);
+      }, 10);
+    } catch (error) {
+      console.error("JSON serialization failed in handleEditChildNode:", error);
+      // Fallback to a simpler manual copy
+      const basicCopy = {
+        ...childNode,
+        children: childNode.children ? [...childNode.children] : []
+      };
+      setTimeout(() => {
+        setEditingNode(basicCopy);
+      }, 10);
+    }
   };
 
   const handleSaveNode = (updatedNode: TreeNode) => {
@@ -390,13 +322,13 @@ const Canvas: React.FC = () => {
     if (!editingNode) return;
 
     // Helper function to remove node from the tree
-    const removeNodeFromTree = (nodes: TreeNode[]): TreeNode[] => {
+    const removeNodeFromTree = (nodes: TreeNode[], nodeIdToRemove: string): TreeNode[] => {
       return nodes.filter(node => {
-        if (node.id === editingNode.id) {
+        if (node.id === nodeIdToRemove) {
           return false;
         }
         if (node.children) {
-          node.children = removeNodeFromTree(node.children);
+          node.children = removeNodeFromTree(node.children, nodeIdToRemove);
         }
         return true;
       });
@@ -406,7 +338,7 @@ const Canvas: React.FC = () => {
       ...currentConfig,
       tree: {
         ...currentConfig.tree,
-        nodes: removeNodeFromTree(currentConfig.tree.nodes)
+        nodes: removeNodeFromTree(currentConfig.tree.nodes, editingNode.id)
       }
     };
 
@@ -422,11 +354,9 @@ const Canvas: React.FC = () => {
 
   // Load background image from config
   useEffect(() => {
-    if (!currentConfig.appearance?.backgroundImage) {
-      setBackgroundLoaded(false);
-      backgroundImageRef.current = null;
-      return;
-    }
+    // Always try to load a background image (use default if config is empty)
+    const configBackgroundImage = currentConfig.appearance?.backgroundImage;
+    const backgroundImageToUse = configBackgroundImage || '/background.png';
     
     // Try multiple approaches to load the background image
     const tryLoadImage = (imagePath: string) => {
@@ -454,8 +384,8 @@ const Canvas: React.FC = () => {
     
     // List of paths to try, in order of preference
     const imagePaths = [
-      currentConfig.appearance.backgroundImage, // Original path from config
-      window.location.origin + currentConfig.appearance.backgroundImage, // Absolute URL
+      backgroundImageToUse, // Either config image or default
+      window.location.origin + backgroundImageToUse, // Absolute URL
       '/background.png', // Fallback to default
       window.location.origin + '/background.png', // Absolute URL of default
       'public/background.png', // Try public folder directly
@@ -1086,6 +1016,11 @@ const Canvas: React.FC = () => {
     hoveredEditButtonNodeIdRef.current = hoveredEditButtonNodeId;
   }, [hoveredEditButtonNodeId]);
 
+  const resetView = useCallback(() => {
+    // Reset to the initial calculated transform
+    setTransform(initialTransform);
+  }, [initialTransform]);
+
   const fitToContent = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1266,7 +1201,7 @@ const Canvas: React.FC = () => {
     setHoveredEditButtonNodeId(null);
   };
 
-  const handleWheel = (e: React.WheelEvent) => {
+  const handleWheel = useCallback((e: WheelEvent) => {
     e.preventDefault();
     
     const canvas = canvasRef.current;
@@ -1289,7 +1224,7 @@ const Canvas: React.FC = () => {
       y: newY,
       scale: newScale
     });
-  };
+  }, [transform]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1302,13 +1237,20 @@ const Canvas: React.FC = () => {
       requestDraw();
     };
 
+    // Add wheel event listener manually to avoid passive event listener issues
+    const wheelHandler = (e: WheelEvent) => {
+      handleWheel(e);
+    };
+
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
+    canvas.addEventListener('wheel', wheelHandler, { passive: false });
 
     return () => {
       window.removeEventListener('resize', resizeCanvas);
+      canvas.removeEventListener('wheel', wheelHandler);
     };
-  }, [requestDraw]);
+  }, [requestDraw, handleWheel]);
 
   // Only redraw on essential changes, not on every draw function recreation
   useEffect(() => {
@@ -1359,6 +1301,36 @@ const Canvas: React.FC = () => {
     }
   }, [backgroundLoaded, isInitialized, fitToContent]);
 
+  // Handle node click in mobile view
+  const handleMobileNodeClick = useCallback((node: TreeNode) => {
+    if (node.url) {
+      const url = node.url.includes('://') ? node.url : `https://${node.url}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  }, []);
+
+  const handleMobileEditClick = useCallback((node: TreeNode) => {
+    try {
+      // Create a deep copy to avoid reference issues
+      const nodeCopy = JSON.parse(JSON.stringify(node));
+      setEditingNode(nodeCopy);
+    } catch (error) {
+      console.error("Error setting editing node:", error);
+      // Fallback: If JSON serialization fails, try basic copy
+      try {
+        // Try a simpler manual copy approach
+        const basicCopy = {
+          ...node,
+          children: node.children ? [...node.children] : []
+        };
+        setEditingNode(basicCopy);
+      } catch (secondError) {
+        console.error("Both copy methods failed:", secondError);
+        alert("Could not edit node. Please try again.");
+      }
+    }
+  }, []);
+
   // Effect to test API connectivity when the component mounts
   useEffect(() => {
     const testApiConnectivity = async () => {
@@ -1387,32 +1359,125 @@ const Canvas: React.FC = () => {
         />
       )}
       
-      <canvas
-        ref={canvasRef}
-        className={`w-full h-full ${isHoveringNode ? 'cursor-pointer' : isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
-        onWheel={handleWheel}
-      />
+      {/* Desktop view with canvas */}
+      {!isMobile && (
+        <>
+          <canvas
+            ref={canvasRef}
+            className={`w-full h-full ${isHoveringNode ? 'cursor-pointer' : isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+            onMouseDown={handleMouseDown}
+            onMouseMove={handleMouseMove}
+            onMouseUp={handleMouseUp}
+            onMouseLeave={handleMouseLeave}
+          />
+          
+          {/* Controls - only show when user has moved away from initial position */}
+          {hasMovedFromInitial() && (
+            <div className="absolute bottom-4 left-4">
+              <button
+                onClick={resetView}
+                className="bg-white/90 hover:bg-white text-gray-800 px-3 py-2 rounded-lg shadow-md transition-colors text-sm font-medium font-roboto"
+              >
+                Reset View
+              </button>
+            </div>
+          )}
+        </>
+      )}
       
-      {/* Controls - only show when user has moved away from initial position */}
-      {hasMovedFromInitial() && (
-        <div className="absolute top-4 left-4">
-          <button
-            onClick={fitToContent}
-            className="bg-white/90 hover:bg-white text-gray-800 px-3 py-2 rounded-lg shadow-md transition-colors text-sm font-medium font-roboto"
-          >
-            Fit to Content
-          </button>
+      {/* Mobile view with vertical list */}
+      {isMobile && (
+        <div className="h-full relative">
+          {/* Background image for mobile view - covers entire screen */}
+          <div 
+            className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
+            style={{ 
+              backgroundImage: `url(${currentConfig.appearance?.backgroundImage || '/background.png'})`,
+              opacity: 0.3,
+              backgroundSize: 'cover'
+            }} 
+          />
+          {/* Fallback background in case the first one fails */}
+          {!backgroundLoaded && (
+            <div 
+              className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
+              style={{ 
+                backgroundImage: 'url(/background.png)',
+                opacity: 0.3 
+              }} 
+            />
+          )}
+          
+          {/* Single scrollable container with status card and nodes */}
+          <div className="relative z-10 h-full overflow-auto bg-transparent">
+            <MobileNodeList 
+              nodes={currentConfig.tree.nodes} 
+              statuses={statuses}
+              onNodeClick={handleMobileNodeClick}
+              onEditClick={handleMobileEditClick}
+              appConfig={currentConfig}
+              statusCard={
+                <StatusCard
+                  onOpenSettings={() => setIsSettingsOpen(true)}
+                  appConfig={currentConfig}
+                  statuses={statuses}
+                  isLoading={isLoading}
+                  error={error}
+                  isConnected={isConnected}
+                  nextCheckCountdown={nextCheckCountdown}
+                  totalInterval={totalInterval}
+                  isQuerying={isQuerying}
+                />
+              }
+            />
+          </div>
         </div>
       )}
       
-      {/* Status Card */}
-      <div className="absolute top-4 right-4">
-        <StatusCard onOpenSettings={() => setIsSettingsOpen(true)} />
-      </div>
+      {/* Status Card - only show on desktop, mobile has it embedded */}
+      {!isMobile && (
+        <div className="absolute top-4 right-4 z-20">
+          <StatusCard 
+            onOpenSettings={() => setIsSettingsOpen(true)} 
+            appConfig={currentConfig}
+            statuses={statuses}
+            isLoading={isLoading}
+            error={error}
+            isConnected={isConnected}
+            nextCheckCountdown={nextCheckCountdown}
+            totalInterval={totalInterval}
+            isQuerying={isQuerying}
+          />
+        </div>
+      )}
+
+      {/* Desktop Logo - top left corner */}
+      {!isMobile && (
+        <div className="absolute top-4 left-4 z-20">
+          {(currentConfig?.appearance?.logo || currentConfig?.appearance?.favicon) ? (
+            <img 
+              src={currentConfig.appearance.logo || currentConfig.appearance.favicon} 
+              alt={currentConfig.appearance.title || 'Logo'} 
+              className="w-24 h-24 opacity-90 filter drop-shadow-lg bg-white/20 backdrop-blur-sm rounded-xl p-3"
+              onError={(e) => {
+                // Fallback to default icon
+                console.warn('Logo failed to load, trying fallback');
+                e.currentTarget.src = '/nautilusIcon.png';
+              }}
+            />
+          ) : (
+            <img 
+              src="/nautilusIcon.png" 
+              alt="Nautilus" 
+              className="w-24 h-24 opacity-90 filter drop-shadow-lg bg-white/20 backdrop-blur-sm rounded-xl p-3"
+              onError={(e) => {
+                // Hide if fallback also fails
+                e.currentTarget.style.display = 'none';
+              }}
+            />
+          )}
+        </div>
+      )}
 
       {/* Settings Modal - Rendered at root level for full page overlay */}
       <Settings
@@ -1437,6 +1502,13 @@ const Canvas: React.FC = () => {
           appearance={currentConfig.appearance}
         />
       )}
+
+      {/* Mobile Node List - Shown only on mobile devices */}
+      {/* {isMobile && currentConfig.tree.nodes.length > 0 && (
+        <div className="absolute inset-0 z-10 p-4 pointer-events-none">
+          <MobileNodeList nodes={currentConfig.tree.nodes} />
+        </div>
+      )} */}
     </div>
   );
 };

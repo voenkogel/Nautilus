@@ -1,23 +1,32 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import configData from './config.json'
-import type { AppConfig } from './src/types/config'
 
-const appConfig = configData as AppConfig
+// Use default ports instead of importing config.json at build time
+// The backend will be the single source of truth for configuration
+const serverHost = 'localhost';
+const serverPort = 3069;
+const clientPort = 3070;
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: appConfig.client.port,
+    port: clientPort,
+    host: serverHost,
     strictPort: true, // Don't allow fallback ports
     proxy: {
       // Proxy API requests to the backend server
       '/api': {
-        target: `http://localhost:${appConfig.server.port}`,
+        target: `http://${serverHost}:${serverPort}`,
         changeOrigin: true,
         secure: false,
+        ws: true, // proxy websockets
       }
+    },
+    // Exclude config.json from Vite's watch list
+    // See: https://vitejs.dev/config/server-options.html#server-watch
+    watch: {
+      ignored: ['**/config.json']
     }
   },
   // Configure build output

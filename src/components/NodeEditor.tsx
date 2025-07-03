@@ -12,7 +12,10 @@ interface NodeEditorProps {
   appearance: AppearanceConfig;
 }
 
-export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, onDelete, onEditChild, appearance }) => {
+export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, onDelete, onEditChild, appearance = { title: 'Nautilus', accentColor: '#3b82f6' } }) => {
+  // Ensure we have a valid appearance object with default values
+  const safeAppearance = appearance || { title: 'Nautilus', accentColor: '#3b82f6' };
+  
   const [editedNode, setEditedNode] = useState<TreeNode>({ ...node });
   const [iconPreview, setIconPreview] = useState<string | null>(null);
 
@@ -76,7 +79,7 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
       if (IconComponent) {
         return (
           <div className="flex items-center justify-center w-8 h-8 bg-gray-100 rounded border">
-            <IconComponent size={20} style={{ color: appearance.accentColor }} />
+            <IconComponent size={20} style={{ color: safeAppearance.accentColor }} />
           </div>
         );
       }
@@ -167,17 +170,17 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
                        (!editedNode.type && type.value === 'square') ||
                        ((editedNode.type as any) === 'hardware' && type.value === 'square') ||
                        ((editedNode.type as any) === 'software' && type.value === 'circular'))
-                      ? appearance.accentColor : undefined,
+                      ? (safeAppearance.accentColor || '#3b82f6') : undefined,
                     backgroundColor: (editedNode.type === type.value || 
                        (!editedNode.type && type.value === 'square') ||
                        ((editedNode.type as any) === 'hardware' && type.value === 'square') ||
                        ((editedNode.type as any) === 'software' && type.value === 'circular'))
-                      ? `${appearance.accentColor}15` : undefined,
+                      ? `${safeAppearance.accentColor || '#3b82f6'}15` : undefined,
                     color: (editedNode.type === type.value || 
                        (!editedNode.type && type.value === 'square') ||
                        ((editedNode.type as any) === 'hardware' && type.value === 'square') ||
                        ((editedNode.type as any) === 'software' && type.value === 'circular'))
-                      ? appearance.accentColor : undefined
+                      ? (safeAppearance.accentColor || '#3b82f6') : undefined
                   }}>
                     <div className="font-medium text-sm">{type.label}</div>
                     <div className="text-xs mt-1 opacity-75">{type.subtitle}</div>
@@ -293,7 +296,7 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
             <button
               onClick={handleSave}
               className="px-4 py-2 text-white rounded-md transition-colors"
-              style={{ backgroundColor: appearance.accentColor }}
+              style={{ backgroundColor: safeAppearance.accentColor }}
             >
               Save
             </button>

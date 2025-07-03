@@ -114,23 +114,43 @@ function extractAllNodeIdentifiers(nodes = appConfig.tree.nodes) {
 }
 
 // Initialize statuses code (moved before health check)
-function initializeNodeStatuses() {
-  // Clear existing statuses
-  nodeStatuses.clear();
-  
+function initializeNodeStatuses(preserveExisting = false) {
   // Get fresh list of node identifiers
   const nodeIdentifiers = extractAllNodeIdentifiers();
-
   
-  // Initialize all nodes as offline with normalized keys
-  nodeIdentifiers.forEach(identifier => {
-    // The identifier is already normalized by extractAllNodeIdentifiers
-    nodeStatuses.set(identifier, { 
-      status: 'offline', 
-      lastChecked: new Date(),
-      error: 'Not yet checked'
+  if (preserveExisting) {
+    // Preserve existing statuses and only add new nodes or remove deleted ones
+    const existingStatuses = new Map(nodeStatuses);
+    nodeStatuses.clear();
+    
+    // Add back statuses for nodes that still exist, or initialize new ones
+    nodeIdentifiers.forEach(identifier => {
+      if (existingStatuses.has(identifier)) {
+        // Preserve existing status
+        nodeStatuses.set(identifier, existingStatuses.get(identifier));
+      } else {
+        // Initialize new node as offline
+        nodeStatuses.set(identifier, { 
+          status: 'offline', 
+          lastChecked: new Date(),
+          error: 'Not yet checked'
+        });
+      }
     });
-  });
+  } else {
+    // Clear existing statuses (initial startup behavior)
+    nodeStatuses.clear();
+    
+    // Initialize all nodes as offline with normalized keys
+    nodeIdentifiers.forEach(identifier => {
+      // The identifier is already normalized by extractAllNodeIdentifiers
+      nodeStatuses.set(identifier, { 
+        status: 'offline', 
+        lastChecked: new Date(),
+        error: 'Not yet checked'
+      });
+    });
+  }
   
   return nodeIdentifiers;
 }
@@ -272,7 +292,7 @@ async function checkAllNodes() {
   
   const promises = nodeIdentifiers.map(async (identifier) => {
     const result = await checkNodeHealth(identifier);
-    const normalizedIdentifier = normalizeIdentifier(identifier);
+    const normalizedIdentifier = normalizeNodeIdentifier(identifier);
     
     // Log the result with emoji
     const emoji = result.status === 'online' ? '✅' : '❌';
@@ -326,15 +346,8 @@ app.get('/api/status', (req, res) => {
 
 // API endpoint to get centralized config
 app.get('/api/config', (req, res) => {
-  res.json({
-    tree: appConfig.tree,
-    server: {
-      healthCheckInterval: appConfig.server.healthCheckInterval
-    },
-    client: {
-      apiPollingInterval: appConfig.client?.apiPollingInterval || 5000
-    }
-  });
+  // Return the FULL merged config, not just partial fields
+  res.json(appConfig);
 });
 
 // API endpoint to update the configuration
@@ -351,11 +364,18 @@ app.put('/api/config', (req, res) => {
     const configPath = join(__dirname, '../config.json');
     writeFileSync(configPath, JSON.stringify(newConfig, null, 2), 'utf8');
     
-    console.log('✅ Configuration updated successfully');
+    // Update the in-memory config immediately (no restart needed)
+    appConfig = newConfig;
+    
+    // Reinitialize node monitoring with new config, preserving existing statuses
+    const nodeIdentifiers = initializeNodeStatuses(true);
+    console.log(`🔄 Config updated - now monitoring ${nodeIdentifiers.length} nodes (preserving existing statuses)`);
+    
+    console.log('✅ Configuration updated and applied immediately');
     
     res.json({ 
       success: true, 
-      message: 'Configuration updated successfully. Please restart the server to apply changes.' 
+      message: 'Configuration updated and applied successfully!' 
     });
   } catch (error) {
     console.error('❌ Failed to update configuration:', error);

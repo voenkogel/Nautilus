@@ -12,11 +12,11 @@ interface SettingsProps {
 }
 
 const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onSave, focusNodeId }) => {
-  const [config, setConfig] = useState<AppConfig>(initialConfig);
+  const [config, setConfig] = useState<AppConfig>(() => JSON.parse(JSON.stringify(initialConfig)));
   const [activeTab, setActiveTab] = useState<'general' | 'nodes' | 'appearance'>('general');
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [iconDropdownOpen, setIconDropdownOpen] = useState<string | null>(null);
-  const [fileErrors, setFileErrors] = useState<{ favicon?: string; backgroundImage?: string }>({});
+  const [fileErrors, setFileErrors] = useState<{ favicon?: string; backgroundImage?: string; logo?: string }>({});
 
   // Simple list of common/popular icons for suggestions (optional)
   const commonIcons = [
@@ -135,9 +135,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [iconDropdownOpen]);
 
-  // Update local config when initialConfig changes
+  // Update local config when initialConfig changes, ensuring a deep copy
   useEffect(() => {
-    setConfig(initialConfig);
+    setConfig(JSON.parse(JSON.stringify(initialConfig)));
   }, [initialConfig]);
 
   const handleSave = () => {
@@ -175,7 +175,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }));
   };
 
-  const handleFileUpload = (file: File, field: 'favicon' | 'backgroundImage') => {
+  const handleFileUpload = (file: File, field: 'favicon' | 'backgroundImage' | 'logo') => {
     setFileErrors(prev => ({ ...prev, [field]: undefined })); // Clear previous error
 
     if (!file) return;
@@ -782,7 +782,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
               <div className="space-y-6">
                 <h4 className="text-md font-medium text-gray-800 border-b border-gray-200 pb-2">File Uploads</h4>
                 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 gap-6">
                   {/* Favicon Upload */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Favicon</label>
@@ -838,6 +838,64 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                     </div>
                     {fileErrors.favicon && (
                       <p className="text-xs text-red-600 mt-2">{fileErrors.favicon}</p>
+                    )}
+                  </div>
+
+                  {/* Logo Upload */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Logo (fallback to favicon if empty)</label>
+                    
+                    {/* Current Logo Preview */}
+                    {config.appearance?.logo && (
+                      <div className="mb-3 flex items-center space-x-3">
+                        <img 
+                          src={config.appearance.logo} 
+                          alt="Current logo" 
+                          className="w-12 h-12 border border-gray-300 rounded"
+                        />
+                        <button
+                          onClick={() => updateAppearanceConfig('logo', '')}
+                          className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 border border-red-300 rounded transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                    
+                    {/* Drag and Drop Area */}
+                    <div
+                      onClick={() => document.getElementById('logo-upload')?.click()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const file = e.dataTransfer.files[0];
+                        handleFileUpload(file, 'logo');
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDragEnter={(e) => e.preventDefault()}
+                      className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
+                    >
+                      <div className="space-y-2">
+                        <svg className="mx-auto h-8 w-8 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                          <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <div className="text-sm text-gray-600">
+                          <span className="font-medium text-blue-600 hover:text-blue-500">Click to upload</span> or drag and drop
+                        </div>
+                        <p className="text-xs text-gray-500">Recommended: square format, 256x256 or larger (max 5MB)</p>
+                      </div>
+                      <input
+                        id="logo-upload"
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleFileUpload(file, 'logo');
+                        }}
+                        className="hidden"
+                      />
+                    </div>
+                    {fileErrors.logo && (
+                      <p className="text-xs text-red-600 mt-2">{fileErrors.logo}</p>
                     )}
                   </div>
 

@@ -24,6 +24,7 @@ export interface ClientConfig {
 export interface AppearanceConfig {
   title: string;
   favicon?: string; // base64 encoded favicon
+  logo?: string; // base64 encoded logo image (falls back to favicon if not set)
   accentColor: string;
   backgroundImage?: string; // base64 encoded background image
 }
@@ -35,4 +36,10 @@ export interface AppConfig {
   tree: {
     nodes: TreeNode[];
   };
+}
+
+export interface NodeStatus {
+  status: 'online' | 'offline' | 'checking';
+  latency?: number;
+  lastChecked: string;
 }

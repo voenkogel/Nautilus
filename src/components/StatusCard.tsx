@@ -1,10 +1,6 @@
 import React, { useState } from 'react';
 import { Settings as SettingsIcon, ChevronDown, ChevronRight } from 'lucide-react';
-import { useNodeStatus } from '../hooks/useNodeStatus';
-import configData from '../../config.json';
-import type { AppConfig, TreeNode } from '../types/config';
-
-const appConfig = configData as AppConfig;
+import type { AppConfig, TreeNode, NodeStatus } from '../types/config';
 
 // Helper function to extract all node identifiers (IP or URL) from the tree
 const extractAllNodeIdentifiers = (nodes: TreeNode[]): string[] => {
@@ -29,13 +25,30 @@ const extractAllNodeIdentifiers = (nodes: TreeNode[]): string[] => {
 
 interface StatusCardProps {
   onOpenSettings: () => void;
+  appConfig: AppConfig;
+  statuses: { [key: string]: NodeStatus };
+  isLoading: boolean;
+  error: string | null;
+  isConnected: boolean;
+  nextCheckCountdown: number;
+  totalInterval: number;
+  isQuerying: boolean;
 }
 
-const StatusCard: React.FC<StatusCardProps> = ({ onOpenSettings }) => {
+const StatusCard: React.FC<StatusCardProps> = ({ 
+  onOpenSettings,
+  appConfig,
+  statuses,
+  isLoading,
+  error,
+  isConnected,
+  nextCheckCountdown,
+  totalInterval,
+  isQuerying
+}) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const { statuses, isLoading, error, isConnected, nextCheckCountdown, totalInterval, isQuerying } = useNodeStatus();
 
-  // Get all node identifiers (IP or URL) from the centralized config
+  // Get all node identifiers (IP or URL) from the centralized config passed as a prop
   const allNodeIdentifiers = extractAllNodeIdentifiers(appConfig.tree.nodes);
   
   // Only count nodes that have identifiers (exclude grey/loading nodes)
@@ -63,7 +76,9 @@ const StatusCard: React.FC<StatusCardProps> = ({ onOpenSettings }) => {
   const healthPercentage = totalNodes > 0 ? (healthyNodes / totalNodes) * 100 : 0;
 
   // Calculate progress for countdown (0 to 1)
-  const countdownProgress = totalInterval > 0 ? (totalInterval - nextCheckCountdown) / totalInterval : 0;
+  const countdownProgress = totalInterval > 0 && nextCheckCountdown > 0 
+    ? ((totalInterval - (nextCheckCountdown * 1000)) / totalInterval) 
+    : 0;
 
   // Circular progress bar component with querying state
   const CircularProgress: React.FC<{ progress: number; size: number; isQuerying: boolean }> = ({ progress, size, isQuerying }) => {
@@ -122,7 +137,7 @@ const StatusCard: React.FC<StatusCardProps> = ({ onOpenSettings }) => {
         {/* Timer text - only show when not querying */}
         <div className="absolute inset-0 flex items-center justify-center">
           <span className="text-xs font-medium text-gray-600 font-roboto">
-            {Math.ceil(nextCheckCountdown / 1000)}
+            {nextCheckCountdown > 0 ? Math.ceil(nextCheckCountdown) : '⏱️'}
           </span>
         </div>
       </div>
@@ -186,8 +201,8 @@ const StatusCard: React.FC<StatusCardProps> = ({ onOpenSettings }) => {
               <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
               <span className="text-sm font-medium text-gray-800 font-roboto">System Health</span>
             </div>
-            {/* Show countdown timer only when connected */}
-            {isConnected && (
+            {/* Show countdown timer when connected and not error state */}
+            {isConnected && !error && totalInterval > 0 && (
               <CircularProgress progress={countdownProgress} size={24} isQuerying={isQuerying} />
             )}
             {/* Show disconnected status when not connected */}
