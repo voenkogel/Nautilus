@@ -6,12 +6,18 @@ export const useAppearance = (appearance: AppearanceConfig) => {
     if (appearance.title) {
       document.title = appearance.title;
     }
-    if (appearance.favicon) {
-      const favicon = document.getElementById('favicon') as HTMLLinkElement;
-      if (favicon) {
+    
+    // Handle favicon with fallback to Nautilus icon
+    const favicon = document.getElementById('favicon') as HTMLLinkElement;
+    if (favicon) {
+      if (appearance.favicon) {
         favicon.href = appearance.favicon;
+      } else {
+        // Fallback to Nautilus icon if no favicon is provided
+        favicon.href = '/nautilusIcon.png';
       }
     }
+    
     if (appearance.accentColor) {
       document.documentElement.style.setProperty('--accent-color', appearance.accentColor);
     }

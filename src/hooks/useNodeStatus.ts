@@ -4,6 +4,7 @@ import type { AppConfig, TreeNode } from '../types/config';
 export interface NodeStatus {
   status: 'online' | 'offline' | 'checking';
   lastChecked: string;
+  statusChangedAt?: string; // Timestamp when status last changed
   responseTime?: number;
   error?: string;
 }
@@ -65,7 +66,24 @@ export const useNodeStatus = (appConfig: AppConfig) => {
       const data: StatusResponse = await response.json();
       
       if (data && data.statuses) {
-        setStatuses(data.statuses);
+        // Compare with previous statuses to detect changes and preserve statusChangedAt
+        setStatuses(prevStatuses => {
+          const newStatuses: Record<string, NodeStatus> = {};
+          const now = new Date().toISOString();
+          
+          Object.entries(data.statuses).forEach(([nodeId, newStatus]) => {
+            const prevStatus = prevStatuses[nodeId];
+            
+            newStatuses[nodeId] = {
+              ...newStatus,
+              statusChangedAt: (prevStatus && prevStatus.status === newStatus.status) 
+                ? prevStatus.statusChangedAt || now  // Keep existing timestamp if status unchanged
+                : now  // Update timestamp if status changed or no previous status
+            };
+          });
+          
+          return newStatuses;
+        });
         setIsConnected(true);
       } else {
         console.warn('Received empty or invalid status data from server');
@@ -78,15 +96,25 @@ export const useNodeStatus = (appConfig: AppConfig) => {
       setIsConnected(false);
       
       // When the server is unreachable, mark all nodes as offline
-      const offlineStatuses: Record<string, NodeStatus> = {};
-      nodeIdentifiers.forEach(id => {
-        offlineStatuses[id] = {
-          status: 'offline',
-          lastChecked: new Date().toISOString(),
-          error: 'Server unreachable'
-        };
+      setStatuses(prevStatuses => {
+        const offlineStatuses: Record<string, NodeStatus> = {};
+        const now = new Date().toISOString();
+        
+        nodeIdentifiers.forEach(id => {
+          const prevStatus = prevStatuses[id];
+          
+          offlineStatuses[id] = {
+            status: 'offline',
+            lastChecked: now,
+            error: 'Server unreachable',
+            statusChangedAt: (prevStatus && prevStatus.status === 'offline') 
+              ? prevStatus.statusChangedAt || now  // Keep existing timestamp if already offline
+              : now  // Update timestamp if status changed to offline
+          };
+        });
+        
+        return offlineStatuses;
       });
-      setStatuses(offlineStatuses);
     } finally {
       setIsQuerying(false);
       setIsLoading(false);

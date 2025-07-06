@@ -16,7 +16,7 @@
         "ip": "proxmox.lan:8006",
         "url": "proxmox.koenvogel.com",
         "icon": "tv",
-        "type": "angular",
+        "type": "square",
         "children": [
           {
             "id": "child-1-1",
@@ -74,8 +74,24 @@
                         "type": "square",
                         "icon": "server",
                         "children": []
+                      },
+                      {
+                        "id": "node_1751804932655",
+                        "title": "New Node",
+                        "subtitle": "New subtitle",
+                        "type": "square",
+                        "icon": "server",
+                        "children": []
                       }
                     ]
+                  },
+                  {
+                    "id": "node_1751804592476",
+                    "title": "New Node",
+                    "subtitle": "New subtitle",
+                    "type": "square",
+                    "icon": "server",
+                    "children": []
                   }
                 ]
               },

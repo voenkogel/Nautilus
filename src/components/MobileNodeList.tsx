@@ -3,6 +3,27 @@ import type { TreeNode, AppearanceConfig } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
 import { getIconSvg } from '../utils/iconUtils';
 
+// Utility function to format time duration since status change
+const formatTimeSince = (timestamp: string): string => {
+  const now = new Date();
+  const then = new Date(timestamp);
+  const diffMs = now.getTime() - then.getTime();
+  const diffSeconds = Math.floor(diffMs / 1000);
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffDays > 0) {
+    return `${diffDays}d`;
+  } else if (diffHours > 0) {
+    return `${diffHours}h`;
+  } else if (diffMinutes > 0) {
+    return `${diffMinutes}m`;
+  } else {
+    return `${Math.max(1, diffSeconds)}s`;
+  }
+};
+
 interface MobileNodeListProps {
   nodes: TreeNode[];
   statuses: Record<string, NodeStatus>;
@@ -45,7 +66,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
   };
 
   // Render a node and its children recursively
-  const renderNode = useCallback((node: TreeNode, level: number = 0, isLastChild: boolean = true, parentPath: boolean[] = []) => {
+  const renderNode = useCallback((node: TreeNode, level: number = 0, isLastChild: boolean = true, parentPath: boolean[] = [], childIndex: number = 0) => {
     const { id, title, subtitle, ip, url, icon, type, children } = node;
     
     // Get status for this node
@@ -53,12 +74,18 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
     const status = nodeIdentifier ? statuses[nodeIdentifier] : undefined;
     let statusColor = '#6b7280'; // Default gray
     
-    if (status) {
+    // Check if node has web GUI disabled
+    const hasWebGuiDisabled = node.hasWebGui === false;
+    
+    if (status && !hasWebGuiDisabled) {
       if (status.status === 'online') {
         statusColor = '#10b981'; // Green
       } else if (status.status === 'offline') {
         statusColor = '#ef4444'; // Red
       }
+    } else {
+      // Gray color for disabled nodes or nodes without status
+      statusColor = '#6b7280';
     }
     
     // Get SVG for the icon if available
@@ -72,19 +99,23 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
     // Calculate connection line offset
     const connectionOffset = 16; // Base indentation per level
     
+    // Determine if this is first or last child (for rounded corners)
+    const isFirstChild = childIndex === 0;
+    const isFirstOrLastChild = isFirstChild || isLastChild;
+    
     return (
       <div key={id} className="relative">
         {/* Connection lines for tree structure */}
         {level > 0 && (
           <div className="absolute left-0 top-0 h-full pointer-events-none z-0">
-            {/* Render vertical lines for each parent level */}
+            {/* Render vertical lines for each parent level using simple divs */}
             {parentPath.map((hasMoreSiblings, index) => (
               hasMoreSiblings && (
                 <div
                   key={index}
                   className="absolute bg-gray-500"
                   style={{
-                    left: `${(index + 1) * connectionOffset - 9}px`,
+                    left: `${(index + 1) * connectionOffset - 8}px`,
                     top: 0,
                     width: '3px',
                     height: '100%'
@@ -93,51 +124,90 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
               )
             ))}
             
-            {/* Horizontal line to this node - extends to card center */}
-            <div
-              className="absolute bg-gray-500 z-0"
+            {/* Connection for this node using SVG for proper rounded corners */}
+            <svg
+              className="absolute"
               style={{
-                left: `${level * connectionOffset - 9}px`,
-                top: '42px', // Center of the smaller card (84px height / 2)
-                width: `${connectionOffset + 9}px`, // Extend all the way to card
-                height: '3px'
+                left: `${level * connectionOffset - 10}px`,
+                top: '-56px', // Start above the card
+                width: `${connectionOffset + 20}px`,
+                height: '144px', // Cover the connection area plus some buffer
+                overflow: 'visible'
               }}
-            />
-            
-            {/* Vertical line for this level - extends through gaps including upward to parent center */}
-            <div
-              className="absolute bg-gray-500"
-              style={{
-                left: `${level * connectionOffset - 9}px`,
-                top: '-54px', // Adjusted for smaller gap (42px card center + 12px gap)
-                width: '3px',
-                height: isLastChild ? '96px' : `calc(100% + 60px)` // Adjusted for smaller card height
-              }}
-            />
+            >
+              {/* Define the path based on whether this should have rounded corners */}
+              <g stroke="#6b7280" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                {isFirstOrLastChild ? (
+                  // Rounded corner path for first/last children
+                  <>
+                    {/* Vertical line from top */}
+                    <line x1="3" y1="0" x2="3" y2="92" />
+                    
+                    {/* Rounded corner using path */}
+                    <path d="M 3 92 Q 3 100 11 100" />
+                    
+                    {/* Horizontal line to card */}
+                    <line x1="11" y1="100" x2={connectionOffset + 8} y2="100" />
+                    
+                    {/* Continuation down if not last child */}
+                    {!isLastChild && <line x1="3" y1="100" x2="3" y2="144" />}
+                  </>
+                ) : (
+                  // Sharp corner path for middle children (T-junctions)
+                  <>
+                    {/* Vertical line from top */}
+                    <line x1="3" y1="0" x2="3" y2="100" />
+                    
+                    {/* Horizontal line to card */}
+                    <line x1="3" y1="100" x2={connectionOffset + 8} y2="100" />
+                    
+                    {/* Continuation down if not last child */}
+                    {!isLastChild && <line x1="3" y1="100" x2="3" y2="144" />}
+                  </>
+                )}
+              </g>
+            </svg>
           </div>
         )}
         
         <div 
-          className={`relative flex items-center p-3 bg-white/90 shadow-lg border border-gray-100 h-[84px] z-10 ${cardStyle}`}
+          className={`relative flex items-center p-3 bg-white/90 shadow-lg border border-gray-100 h-[88px] z-10 ${cardStyle}`}
           style={{ 
             marginLeft: `${level * connectionOffset}px`,
             marginBottom: '12px', // Reduced from 16px to 12px
             ...getAngularStyle(type)
           }}
         >
-          {/* Status indicator - compact size for smaller cards */}
+          {/* Status indicator - slightly larger size for better visibility */}
           <div 
-            className="w-10 h-10 rounded-full flex items-center justify-center mr-3 flex-shrink-0"
+            className="w-12 h-12 rounded-full flex items-center justify-center mr-3 flex-shrink-0"
             style={{ backgroundColor: statusColor }}
             dangerouslySetInnerHTML={{ __html: iconSvg }}
           />
-          
+
           {/* Content area with vertical centering */}
           <div className="flex-1 min-w-0 flex items-center h-full" onClick={() => onNodeClick(node)}>
             {/* Text content - fixed height container */}
             <div className="flex-1 flex flex-col justify-center h-full">
-              <div className="font-semibold text-gray-900 truncate text-base leading-tight">{title}</div>
-              <div className="text-sm text-gray-600 truncate mt-1">{subtitle}</div>
+              {/* Title row with status badge */}
+              <div className="flex items-center gap-2 mb-1">
+                <div className="font-semibold text-gray-900 truncate text-base leading-tight">{title}</div>
+                {/* Status duration badge inline with title - only for nodes with web GUI enabled */}
+                {status && status.statusChangedAt && !hasWebGuiDisabled && nodeIdentifier && (
+                  <div
+                    className={`px-2 py-0.5 rounded text-xs font-medium shadow-sm flex-shrink-0 ${
+                      status.status === 'online' 
+                        ? 'bg-green-200 text-green-800' 
+                        : status.status === 'offline' 
+                          ? 'bg-red-200 text-red-800' 
+                          : 'bg-gray-200 text-gray-600'
+                    }`}
+                  >
+                    {status.status} for {formatTimeSince(status.statusChangedAt)}
+                  </div>
+                )}
+              </div>
+              <div className="text-sm text-gray-600 truncate">{subtitle}</div>
               
               {/* Details - fixed height to maintain consistent card height */}
               <div className="mt-2 h-4 flex items-center">
@@ -178,7 +248,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
             {children.map((child, index) => {
               const isLastChild = index === children.length - 1;
               const newParentPath = [...parentPath, !isLastChild];
-              return renderNode(child, level + 1, isLastChild, newParentPath);
+              return renderNode(child, level + 1, isLastChild, newParentPath, index);
             })}
           </div>
         )}
@@ -187,27 +257,28 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
   }, [statuses, onNodeClick]);
 
   return (
-    <div className="px-4 py-4 overflow-y-auto max-h-full bg-transparent">
-      {/* Status Card at the top if provided */}
+    <div className="overflow-y-auto max-h-full bg-transparent">
+      {/* Status Card at the top if provided - edge to edge */}
       {statusCard && (
-        <div className="mb-4">
+        <div>
           {statusCard}
         </div>
       )}
       
-      {nodes.map((node, index) => {
-        const isLastChild = index === nodes.length - 1;
-        return renderNode(node, 0, isLastChild, []);
-      })}
-      
-      {/* Logo at the bottom */}
-      {(appConfig?.appearance?.logo || appConfig?.appearance?.favicon) && (
-        <div className="flex justify-center items-center py-6 mt-4">
-          <img 
-            src={appConfig.appearance.logo || appConfig.appearance.favicon} 
-            alt={appConfig.appearance.title || 'Logo'} 
-            className="w-12 h-12 opacity-80 filter drop-shadow-lg"
-            onError={(e) => {
+      <div className="px-4 py-4">
+        {nodes.map((node, index) => {
+          const isLastChild = index === nodes.length - 1;
+          return renderNode(node, 0, isLastChild, [], index);
+        })}
+        
+        {/* Logo at the bottom */}
+        {(appConfig?.appearance?.logo || appConfig?.appearance?.favicon) && (
+          <div className="flex justify-center items-center py-6 mt-4">
+            <img 
+              src={appConfig.appearance.logo || appConfig.appearance.favicon} 
+              alt={appConfig.appearance.title || 'Logo'} 
+              className="w-12 h-12 opacity-80 filter drop-shadow-lg"
+              onError={(e) => {
               // Fallback to a default icon if logo/favicon fails
               console.warn('Logo failed to load, trying fallback');
               e.currentTarget.src = '/nautilusIcon.png';
@@ -230,6 +301,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
           />
         </div>
       )}
+      </div>
     </div>
   );
 };

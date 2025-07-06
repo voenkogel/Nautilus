@@ -38,6 +38,27 @@ const initialAppConfig: AppConfig = {
   }
 };
 
+// Utility function to format time duration since status change
+const formatTimeSince = (timestamp: string): string => {
+  const now = new Date();
+  const then = new Date(timestamp);
+  const diffMs = now.getTime() - then.getTime();
+  const diffSeconds = Math.floor(diffMs / 1000);
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffDays > 0) {
+    return `${diffDays}d`;
+  } else if (diffHours > 0) {
+    return `${diffHours}h`;
+  } else if (diffMinutes > 0) {
+    return `${diffMinutes}m`;
+  } else {
+    return `${Math.max(1, diffSeconds)}s`;
+  }
+};
+
 interface PositionedNode extends TreeNode {
   x: number;
   y: number;
@@ -49,6 +70,8 @@ interface PositionedNode extends TreeNode {
 interface Connection {
   from: PositionedNode;
   to: PositionedNode;
+  isFirstChild: boolean;
+  isLastChild: boolean;
 }
 
 const Canvas: React.FC = () => {
@@ -82,11 +105,25 @@ const Canvas: React.FC = () => {
   const [currentConfig, setCurrentConfig] = useState<AppConfig>(initialAppConfig);
   const [iconLoadCounter, setIconLoadCounter] = useState(0); // Track icon loading to trigger redraws
   const [iconsPreloaded, setIconsPreloaded] = useState(false); // Track icon preloading status
+  const [tooltip, setTooltip] = useState<{text: string, x: number, y: number} | null>(null);
   
   // Use refs for values that should not trigger draw function recreation
   const transformRef = useRef(transform);
   const hoveredNodeIdRef = useRef(hoveredNodeId);
   const hoveredEditButtonNodeIdRef = useRef(hoveredEditButtonNodeId);
+  
+  // Sync refs with state changes
+  useEffect(() => {
+    hoveredNodeIdRef.current = hoveredNodeId;
+  }, [hoveredNodeId]);
+  
+  useEffect(() => {
+    hoveredEditButtonNodeIdRef.current = hoveredEditButtonNodeId;
+  }, [hoveredEditButtonNodeId]);
+  
+  useEffect(() => {
+    transformRef.current = transform;
+  }, [transform]);
   
   // Use device detection
   const { isMobile } = useDeviceDetection();
@@ -352,7 +389,7 @@ const Canvas: React.FC = () => {
   };
   
   // Node dimensions and spacing
-  const NODE_WIDTH = 220; // Node width
+  const NODE_WIDTH = 280; // Node width - increased further for better layout
   const NODE_HEIGHT = 90;  // Node height
   const HORIZONTAL_SPACING = 25; // Reduced horizontal gap between nodes
   const VERTICAL_SPACING = 40;   // Reduced vertical gap between levels
@@ -546,10 +583,12 @@ const Canvas: React.FC = () => {
           // Recursively position this child and its descendants
           const childNode = positionNode(child, childCenterX, childY, level + 1);
           
-          // Create connection from parent to child
+          // Create connection from parent to child with first/last child info
           connections.push({
             from: positionedNode,
-            to: childNode
+            to: childNode,
+            isFirstChild: index === 0,
+            isLastChild: index === (node.children?.length || 0) - 1
           });
           
           // Move to next child position
@@ -576,9 +615,9 @@ const Canvas: React.FC = () => {
     return { nodes: positionedNodes, connections };
   }, [currentConfig]);
 
-  // Function to check if mouse is over an edit button
+  // Function to check if mouse is over a status circle for editing
   const getEditButtonHover = useCallback((canvasX: number, canvasY: number): string | null => {
-    // Don't check for edit button hover on mobile
+    // Don't check for edit circle hover on mobile
     if (isMobile) return null;
     
     // Convert canvas coordinates to world coordinates
@@ -587,32 +626,24 @@ const Canvas: React.FC = () => {
     
     const { nodes } = calculateNodePositions();
     
-    // Check each node's edit button area
+    // Check each node's status circle area
     for (const node of nodes) {
       if (hoveredNodeId === node.id) { // Only check if node is hovered
-        // Calculate edit button position (same logic as in drawNode)
-        const titleFontSize = Math.max(14 / transform.scale, 10);
-        const textAreaX = node.x + (node.width / 3);
-        const titleX = textAreaX + 10;
+        // Calculate circle position (same logic as in drawNode)
+        const circlePadding = 15; // Consistent padding for circle
+        const maxCircleSize = Math.min(node.height - (circlePadding * 2), 60); // Max circle diameter of 60px
+        const circleRadius = maxCircleSize * 0.5;
+        const circleCenterX = node.x + circlePadding + circleRadius; // Center based on consistent padding
+        const circleCenterY = node.y + node.height / 2;
         
-        // Temporarily create canvas context to measure title
-        const tempCanvas = document.createElement('canvas');
-        const tempCtx = tempCanvas.getContext('2d');
-        if (tempCtx) {
-          tempCtx.font = `500 ${titleFontSize}px Roboto, sans-serif`;
-          const titleWidth = tempCtx.measureText(node.title).width;
-          
-          const editIconSize = Math.max(14 / transform.scale, 12);
-          const editIconX = titleX + titleWidth + 8;
-          const editIconY = node.y + 8 + titleFontSize / 2 - editIconSize / 2;
-          
-          // Check if mouse is within edit button bounds (with some padding for easier hover)
-          if (worldX >= editIconX - 2 && 
-              worldX <= editIconX + editIconSize + 2 && 
-              worldY >= editIconY - 2 && 
-              worldY <= editIconY + editIconSize + 2) {
-            return node.id;
-          }
+        // Check if mouse is within circle bounds
+        const distance = Math.sqrt(
+          Math.pow(worldX - circleCenterX, 2) + 
+          Math.pow(worldY - circleCenterY, 2)
+        );
+        
+        if (distance <= circleRadius) {
+          return node.id;
         }
       }
     }
@@ -721,23 +752,24 @@ const Canvas: React.FC = () => {
     // Adjust height for mobile - make it slightly shorter
     const height = isMobile ? node.height - 10 : node.height;
     
-    // Pre-calculate layout values
-    const circleAreaWidth = width / 3;
-    const textAreaWidth = (width * 2) / 3;
-    const textAreaX = x + circleAreaWidth;
+    // Pre-calculate layout values with consistent circle padding
+    const circlePadding = 15; // Consistent padding for circle on left, top, and bottom
+    const maxCircleSize = Math.min(height - (circlePadding * 2), 60); // Max circle diameter of 60px
+    const circleRadius = maxCircleSize * 0.5;
+    const circleCenterX = x + circlePadding + circleRadius; // Center based on consistent padding
+    const circleCenterY = y + height / 2; // Centered vertically
+    
+    // Text area starts after circle with some spacing
+    const textAreaX = circleCenterX + circleRadius + 10; // 10px gap after circle
+    const textAreaWidth = width - (textAreaX - x);
     const titleFontSize = Math.max(14 / scale, 10);
     const subtitleFontSize = Math.max(11 / scale, 8);
     const detailFontSize = Math.max(10 / scale, 7);
     const titleX = textAreaX + 10;
     const titleY = y + 8;
     
-    // Calculate edit button coordinates (positioned after title text)
+    // Calculate title coordinates and measurements
     ctx.font = `500 ${titleFontSize}px Roboto, sans-serif`;
-    const titleWidth = ctx.measureText(title).width;
-    
-    const editIconSize = Math.max(14 / scale, 12); // Smaller grey edit button
-    const editIconX = titleX + titleWidth + 8; // 8px gap after title
-    const editIconY = titleY + titleFontSize / 2 - editIconSize / 2; // Vertically centered with title
     
     // Determine border radius based on node type
     const borderRadius = type === 'circular' ? height / 2 : (type === 'angular' ? 0 : 12); // Perfect pill for circular, no radius for angular, normal radius for square
@@ -748,7 +780,7 @@ const Canvas: React.FC = () => {
     // Get status using the original identifier to match the API response format
     const nodeStatus = originalIdentifier 
       ? getNodeStatus(originalIdentifier) 
-      : { status: 'offline' as const, lastChecked: new Date().toISOString(), progress: 0 };
+      : { status: 'offline' as const, lastChecked: new Date().toISOString(), statusChangedAt: new Date().toISOString(), progress: 0 };
     
     // Check if node has web GUI disabled
     const hasWebGuiDisabled = node.hasWebGui === false;
@@ -786,15 +818,7 @@ const Canvas: React.FC = () => {
     }
     ctx.stroke();
     
-    // Calculate layout: 1/3 for circle, 2/3 for text
-    // Use the pre-calculated values from the top of the function
-    
-    // Draw status circle with equal padding on left, top, and bottom
-    const padding = 10; // Reduced padding for better fit with smaller height
-    const maxCircleSize = Math.min(circleAreaWidth - padding, height - (padding * 2));
-    const circleRadius = maxCircleSize * 0.5; // Increased from 0.45 back to 0.5 for slightly larger circle
-    const circleCenterX = x + padding + (circleAreaWidth - padding) / 2;
-    const circleCenterY = y + height / 2; // Centered vertically
+    // Use the pre-calculated circle values from the top of the function
     
     // Set circle color based on node status - gray if no IP/URL provided or hasWebGui is disabled
     let circleColor = '#6b7280'; // Default gray for checking or no identifier
@@ -825,10 +849,35 @@ const Canvas: React.FC = () => {
     ctx.fill();
     ctx.restore();
     
-    // Draw icon in the center of the circle
+    // Draw normal node icon first
     if (node.icon) {
       const iconSize = circleRadius * 1.2; // Icon size relative to circle
       drawIconOnCanvas(ctx, node.icon, circleCenterX, circleCenterY, iconSize, '#ffffff', handleIconLoaded);
+    }
+    
+    // Draw edit overlay when hovering over the node (not just the circle)
+    if (isHovered && !isMobile) {
+      // Dark transparent overlay
+      ctx.save();
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = '#000000';
+      ctx.beginPath();
+      ctx.arc(circleCenterX, circleCenterY, circleRadius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      
+      // Smaller pencil icon on top
+      const pencilIconSize = circleRadius * 0.8; // Smaller than the normal icon
+      drawIconOnCanvas(ctx, 'pencil', circleCenterX, circleCenterY, pencilIconSize, '#ffffff', handleIconLoaded);
+      
+      // Additional hover ring when specifically hovering over the circle
+      if (isEditButtonHovered) {
+        ctx.strokeStyle = '#3b82f6'; // Blue edit hover color
+        ctx.lineWidth = 2 / scale;
+        ctx.beginPath();
+        ctx.arc(circleCenterX, circleCenterY, circleRadius + 3, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
     
     // Set font for text (Roboto)
@@ -843,24 +892,61 @@ const Canvas: React.FC = () => {
     // Use the pre-calculated titleX and titleY values
     ctx.fillText(title, titleX, titleY);
     
-    // Draw edit button (wrench icon) only on hover and not on mobile
-    if (isHovered && !isMobile) {
-      const iconSize = editIconSize;
-      const iconCenterX = editIconX + iconSize/2;
-      const iconCenterY = editIconY + iconSize/2;
+    // Draw status duration badge next to title - only for nodes with web GUI enabled
+    if (nodeStatus && nodeStatus.statusChangedAt && !hasWebGuiDisabled && originalIdentifier) {
+      const duration = formatTimeSince(nodeStatus.statusChangedAt);
+      const statusText = `${nodeStatus.status} for ${duration}`;
       
-      // Draw edit button (wrench icon) only on hover
-      if (isEditButtonHovered) {
-        ctx.fillStyle = '#f3f4f6';
-        ctx.strokeStyle = '#d1d5db';
-        ctx.lineWidth = 1 / scale;
-        drawRoundedRect(ctx, editIconX - 2, editIconY - 2, iconSize + 4, iconSize + 4, 4);
-        ctx.fill();
-        ctx.stroke();
-      }
+      // Calculate badge position next to title
+      const titleWidth = ctx.measureText(title).width;
+      const badgeMargin = Math.max(8 / scale, 6);
+      const badgeX = titleX + titleWidth + badgeMargin;
       
-      // Draw wrench icon in grey color using regular icon system for better performance
-      drawIconOnCanvas(ctx, 'wrench', iconCenterX, iconCenterY, iconSize, '#6b7280', handleIconLoaded);
+      // Badge styling
+      const badgeFontSize = Math.max(9 / scale, 7);
+      const badgePadding = Math.max(4 / scale, 2);
+      const badgeHeight = badgeFontSize + (badgePadding * 2);
+      
+      ctx.font = `500 ${badgeFontSize}px Roboto, sans-serif`;
+      const badgeTextWidth = ctx.measureText(statusText).width;
+      const badgeWidth = badgeTextWidth + (badgePadding * 2);
+      
+      // Align badge vertically with title
+      const badgeY = titleY + (titleFontSize - badgeHeight) / 2;
+      
+      // Badge colors based on status - using same colors as mobile for consistency
+      const badgeColors = {
+        online: { bg: '#bbf7d0', text: '#166534' }, // Light green (green-200), dark green text (green-800)
+        offline: { bg: '#fecaca', text: '#991b1b' }, // Light red (red-200), dark red text (red-800)
+        checking: { bg: '#e5e7eb', text: '#4b5563' } // Light gray (gray-200), dark gray text (gray-600)
+      };
+      
+      const colors = badgeColors[nodeStatus.status] || badgeColors.checking;
+      
+      // Draw badge background with rounded corners
+      ctx.fillStyle = colors.bg;
+      ctx.beginPath();
+      const badgeRadius = Math.min(badgeHeight / 2, 6);
+      ctx.moveTo(badgeX + badgeRadius, badgeY);
+      ctx.lineTo(badgeX + badgeWidth - badgeRadius, badgeY);
+      ctx.quadraticCurveTo(badgeX + badgeWidth, badgeY, badgeX + badgeWidth, badgeY + badgeRadius);
+      ctx.lineTo(badgeX + badgeWidth, badgeY + badgeHeight - badgeRadius);
+      ctx.quadraticCurveTo(badgeX + badgeWidth, badgeY + badgeHeight, badgeX + badgeWidth - badgeRadius, badgeY + badgeHeight);
+      ctx.lineTo(badgeX + badgeRadius, badgeY + badgeHeight);
+      ctx.quadraticCurveTo(badgeX, badgeY + badgeHeight, badgeX, badgeY + badgeHeight - badgeRadius);
+      ctx.lineTo(badgeX, badgeY + badgeRadius);
+      ctx.quadraticCurveTo(badgeX, badgeY, badgeX + badgeRadius, badgeY);
+      ctx.fill();
+      
+      // Draw badge text
+      ctx.fillStyle = colors.text;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(statusText, badgeX + badgeWidth / 2, badgeY + badgeHeight / 2);
+      
+      // Reset text alignment
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
     }
     
     // Draw subtitle
@@ -921,7 +1007,7 @@ const Canvas: React.FC = () => {
   };
 
   const drawConnection = (ctx: CanvasRenderingContext2D, connection: Connection, scale: number) => {
-    const { from, to } = connection;
+    const { from, to, isFirstChild, isLastChild } = connection;
     
     // Calculate connection points (bottom center of parent to top center of child)
     const startX = from.x + from.width / 2;
@@ -929,18 +1015,70 @@ const Canvas: React.FC = () => {
     const endX = to.x + to.width / 2;
     const endY = to.y;
     
-    // Draw connection line with a slight curve - thicker line, no arrowhead
+    // Draw connection line with proper T-junction and X-crossing corner rounding
     ctx.strokeStyle = '#6b7280';
-    ctx.lineWidth = Math.max(5 / scale, 3); // Increased thickness with minimum of 3px
+    ctx.lineWidth = Math.max(5 / scale, 3);
     ctx.setLineDash([]);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     
     const midY = startY + (endY - startY) / 2;
+    const cornerRadius = Math.max(6 / scale, 3);
     
     ctx.beginPath();
     ctx.moveTo(startX, startY);
-    ctx.lineTo(startX, midY);
-    ctx.lineTo(endX, midY);
-    ctx.lineTo(endX, endY);
+    
+    if (startX === endX) {
+      // Straight down - no horizontal component, no rounding needed
+      ctx.lineTo(endX, endY);
+    } else {
+      // We have a turn - only round corners that are truly "inside" corners
+      const isMovingRight = endX > startX;
+      
+      // Only round corners for edge children (first or last), and only the corners
+      // that don't interfere with potential sibling connections
+      if (isFirstChild || isLastChild) {
+        // For edge children, we can safely round both corners since there's no 
+        // interference with sibling connections on the "outside" of the turn
+        
+        // Draw vertical line down to turn point
+        ctx.lineTo(startX, midY - cornerRadius);
+        
+        // Round the corner where we turn horizontally
+        if (isMovingRight) {
+          ctx.arcTo(startX, midY, startX + cornerRadius, midY, cornerRadius);
+        } else {
+          ctx.arcTo(startX, midY, startX - cornerRadius, midY, cornerRadius);
+        }
+        
+        // Draw horizontal line
+        ctx.lineTo(endX + (isMovingRight ? -cornerRadius : cornerRadius), midY);
+        
+        // Round the corner where we turn down to child
+        ctx.arcTo(endX, midY, endX, midY + cornerRadius, cornerRadius);
+        
+        // Draw final vertical line to child
+        ctx.lineTo(endX, endY);
+      } else {
+        // For middle children, we're creating a T-junction where the vertical line
+        // from the parent continues through to other siblings. We should NOT round
+        // the corner at the parent's vertical line (that would break the T-junction),
+        // but we CAN round the corner where we turn down to the child.
+        
+        // Draw straight vertical line to horizontal level (no rounding here)
+        ctx.lineTo(startX, midY);
+        
+        // Draw horizontal line to child position, but leave space for corner rounding
+        ctx.lineTo(endX + (isMovingRight ? -cornerRadius : cornerRadius), midY);
+        
+        // Round only the corner where we turn down to the child
+        ctx.arcTo(endX, midY, endX, midY + cornerRadius, cornerRadius);
+        
+        // Draw final vertical line to child
+        ctx.lineTo(endX, endY);
+      }
+    }
+    
     ctx.stroke();
   };
 
@@ -1005,7 +1143,7 @@ const Canvas: React.FC = () => {
     
     // Restore context state
     ctx.restore();
-  }, [backgroundLoaded, calculateNodePositions, getNodeStatus, iconLoadCounter, currentConfig, transform]);
+  }, [backgroundLoaded, calculateNodePositions, getNodeStatus, iconLoadCounter, currentConfig, transform, hoveredNodeId, hoveredEditButtonNodeId]);
 
   // Use requestAnimationFrame for smooth redraws with simple throttling
   const animationFrameRef = useRef<number | null>(null);
@@ -1132,6 +1270,17 @@ const Canvas: React.FC = () => {
     const editButtonHovered = getEditButtonHover(canvasX, canvasY);
     setHoveredEditButtonNodeId(editButtonHovered);
     
+    // Handle tooltip for edit circle hover
+    if (editButtonHovered && !isMobile) {
+      setTooltip({
+        text: 'Edit node',
+        x: e.clientX + 10,
+        y: e.clientY - 30
+      });
+    } else {
+      setTooltip(null);
+    }
+    
     if (!isDragging) return;
     
     const deltaX = e.clientX - lastMousePos.x;
@@ -1165,39 +1314,31 @@ const Canvas: React.FC = () => {
     const wasClick = dragDistance < 5; // Less than 5 pixels movement = click
     
     if (wasClick) {
-      // Check for edit button click first - only if we're hovering a node
+      // Check for edit circle click first - only if we're hovering a node
       if (hoveredNodeId) {
         const hoveredNode = getNodeAtPosition(canvasX, canvasY);
         if (hoveredNode && hoveredNode.id === hoveredNodeId) {
-          // Calculate edit button bounds for the hovered node
+          // Calculate circle bounds for the hovered node
           const worldX = (canvasX - transform.x) / transform.scale;
           const worldY = (canvasY - transform.y) / transform.scale;
           
-          // Recalculate edit button position (same logic as in drawNode)
-          const titleFontSize = Math.max(14 / transform.scale, 10);
-          const textAreaX = hoveredNode.x + (hoveredNode.width / 3);
-          const titleX = textAreaX + 10;
+          // Calculate circle position (same logic as in drawNode)
+          const circlePadding = 15; // Consistent padding for circle
+          const maxCircleSize = Math.min(hoveredNode.height - (circlePadding * 2), 60); // Max circle diameter of 60px
+          const circleRadius = maxCircleSize * 0.5;
+          const circleCenterX = hoveredNode.x + circlePadding + circleRadius; // Center based on consistent padding
+          const circleCenterY = hoveredNode.y + hoveredNode.height / 2;
           
-          // Temporarily create canvas context to measure title
-          const tempCanvas = document.createElement('canvas');
-          const tempCtx = tempCanvas.getContext('2d');
-          if (tempCtx) {
-            tempCtx.font = `500 ${titleFontSize}px Roboto, sans-serif`;
-            const titleWidth = tempCtx.measureText(hoveredNode.title).width;
-            
-            const editIconSize = Math.max(14 / transform.scale, 12); // Match the drawing function
-            const editIconX = titleX + titleWidth + 8;
-            const editIconY = hoveredNode.y + 8 + titleFontSize / 2 - editIconSize / 2; // Match the drawing function
-            
-            // Check if click is within edit button bounds (without background padding)
-            if (worldX >= editIconX && 
-                worldX <= editIconX + editIconSize && 
-                worldY >= editIconY && 
-                worldY <= editIconY + editIconSize) {
-              // Edit button clicked!
-              handleEditNode(hoveredNode.id);
-              return;
-            }
+          // Check if click is within circle bounds
+          const distance = Math.sqrt(
+            Math.pow(worldX - circleCenterX, 2) + 
+            Math.pow(worldY - circleCenterY, 2)
+          );
+          
+          if (distance <= circleRadius) {
+            // Circle clicked - open edit dialog!
+            handleEditNode(hoveredNode.id);
+            return;
           }
         }
       }
@@ -1217,6 +1358,7 @@ const Canvas: React.FC = () => {
     setIsHoveringNode(false);
     setHoveredNodeId(null);
     setHoveredEditButtonNodeId(null);
+    setTooltip(null);
   };
 
   const handleWheel = useCallback((e: WheelEvent) => {
@@ -1424,6 +1566,7 @@ const Canvas: React.FC = () => {
                   nextCheckCountdown={nextCheckCountdown}
                   totalInterval={totalInterval}
                   isQuerying={isQuerying}
+                  isMobile={true}
                 />
               }
             />
@@ -1498,6 +1641,19 @@ const Canvas: React.FC = () => {
           onEditChild={handleEditChildNode}
           appearance={currentConfig.appearance}
         />
+      )}
+
+      {/* Tooltip */}
+      {tooltip && (
+        <div
+          className="absolute pointer-events-none z-50 bg-gray-800 text-white text-sm px-2 py-1 rounded shadow-lg"
+          style={{
+            left: tooltip.x,
+            top: tooltip.y,
+          }}
+        >
+          {tooltip.text}
+        </div>
       )}
 
       {/* Mobile Node List - Shown only on mobile devices */}

@@ -33,6 +33,7 @@ interface StatusCardProps {
   nextCheckCountdown: number;
   totalInterval: number;
   isQuerying: boolean;
+  isMobile?: boolean;
 }
 
 const StatusCard: React.FC<StatusCardProps> = ({ 
@@ -44,7 +45,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
   isConnected,
   nextCheckCountdown,
   totalInterval,
-  isQuerying
+  isQuerying,
+  isMobile = false
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -146,7 +148,10 @@ const StatusCard: React.FC<StatusCardProps> = ({
 
   if (isLoading) {
     return (
-      <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200 p-4 min-w-[200px]">
+      <div className={`${isMobile 
+        ? 'bg-white/95 backdrop-blur-sm border-b border-gray-200 px-4 py-4' 
+        : 'bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200 p-4 min-w-[200px]'
+      }`}>
         <div className="flex items-center space-x-3">
           <div className="w-4 h-4 bg-gray-300 rounded-full animate-pulse"></div>
           <span className="text-sm font-medium text-gray-600 font-roboto">Loading status...</span>
@@ -157,7 +162,10 @@ const StatusCard: React.FC<StatusCardProps> = ({
 
   if (error) {
     return (
-      <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-red-200 p-4 min-w-[200px]">
+      <div className={`${isMobile 
+        ? 'bg-white/95 backdrop-blur-sm border-b border-red-200 px-4 py-4' 
+        : 'bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-red-200 p-4 min-w-[200px]'
+      }`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-2">
             <div className="w-3 h-3 bg-red-500 rounded-full"></div>
@@ -170,17 +178,25 @@ const StatusCard: React.FC<StatusCardProps> = ({
   }
 
   return (
-    <div className="bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200 min-w-[200px]">
-      {/* Always visible header with collapse/expand and settings buttons */}
+    <div className={`${isMobile 
+      ? 'bg-white/95 backdrop-blur-sm border-b border-gray-200' 
+      : 'bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200 min-w-[200px]'
+    }`}>
+      {/* Always visible header with collapse/expand, system health title, and settings buttons */}
       <div className="flex items-center justify-between p-2">
-        {/* Collapse/Expand button */}
-        <button
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
-          title={isCollapsed ? "Expand status card" : "Collapse status card"}
-        >
-          {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-        </button>
+        <div className="flex items-center space-x-2">
+          {/* Collapse/Expand button */}
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+            title={isCollapsed ? "Expand status card" : "Collapse status card"}
+          >
+            {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+          </button>
+          
+          {/* System Health title - now always visible */}
+          <span className="text-sm font-medium text-gray-800 font-roboto">System Health</span>
+        </div>
 
         {/* Settings button */}
         <button
@@ -195,13 +211,16 @@ const StatusCard: React.FC<StatusCardProps> = ({
       {/* Collapsible content */}
       {!isCollapsed && (
         <div className="px-4 pb-4">
-          {/* Header with connection status */}
+          {/* Health count and timing indicator row */}
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center space-x-2">
-              <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-              <span className="text-sm font-medium text-gray-800 font-roboto">System Health</span>
+            <div>
+              <span className="text-lg font-semibold text-gray-800 font-roboto">
+                {healthyNodes}/{totalNodes}
+              </span>
+              <span className="text-sm text-gray-600 font-roboto ml-1">healthy</span>
             </div>
-            {/* Show countdown timer when connected and not error state */}
+            
+            {/* Timing indicator moved to right side */}
             {isConnected && !error && totalInterval > 0 && (
               <CircularProgress progress={countdownProgress} size={24} isQuerying={isQuerying} />
             )}
@@ -212,14 +231,6 @@ const StatusCard: React.FC<StatusCardProps> = ({
                 <span className="text-xs font-roboto text-red-600">Disconnected</span>
               </div>
             )}
-          </div>
-
-          {/* Health count */}
-          <div className="mb-3">
-            <span className="text-lg font-semibold text-gray-800 font-roboto">
-              {healthyNodes}/{totalNodes}
-            </span>
-            <span className="text-sm text-gray-600 font-roboto ml-1">healthy</span>
           </div>
 
           {/* Progress bar */}
