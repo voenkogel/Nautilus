@@ -6,6 +6,7 @@ export interface TreeNode {
   url?: string; // Optional URL
   icon?: string; // Optional icon name from lucide-react
   type?: 'square' | 'circular' | 'angular'; // Square (normal cards), circular (pill-shaped cards), or angular (diamond-sided cards)
+  hasWebGui?: boolean; // Optional flag to indicate if the node has a web GUI
   children?: TreeNode[];
 }
 
@@ -27,6 +28,7 @@ export interface AppearanceConfig {
   logo?: string; // base64 encoded logo image (falls back to favicon if not set)
   accentColor: string;
   backgroundImage?: string; // base64 encoded background image
+  disableBackground?: boolean; // Optional flag to disable the background image
 }
 
 export interface AppConfig {

@@ -18,19 +18,28 @@ export const useAppearance = (appearance: AppearanceConfig) => {
   }, [appearance]);
 
   useEffect(() => {
-    // Update background image
-    if (appearance.backgroundImage) {
-      document.body.style.backgroundImage = `url(${appearance.backgroundImage})`;
-      document.body.style.backgroundSize = 'cover';
-      document.body.style.backgroundPosition = 'center';
-      document.body.style.backgroundRepeat = 'no-repeat';
-      document.body.style.backgroundAttachment = 'fixed';
+    if (appearance.disableBackground) {
+      document.body.style.backgroundImage = 'none';
+      document.body.style.backgroundColor = 'transparent';
+      document.documentElement.style.backgroundColor = 'transparent';
     } else {
-      document.body.style.backgroundImage = '';
-      document.body.style.backgroundSize = '';
-      document.body.style.backgroundPosition = '';
-      document.body.style.backgroundRepeat = '';
-      document.body.style.backgroundAttachment = '';
+      document.documentElement.style.backgroundColor = ''; // Revert to default
+      // Update background image
+      if (appearance.backgroundImage) {
+        document.body.style.backgroundImage = `url(${appearance.backgroundImage})`;
+        document.body.style.backgroundSize = 'cover';
+        document.body.style.backgroundPosition = 'center';
+        document.body.style.backgroundRepeat = 'no-repeat';
+        document.body.style.backgroundAttachment = 'fixed';
+        document.body.style.backgroundColor = ''; // Clear background color if image is present
+      } else {
+        document.body.style.backgroundImage = '';
+        document.body.style.backgroundSize = '';
+        document.body.style.backgroundPosition = '';
+        document.body.style.backgroundRepeat = '';
+        document.body.style.backgroundAttachment = '';
+        document.body.style.backgroundColor = ''; // Revert to default
+      }
     }
-  }, [appearance.backgroundImage]);
+  }, [appearance.backgroundImage, appearance.disableBackground]);
 };

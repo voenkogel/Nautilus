@@ -7,7 +7,6 @@ interface MobileNodeListProps {
   nodes: TreeNode[];
   statuses: Record<string, NodeStatus>;
   onNodeClick: (node: TreeNode) => void;
-  onEditClick: (node: TreeNode) => void;
   appConfig?: {
     appearance?: AppearanceConfig;
   };
@@ -18,7 +17,6 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
   nodes, 
   statuses, 
   onNodeClick, 
-  onEditClick,
   appConfig,
   statusCard
 }) => {
@@ -100,7 +98,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
               className="absolute bg-gray-500 z-0"
               style={{
                 left: `${level * connectionOffset - 9}px`,
-                top: '48px', // Center of the card (96px height / 2)
+                top: '42px', // Center of the smaller card (84px height / 2)
                 width: `${connectionOffset + 9}px`, // Extend all the way to card
                 height: '3px'
               }}
@@ -111,25 +109,25 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
               className="absolute bg-gray-500"
               style={{
                 left: `${level * connectionOffset - 9}px`,
-                top: '-60px', // Adjusted for smaller gap (48px card center + 12px gap)
+                top: '-54px', // Adjusted for smaller gap (42px card center + 12px gap)
                 width: '3px',
-                height: isLastChild ? '110px' : `calc(100% + 72px)` // Adjusted for smaller gaps
+                height: isLastChild ? '96px' : `calc(100% + 60px)` // Adjusted for smaller card height
               }}
             />
           </div>
         )}
         
         <div 
-          className={`relative flex items-center p-4 bg-white/90 shadow-lg border border-gray-100 h-[96px] z-10 ${cardStyle}`}
+          className={`relative flex items-center p-3 bg-white/90 shadow-lg border border-gray-100 h-[84px] z-10 ${cardStyle}`}
           style={{ 
             marginLeft: `${level * connectionOffset}px`,
             marginBottom: '12px', // Reduced from 16px to 12px
             ...getAngularStyle(type)
           }}
         >
-          {/* Status indicator - increased size */}
+          {/* Status indicator - compact size for smaller cards */}
           <div 
-            className="w-12 h-12 rounded-full flex items-center justify-center mr-4 flex-shrink-0"
+            className="w-10 h-10 rounded-full flex items-center justify-center mr-3 flex-shrink-0"
             style={{ backgroundColor: statusColor }}
             dangerouslySetInnerHTML={{ __html: iconSvg }}
           />
@@ -171,20 +169,6 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
                 )}
               </div>
             </div>
-            
-            {/* Edit button - properly isolated outside the node click event */}
-            <button 
-              className="ml-3 text-gray-500 p-2 hover:bg-gray-100 rounded-full flex items-center justify-center h-10 w-10 flex-shrink-0 transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                onEditClick(node);
-              }}
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-                <path d="m15 5 4 4" />
-              </svg>
-            </button>
           </div>
         </div>
         
@@ -200,7 +184,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
         )}
       </div>
     );
-  }, [statuses, onNodeClick, onEditClick]);
+  }, [statuses, onNodeClick]);
 
   return (
     <div className="px-4 py-4 overflow-y-auto max-h-full bg-transparent">

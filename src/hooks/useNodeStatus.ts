@@ -19,10 +19,12 @@ const extractAllNodeIdentifiers = (nodes: TreeNode[]): string[] => {
   
   const traverse = (nodeList: TreeNode[]) => {
     for (const node of nodeList) {
-      // Use IP if available, otherwise use URL (same logic as server and Canvas)
-      const identifier = node.ip || node.url;
-      if (identifier) {
-        identifiers.push(identifier);
+      // Only include nodes that have a web GUI for status checking (or where the flag is not set)
+      if (node.hasWebGui !== false) {
+        const identifier = node.ip || node.url;
+        if (identifier) {
+          identifiers.push(identifier);
+        }
       }
       if (node.children) {
         traverse(node.children);

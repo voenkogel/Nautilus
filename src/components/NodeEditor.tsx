@@ -232,10 +232,21 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
             />
           </div>
 
-          {/* Children */}
-          {editedNode.children && editedNode.children.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Child Nodes</label>
+          {/* Has Web GUI Toggle */}
+          <div className="flex items-center justify-between">
+            <label htmlFor="hasWebGui" className="text-sm font-medium text-gray-700">Has web GUI</label>
+            <button
+              id="hasWebGui"
+              onClick={() => setEditedNode(prev => ({ ...prev, hasWebGui: !(prev.hasWebGui === false) ? false : true }))}
+              className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors ${(editedNode.hasWebGui === false) ? 'bg-gray-200' : 'bg-blue-600'}`}>
+              <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${(editedNode.hasWebGui === false) ? 'translate-x-1' : 'translate-x-6'}`} />
+            </button>
+          </div>
+
+          {/* Children Nodes */}
+          <div>
+            <h3 className="text-md font-semibold text-gray-800 mt-6 mb-2">Child Nodes</h3>
+            {editedNode.children && editedNode.children.length > 0 ? (
               <div className="space-y-2">
                 {editedNode.children.map((child, index) => (
                   <div key={child.id} className="flex items-center space-x-2 p-2 bg-gray-50 rounded">
@@ -265,8 +276,10 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-sm text-gray-500 italic">No child nodes added yet.</p>
+            )}
+          </div>
 
           {/* Add Child Button */}
           <button

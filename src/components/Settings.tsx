@@ -17,6 +17,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [iconDropdownOpen, setIconDropdownOpen] = useState<string | null>(null);
   const [fileErrors, setFileErrors] = useState<{ favicon?: string; backgroundImage?: string; logo?: string }>({});
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Simple list of common/popular icons for suggestions (optional)
   const commonIcons = [
@@ -140,9 +142,42 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     setConfig(JSON.parse(JSON.stringify(initialConfig)));
   }, [initialConfig]);
 
-  const handleSave = () => {
-    onSave(config);
-    onClose();
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    
+    try {
+      await onSave(config);
+      onClose();
+    } catch (error) {
+      console.error('Error saving configuration:', error);
+      
+      // Extract meaningful error message
+      let errorMessage = 'Unknown error occurred';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      // Handle specific error types
+      if (errorMessage.includes('PayloadTooLargeError') || errorMessage.includes('413')) {
+        errorMessage = 'One or more images are too large. Please use smaller images (under 5MB each).';
+      } else if (errorMessage.includes('NetworkError') || errorMessage.includes('Failed to fetch')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      } else if (errorMessage.includes('Server responded with')) {
+        // Extract server error messages more cleanly
+        const match = errorMessage.match(/Server responded with \d+: (.+)/);
+        if (match) {
+          errorMessage = `Server error: ${match[1]}`;
+        }
+      }
+      
+      setSaveError(errorMessage);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const updateServerConfig = (field: keyof AppConfig['server'], value: number) => {
@@ -165,7 +200,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }));
   };
 
-  const updateAppearanceConfig = (field: keyof AppConfig['appearance'], value: string) => {
+  const updateAppearanceConfig = (field: keyof AppConfig['appearance'], value: string | boolean) => {
     setConfig(prev => ({
       ...prev,
       appearance: {
@@ -758,7 +793,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
 
                 {/* Accent Color */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Accent Color</label>
+                  <label htmlFor="accentColor" className="block text-sm font-medium text-gray-700 mb-1">Accent Color</label>
                   <div className="flex items-center space-x-3">
                     <input
                       type="color"
@@ -775,6 +810,47 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-1">Used for buttons and interactive elements</p>
+                </div>
+              </div>
+
+              {/* Additional Settings */}
+              <div className="space-y-4">
+                <h4 className="text-md font-medium text-gray-800 border-b border-gray-200 pb-2">Display Options</h4>
+                
+                {/* Disable Background Toggle */}
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
+                  <div className="flex-1">
+                    <label htmlFor="disable-background-toggle" className="block text-sm font-medium text-gray-800 cursor-pointer">
+                      Disable Background
+                    </label>
+                    <p className="text-xs text-gray-600 mt-1">Make the app background transparent</p>
+                  </div>
+                  <div className="ml-4">
+                    <button
+                      type="button"
+                      onClick={() => updateAppearanceConfig('disableBackground', !config.appearance?.disableBackground)}
+                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 ${
+                        config.appearance?.disableBackground 
+                          ? 'focus:ring-blue-500' 
+                          : 'focus:ring-gray-400'
+                      }`}
+                      style={{
+                        backgroundColor: config.appearance?.disableBackground 
+                          ? (config.appearance?.accentColor || '#3b82f6')
+                          : '#d1d5db'
+                      }}
+                      aria-pressed={config.appearance?.disableBackground || false}
+                      aria-labelledby="disable-background-toggle"
+                    >
+                      <span className="sr-only">Toggle background visibility</span>
+                      <span
+                        aria-hidden="true"
+                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition-all duration-200 ease-in-out ${
+                          config.appearance?.disableBackground ? 'translate-x-5' : 'translate-x-0'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -963,23 +1039,64 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200 bg-gray-50 flex-shrink-0">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors"
-            style={{ 
-              backgroundColor: config.appearance?.accentColor || '#3b82f6',
-            }}
-          >
-            <Save size={16} />
-            <span>Save Changes</span>
-          </button>
+        <div className="p-6 border-t border-gray-200 bg-gray-50 flex-shrink-0">
+          {/* Error Display */}
+          {saveError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <X className="h-5 w-5 text-red-400" />
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-red-800">Error saving configuration</h3>
+                  <div className="mt-1 text-sm text-red-700">
+                    {saveError}
+                  </div>
+                </div>
+                <div className="ml-auto pl-3">
+                  <div className="-mx-1.5 -my-1.5">
+                    <button
+                      onClick={() => setSaveError(null)}
+                      className="inline-flex rounded-md bg-red-50 p-1.5 text-red-500 hover:bg-red-100"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Action Buttons */}
+          <div className="flex items-center justify-end space-x-3">
+            <button
+              onClick={onClose}
+              disabled={isSaving}
+              className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ 
+                backgroundColor: config.appearance?.accentColor || '#3b82f6',
+              }}
+            >
+              {isSaving ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <>
+                  <Save size={16} />
+                  <span>Save Changes</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>

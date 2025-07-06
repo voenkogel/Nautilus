@@ -207,37 +207,32 @@ const Canvas: React.FC = () => {
   }, []);
 
   const handleSaveConfig = async (newConfig: AppConfig) => {
-    try {
-      // Send the config to the server to update the config.json file
-      const response = await fetch('/api/config', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(newConfig),
-      });
+    // Send the config to the server to update the config.json file
+    const response = await fetch('/api/config', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(newConfig),
+    });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Server responded with ${response.status}: ${errorText}`);
-      }
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Server responded with ${response.status}: ${errorText}`);
+    }
 
-      await response.json();
+    await response.json();
+    
+    // After successful save, fetch the updated config from server to ensure sync
+    const configResponse = await fetch('/api/config');
+    if (configResponse.ok) {
+      const updatedConfig = await configResponse.json();
+      setCurrentConfig(updatedConfig);
       
-      // After successful save, fetch the updated config from server to ensure sync
-      const configResponse = await fetch('/api/config');
-      if (configResponse.ok) {
-        const updatedConfig = await configResponse.json();
-        setCurrentConfig(updatedConfig);
-        
-        // Clear icon caches when config changes to force reload of icons with new colors/content
-        iconImageCache.clear();
-        iconSvgCache.clear();
-        setIconsPreloaded(false);
-      }
-    } catch (error) {
-      console.error('Error saving configuration:', error);
-      alert(`Failed to save configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Clear icon caches when config changes to force reload of icons with new colors/content
+      iconImageCache.clear();
+      iconSvgCache.clear();
+      setIconsPreloaded(false);
     }
   };
   
@@ -289,7 +284,7 @@ const Canvas: React.FC = () => {
     }
   };
 
-  const handleSaveNode = (updatedNode: TreeNode) => {
+  const handleSaveNode = async (updatedNode: TreeNode) => {
     // Helper function to update node in the tree
     const updateNodeInTree = (nodes: TreeNode[]): TreeNode[] => {
       return nodes.map(node => {
@@ -314,11 +309,16 @@ const Canvas: React.FC = () => {
       }
     };
 
-    handleSaveConfig(newConfig);
-    setEditingNode(null);
+    try {
+      await handleSaveConfig(newConfig);
+      setEditingNode(null);
+    } catch (error) {
+      console.error('Error saving node:', error);
+      // The error will be handled by the component that calls this
+    }
   };
 
-  const handleDeleteNode = () => {
+  const handleDeleteNode = async () => {
     if (!editingNode) return;
 
     // Helper function to remove node from the tree
@@ -342,15 +342,20 @@ const Canvas: React.FC = () => {
       }
     };
 
-    handleSaveConfig(newConfig);
-    setEditingNode(null);
+    try {
+      await handleSaveConfig(newConfig);
+      setEditingNode(null);
+    } catch (error) {
+      console.error('Error deleting node:', error);
+      // The error will be handled by the component that calls this
+    }
   };
   
   // Node dimensions and spacing
-  const NODE_WIDTH = 200; // Decreased from 240
-  const NODE_HEIGHT = 70; // Decreased from 80 to better fit text content
-  const HORIZONTAL_SPACING = 60;
-  const VERTICAL_SPACING = 80;
+  const NODE_WIDTH = 220; // Node width
+  const NODE_HEIGHT = 90;  // Node height
+  const HORIZONTAL_SPACING = 25; // Reduced horizontal gap between nodes
+  const VERTICAL_SPACING = 40;   // Reduced vertical gap between levels
 
   // Load background image from config
   useEffect(() => {
@@ -573,6 +578,9 @@ const Canvas: React.FC = () => {
 
   // Function to check if mouse is over an edit button
   const getEditButtonHover = useCallback((canvasX: number, canvasY: number): string | null => {
+    // Don't check for edit button hover on mobile
+    if (isMobile) return null;
+    
     // Convert canvas coordinates to world coordinates
     const worldX = (canvasX - transform.x) / transform.scale;
     const worldY = (canvasY - transform.y) / transform.scale;
@@ -610,7 +618,7 @@ const Canvas: React.FC = () => {
     }
     
     return null;
-  }, [transform, calculateNodePositions, hoveredNodeId]);
+  }, [transform, calculateNodePositions, hoveredNodeId, isMobile]);
 
   // Function to check if a point is inside a node
   const getNodeAtPosition = useCallback((canvasX: number, canvasY: number): PositionedNode | null => {
@@ -707,8 +715,11 @@ const Canvas: React.FC = () => {
   };
 
   // Draw node (single node drawing)
-  const drawNode = (ctx: CanvasRenderingContext2D, node: PositionedNode, scale: number, _config: AppConfig, isHovered: boolean = false, isEditButtonHovered: boolean = false) => {
-    const { x, y, width, height, title, subtitle, ip, url, type } = node;
+  const drawNode = (ctx: CanvasRenderingContext2D, node: PositionedNode, scale: number, _config: AppConfig, isHovered: boolean = false, isEditButtonHovered: boolean = false, isMobile: boolean = false) => {
+    const { x, y, width, type, title, subtitle, ip, url } = node;
+    
+    // Adjust height for mobile - make it slightly shorter
+    const height = isMobile ? node.height - 10 : node.height;
     
     // Pre-calculate layout values
     const circleAreaWidth = width / 3;
@@ -739,6 +750,9 @@ const Canvas: React.FC = () => {
       ? getNodeStatus(originalIdentifier) 
       : { status: 'offline' as const, lastChecked: new Date().toISOString(), progress: 0 };
     
+    // Check if node has web GUI disabled
+    const hasWebGuiDisabled = node.hasWebGui === false;
+
     // Apply soft shadow using blur (save context to restore after shadow drawing)
     ctx.save();
     ctx.shadowColor = 'rgba(0, 0, 0, 0.18)';
@@ -746,7 +760,7 @@ const Canvas: React.FC = () => {
     ctx.shadowOffsetX = 2;
     ctx.shadowOffsetY = 2;
     
-    // Draw node background with shadow
+    // Draw node background with shadow (normal styling regardless of hasWebGui)
     ctx.fillStyle = '#ffffff';
     if (type === 'circular') {
       drawPillShape(ctx, x, y, width, height);
@@ -760,7 +774,7 @@ const Canvas: React.FC = () => {
     // Reset shadow
     ctx.restore();
 
-    // Draw node border
+    // Draw node border (normal styling regardless of hasWebGui)
     ctx.strokeStyle = '#e5e7eb';
     ctx.lineWidth = 1 / scale;
     if (type === 'circular') {
@@ -782,15 +796,18 @@ const Canvas: React.FC = () => {
     const circleCenterX = x + padding + (circleAreaWidth - padding) / 2;
     const circleCenterY = y + height / 2; // Centered vertically
     
-    // Set circle color based on node status - gray if no IP or URL provided
+    // Set circle color based on node status - gray if no IP/URL provided or hasWebGui is disabled
     let circleColor = '#6b7280'; // Default gray for checking or no identifier
     let circleOpacity = 1.0; // Default full opacity
     
-    if (originalIdentifier && nodeStatus.status === 'online') {
+    if (hasWebGuiDisabled || !originalIdentifier) {
+      // Gray circle for disabled nodes or nodes without IP/URL
+      circleColor = '#6b7280';
+    } else if (nodeStatus.status === 'online') {
       circleColor = '#10b981'; // Green for online
-    } else if (originalIdentifier && nodeStatus.status === 'offline') {
+    } else if (nodeStatus.status === 'offline') {
       circleColor = '#ef4444'; // Red for offline
-    } else if (originalIdentifier && nodeStatus.status === 'checking') {
+    } else if (nodeStatus.status === 'checking') {
       // Create subtle shimmer effect for loading state
       const time = Date.now() / 1000; // Get current time in seconds
       const pulseSpeed = 1.2; // Medium speed animation - 1.2 cycles per second
@@ -826,8 +843,8 @@ const Canvas: React.FC = () => {
     // Use the pre-calculated titleX and titleY values
     ctx.fillText(title, titleX, titleY);
     
-    // Draw edit button (wrench icon) only on hover
-    if (isHovered) {
+    // Draw edit button (wrench icon) only on hover and not on mobile
+    if (isHovered && !isMobile) {
       const iconSize = editIconSize;
       const iconCenterX = editIconX + iconSize/2;
       const iconCenterY = editIconY + iconSize/2;
@@ -938,7 +955,8 @@ const Canvas: React.FC = () => {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Draw static background image (not affected by transform) with cover behavior
-    if (backgroundLoaded && backgroundImageRef.current) {
+    // Only draw if background is not disabled
+    if (backgroundLoaded && backgroundImageRef.current && !currentConfig.appearance?.disableBackground) {
       const img = backgroundImageRef.current;
       const canvasAspect = canvas.width / canvas.height;
       const imgAspect = img.width / img.height;
@@ -982,7 +1000,7 @@ const Canvas: React.FC = () => {
     nodes.forEach(node => {
       const isNodeHovered = hoveredNodeIdRef.current === node.id;
       const isEditButtonHovered = hoveredEditButtonNodeIdRef.current === node.id;
-      drawNode(ctx, node, transform.scale, currentConfig, isNodeHovered, isEditButtonHovered);
+      drawNode(ctx, node, transform.scale, currentConfig, isNodeHovered, isEditButtonHovered, isMobile);
     });
     
     // Restore context state
@@ -1309,28 +1327,6 @@ const Canvas: React.FC = () => {
     }
   }, []);
 
-  const handleMobileEditClick = useCallback((node: TreeNode) => {
-    try {
-      // Create a deep copy to avoid reference issues
-      const nodeCopy = JSON.parse(JSON.stringify(node));
-      setEditingNode(nodeCopy);
-    } catch (error) {
-      console.error("Error setting editing node:", error);
-      // Fallback: If JSON serialization fails, try basic copy
-      try {
-        // Try a simpler manual copy approach
-        const basicCopy = {
-          ...node,
-          children: node.children ? [...node.children] : []
-        };
-        setEditingNode(basicCopy);
-      } catch (secondError) {
-        console.error("Both copy methods failed:", secondError);
-        alert("Could not edit node. Please try again.");
-      }
-    }
-  }, []);
-
   // Effect to test API connectivity when the component mounts
   useEffect(() => {
     const testApiConnectivity = async () => {
@@ -1388,17 +1384,19 @@ const Canvas: React.FC = () => {
       {/* Mobile view with vertical list */}
       {isMobile && (
         <div className="h-full relative">
-          {/* Background image for mobile view - covers entire screen */}
-          <div 
-            className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
-            style={{ 
-              backgroundImage: `url(${currentConfig.appearance?.backgroundImage || '/background.png'})`,
-              opacity: 0.3,
-              backgroundSize: 'cover'
-            }} 
-          />
-          {/* Fallback background in case the first one fails */}
-          {!backgroundLoaded && (
+          {/* Background image for mobile view - covers entire screen - only show if not disabled */}
+          {!currentConfig.appearance?.disableBackground && (
+            <div 
+              className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
+              style={{ 
+                backgroundImage: `url(${currentConfig.appearance?.backgroundImage || '/background.png'})`,
+                opacity: 0.3,
+                backgroundSize: 'cover'
+              }} 
+            />
+          )}
+          {/* Fallback background in case the first one fails - only show if not disabled */}
+          {!currentConfig.appearance?.disableBackground && !backgroundLoaded && (
             <div 
               className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
               style={{ 
@@ -1414,7 +1412,6 @@ const Canvas: React.FC = () => {
               nodes={currentConfig.tree.nodes} 
               statuses={statuses}
               onNodeClick={handleMobileNodeClick}
-              onEditClick={handleMobileEditClick}
               appConfig={currentConfig}
               statusCard={
                 <StatusCard

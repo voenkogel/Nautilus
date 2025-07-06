@@ -73,7 +73,9 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json());
+// Increase JSON payload limit for image uploads (base64 encoded images can be large)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Store for node statuses
 const nodeStatuses = new Map();

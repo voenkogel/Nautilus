@@ -4,7 +4,8 @@
     "accentColor": "#3b82f6",
     "backgroundImage": "",
     "favicon": "",
-    "logo": ""
+    "logo": "",
+    "disableBackground": false
   },
   "tree": {
     "nodes": [
@@ -86,7 +87,8 @@
                 "icon": "server",
                 "children": []
               }
-            ]
+            ],
+            "hasWebGui": true
           }
         ]
       }
