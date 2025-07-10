@@ -1,7 +1,7 @@
 {
   "appearance": {
     "title": "Nautilus",
-    "accentColor": "#3b82f6",
+    "accentColor": "#34a00d",
     "backgroundImage": "",
     "favicon": "",
     "logo": "",
@@ -35,72 +35,6 @@
                 "url": "sonarr.koenvogel.com",
                 "icon": "tv",
                 "type": "circular",
-                "children": []
-              },
-              {
-                "id": "node_1751554887288",
-                "title": "New Node",
-                "subtitle": "New subtitle",
-                "type": "circular",
-                "icon": "server",
-                "children": []
-              },
-              {
-                "id": "node_1751554887790",
-                "title": "New Node",
-                "subtitle": "New subtitle",
-                "type": "circular",
-                "icon": "server",
-                "children": [
-                  {
-                    "id": "node_1751555637893",
-                    "title": "New Node",
-                    "subtitle": "New subtitle",
-                    "type": "square",
-                    "icon": "server",
-                    "children": []
-                  },
-                  {
-                    "id": "node_1751555987698",
-                    "title": "New Node",
-                    "subtitle": "New subtitle",
-                    "type": "square",
-                    "icon": "server",
-                    "children": [
-                      {
-                        "id": "node_1751556007000",
-                        "title": "New Node",
-                        "subtitle": "New subtitle",
-                        "type": "square",
-                        "icon": "server",
-                        "children": []
-                      },
-                      {
-                        "id": "node_1751804932655",
-                        "title": "New Node",
-                        "subtitle": "New subtitle",
-                        "type": "square",
-                        "icon": "server",
-                        "children": []
-                      }
-                    ]
-                  },
-                  {
-                    "id": "node_1751804592476",
-                    "title": "New Node",
-                    "subtitle": "New subtitle",
-                    "type": "square",
-                    "icon": "server",
-                    "children": []
-                  }
-                ]
-              },
-              {
-                "id": "node_1751554888228",
-                "title": "New Node",
-                "subtitle": "New subtitle",
-                "type": "square",
-                "icon": "server",
                 "children": []
               }
             ],

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, X, Plus, Trash2, Save, ChevronDown, ChevronRight } from 'lucide-react';
+import { Settings as SettingsIcon, X, Plus, Trash2, Save, ChevronDown, ChevronRight, LogOut } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
+import { clearAuthentication, isAuthenticated } from '../utils/auth';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -19,6 +20,26 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   const [fileErrors, setFileErrors] = useState<{ favicon?: string; backgroundImage?: string; logo?: string }>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // Check authentication status on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      const authenticated = await isAuthenticated();
+      setIsLoggedIn(authenticated);
+    };
+    
+    checkAuth();
+  }, [isOpen]); // Check when modal opens
+
+  // Handle logout
+  const handleLogout = async () => {
+    if (window.confirm('Are you sure you want to logout?')) {
+      await clearAuthentication();
+      setIsLoggedIn(false);
+      onClose(); // Close settings modal after logout
+    }
+  };
 
   // Simple list of common/popular icons for suggestions (optional)
   const commonIcons = [
@@ -56,41 +77,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     } else {
       // Show a fallback icon if the specified icon doesn't exist
       return <LucideIcons.HelpCircle size={size} className="text-gray-400" />;
-    }
-  };
-
-  // Function to render shape preview icons
-  const renderShapePreview = (shapeType: 'square' | 'circular' | 'angular') => {
-    const commonProps = {
-      className: "w-8 h-8 bg-gray-100 border border-gray-300 flex items-center justify-center"
-    };
-
-    switch (shapeType) {
-      case 'square':
-        return (
-          <div {...commonProps} style={{ borderRadius: '6px' }}>
-            <div className="w-4 h-4 bg-gray-400 rounded-sm"></div>
-          </div>
-        );
-      case 'circular':
-        return (
-          <div {...commonProps} style={{ borderRadius: '16px' }}>
-            <div className="w-4 h-4 bg-gray-400 rounded-full"></div>
-          </div>
-        );
-      case 'angular':
-        return (
-          <div {...commonProps} style={{ 
-            borderRadius: '0px',
-            clipPath: 'polygon(12% 0%, 88% 0%, 100% 25%, 100% 75%, 88% 100%, 12% 100%, 0% 75%, 0% 25%)'
-          }}>
-            <div className="w-4 h-4 bg-gray-400" style={{
-              clipPath: 'polygon(20% 0%, 80% 0%, 100% 30%, 100% 70%, 80% 100%, 20% 100%, 0% 70%, 0% 30%)'
-            }}></div>
-          </div>
-        );
-      default:
-        return null;
     }
   };
 
@@ -185,16 +171,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       ...prev,
       server: {
         ...prev.server,
-        [field]: value
-      }
-    }));
-  };
-
-  const updateClientConfig = (field: keyof AppConfig['client'], value: number | string) => {
-    setConfig(prev => ({
-      ...prev,
-      client: {
-        ...prev.client,
         [field]: value
       }
     }));
@@ -558,7 +534,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                         }}
                         onClick={() => updateNode(node.id, { type: 'square' })}
                       >
-                        {renderShapePreview('square')}
+                        <div className="w-8 h-8 bg-gray-100 border border-gray-300 flex items-center justify-center rounded-md">
+                          <div className="w-4 h-4 bg-gray-400 rounded-sm"></div>
+                        </div>
                         <div className="text-center mt-2">
                           <div className="text-sm font-medium text-gray-900">Square</div>
                           <div className="text-xs text-gray-500">Normal rectangular cards</div>
@@ -577,7 +555,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                         }}
                         onClick={() => updateNode(node.id, { type: 'circular' })}
                       >
-                        {renderShapePreview('circular')}
+                        <div className="w-8 h-8 bg-gray-100 border border-gray-300 flex items-center justify-center rounded-full">
+                          <div className="w-4 h-4 bg-gray-400 rounded-full"></div>
+                        </div>
                         <div className="text-center mt-2">
                           <div className="text-sm font-medium text-gray-900">Circular</div>
                           <div className="text-xs text-gray-500">Pill-shaped cards</div>
@@ -596,7 +576,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                         }}
                         onClick={() => updateNode(node.id, { type: 'angular' })}
                       >
-                        {renderShapePreview('angular')}
+                        <div className="w-8 h-8 bg-gray-100 border border-gray-300 flex items-center justify-center" style={{ clipPath: 'polygon(12% 0%, 88% 0%, 100% 25%, 100% 75%, 88% 100%, 12% 100%, 0% 75%, 0% 25%)' }}>
+                          <div className="w-4 h-4 bg-gray-400" style={{ clipPath: 'polygon(20% 0%, 80% 0%, 100% 30%, 100% 70%, 80% 100%, 20% 100%, 0% 70%, 0% 30%)' }}></div>
+                        </div>
                         <div className="text-center mt-2">
                           <div className="text-sm font-medium text-gray-900">Angular</div>
                           <div className="text-xs text-gray-500">Diamond-sided cards</div>
@@ -628,6 +610,220 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       </div>
     );
   };
+
+  const renderAppearanceTab = () => (
+    <div className="space-y-6">
+      <div>
+        <label htmlFor="title" className="block text-sm font-medium text-gray-700">
+          Page Title
+        </label>
+        <input
+          type="text"
+          id="title"
+          value={config.appearance.title}
+          onChange={(e) => updateAppearanceConfig('title', e.target.value)}
+          className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+        />
+      </div>
+      <div>
+        <label htmlFor="accentColor" className="block text-sm font-medium text-gray-700">
+          Accent Color
+        </label>
+        <input
+          type="color"
+          id="accentColor"
+          value={config.appearance.accentColor}
+          onChange={(e) => updateAppearanceConfig('accentColor', e.target.value)}
+          className="mt-1 block w-full h-10 px-1 py-1 border border-gray-300 rounded-md"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Favicon
+        </label>
+        <div className="flex items-start space-x-4">
+          <div className="flex-shrink-0">
+            {config.appearance.favicon ? (
+              <img 
+                src={config.appearance.favicon} 
+                alt="Favicon Preview" 
+                className="w-16 h-16 rounded-lg object-contain border-2 border-gray-200 bg-white p-2"
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center bg-gray-50">
+                <span className="text-xs text-gray-400">No Favicon</span>
+              </div>
+            )}
+          </div>
+          <div className="flex-1">
+            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors">
+              <div className="space-y-1 text-center">
+                <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                  <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <div className="flex text-sm text-gray-600">
+                  <label htmlFor="favicon-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                    <span>Upload a favicon</span>
+                    <input 
+                      id="favicon-upload" 
+                      name="favicon-upload" 
+                      type="file" 
+                      className="sr-only"
+                      accept="image/png, image/jpeg, image/svg+xml, image/x-icon"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(file, 'favicon');
+                      }}
+                    />
+                  </label>
+                  <p className="pl-1">or drag and drop</p>
+                </div>
+                <p className="text-xs text-gray-500">PNG, JPG, SVG, ICO up to 5MB (recommended: 32x32px)</p>
+              </div>
+            </div>
+            {config.appearance.favicon && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => updateAppearanceConfig('favicon', '')}
+                  className="text-sm text-red-600 hover:text-red-500"
+                >
+                  Remove favicon
+                </button>
+              </div>
+            )}
+            {fileErrors.favicon && (
+              <p className="mt-2 text-sm text-red-600">{fileErrors.favicon}</p>
+            )}
+          </div>
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Logo
+        </label>
+        <div className="flex items-start space-x-4">
+          <div className="flex-shrink-0">
+            {config.appearance.logo ? (
+              <img 
+                src={config.appearance.logo} 
+                alt="Logo Preview" 
+                className="w-24 h-16 rounded-lg object-contain border-2 border-gray-200 bg-white p-2"
+              />
+            ) : (
+              <div className="w-24 h-16 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center bg-gray-50">
+                <span className="text-xs text-gray-400">No Logo</span>
+              </div>
+            )}
+          </div>
+          <div className="flex-1">
+            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors">
+              <div className="space-y-1 text-center">
+                <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                  <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <div className="flex text-sm text-gray-600">
+                  <label htmlFor="logo-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                    <span>Upload a logo</span>
+                    <input 
+                      id="logo-upload" 
+                      name="logo-upload" 
+                      type="file" 
+                      className="sr-only"
+                      accept="image/png, image/jpeg, image/svg+xml"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(file, 'logo');
+                      }}
+                    />
+                  </label>
+                  <p className="pl-1">or drag and drop</p>
+                </div>
+                <p className="text-xs text-gray-500">PNG, JPG, SVG up to 5MB (recommended: 256x256px)</p>
+              </div>
+            </div>
+            {config.appearance.logo && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => updateAppearanceConfig('logo', '')}
+                  className="text-sm text-red-600 hover:text-red-500"
+                >
+                  Remove logo
+                </button>
+              </div>
+            )}
+            {fileErrors.logo && (
+              <p className="mt-2 text-sm text-red-600">{fileErrors.logo}</p>
+            )}
+          </div>
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">Background Image</label>
+        
+        <div className="flex items-start space-x-4">
+          <div className="flex-shrink-0">
+            {config.appearance?.backgroundImage ? (
+              <img
+                src={config.appearance.backgroundImage}
+                alt="Current background"
+                className="w-32 h-20 rounded-lg object-cover border-2 border-gray-200"
+              />
+            ) : (
+              <div className="w-32 h-20 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center bg-gray-50">
+                <span className="text-xs text-gray-400">No Background</span>
+              </div>
+            )}
+          </div>
+          
+          <div className="flex-1">
+            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors">
+              <div className="space-y-1 text-center">
+                <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+                  <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <div className="flex text-sm text-gray-600">
+                  <label htmlFor="background-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
+                    <span>Upload a background</span>
+                    <input 
+                      id="background-upload" 
+                      name="background-upload" 
+                      type="file" 
+                      className="sr-only"
+                      accept="image/png, image/jpeg, image/svg+xml"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleFileUpload(file, 'backgroundImage');
+                      }}
+                    />
+                  </label>
+                  <p className="pl-1">or drag and drop</p>
+                </div>
+                <p className="text-xs text-gray-500">PNG, JPG, SVG up to 5MB (will be used as canvas background)</p>
+              </div>
+            </div>
+            
+            {config.appearance?.backgroundImage && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => updateAppearanceConfig('backgroundImage', '')}
+                  className="text-sm text-red-600 hover:text-red-500"
+                >
+                  Remove background image
+                </button>
+              </div>
+            )}
+            
+            {fileErrors.backgroundImage && (
+              <p className="mt-2 text-sm text-red-600">{fileErrors.backgroundImage}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   if (!isOpen) return null;
 
@@ -686,65 +882,17 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
         <div className="p-6 overflow-y-auto flex-1 min-h-0">
           {activeTab === 'general' && (
             <div className="space-y-6">
-              {/* Server Settings */}
               <div>
-                <h3 className="text-lg font-medium text-gray-800 mb-4">Server Settings</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Server Port</label>
-                    <input
-                      type="number"
-                      value={config.server.port}
-                      onChange={(e) => updateServerConfig('port', parseInt(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Health Check Interval (ms)</label>
-                    <input
-                      type="number"
-                      value={config.server.healthCheckInterval}
-                      onChange={(e) => updateServerConfig('healthCheckInterval', parseInt(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Client Settings */}
-              <div>
-                <h3 className="text-lg font-medium text-gray-800 mb-4">Client Settings</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Client Port</label>
-                    <input
-                      type="number"
-                      value={config.client.port}
-                      onChange={(e) => updateClientConfig('port', parseInt(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Polling Interval (ms)</label>
-                    <input
-                      type="number"
-                      value={config.client.apiPollingInterval}
-                      onChange={(e) => updateClientConfig('apiPollingInterval', parseInt(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Host</label>
-                    <input
-                      type="text"
-                      value={config.client.host}
-                      onChange={(e) => updateClientConfig('host', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                <h3 className="text-lg font-medium text-gray-800 mb-4">General Settings</h3>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Health Check Interval (ms)</label>
+                  <input
+                    type="number"
+                    value={config.server.healthCheckInterval}
+                    onChange={(e) => updateServerConfig('healthCheckInterval', parseInt(e.target.value))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">How often to check node status (in milliseconds)</p>
                 </div>
               </div>
             </div>
@@ -772,270 +920,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
             </div>
           )}
 
-          {activeTab === 'appearance' && (
-            <div className="space-y-8">
-              <h3 className="text-lg font-medium text-gray-800 mb-6">Appearance Settings</h3>
-              
-              {/* Basic Settings - Two Column Layout */}
-              <div className="grid grid-cols-2 gap-6">
-                {/* Page Title */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Page Title</label>
-                  <input
-                    type="text"
-                    value={config.appearance?.title || 'Nautilus'}
-                    onChange={(e) => updateAppearanceConfig('title', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Enter page title"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">This will appear in the browser tab</p>
-                </div>
-
-                {/* Accent Color */}
-                <div>
-                  <label htmlFor="accentColor" className="block text-sm font-medium text-gray-700 mb-1">Accent Color</label>
-                  <div className="flex items-center space-x-3">
-                    <input
-                      type="color"
-                      value={config.appearance?.accentColor || '#3b82f6'}
-                      onChange={(e) => updateAppearanceConfig('accentColor', e.target.value)}
-                      className="w-12 h-10 border border-gray-300 rounded-md cursor-pointer"
-                    />
-                    <input
-                      type="text"
-                      value={config.appearance?.accentColor || '#3b82f6'}
-                      onChange={(e) => updateAppearanceConfig('accentColor', e.target.value)}
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="#3b82f6"
-                    />
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">Used for buttons and interactive elements</p>
-                </div>
-              </div>
-
-              {/* Additional Settings */}
-              <div className="space-y-4">
-                <h4 className="text-md font-medium text-gray-800 border-b border-gray-200 pb-2">Display Options</h4>
-                
-                {/* Disable Background Toggle */}
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
-                  <div className="flex-1">
-                    <label htmlFor="disable-background-toggle" className="block text-sm font-medium text-gray-800 cursor-pointer">
-                      Disable Background
-                    </label>
-                    <p className="text-xs text-gray-600 mt-1">Make the app background transparent</p>
-                  </div>
-                  <div className="ml-4">
-                    <button
-                      type="button"
-                      onClick={() => updateAppearanceConfig('disableBackground', !config.appearance?.disableBackground)}
-                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-50 ${
-                        config.appearance?.disableBackground 
-                          ? 'focus:ring-blue-500' 
-                          : 'focus:ring-gray-400'
-                      }`}
-                      style={{
-                        backgroundColor: config.appearance?.disableBackground 
-                          ? (config.appearance?.accentColor || '#3b82f6')
-                          : '#d1d5db'
-                      }}
-                      aria-pressed={config.appearance?.disableBackground || false}
-                      aria-labelledby="disable-background-toggle"
-                    >
-                      <span className="sr-only">Toggle background visibility</span>
-                      <span
-                        aria-hidden="true"
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition-all duration-200 ease-in-out ${
-                          config.appearance?.disableBackground ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* File Uploads Section */}
-              <div className="space-y-6">
-                <h4 className="text-md font-medium text-gray-800 border-b border-gray-200 pb-2">File Uploads</h4>
-                
-                <div className="grid grid-cols-1 gap-6">
-                  {/* Favicon Upload */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Favicon</label>
-                    
-                    {/* Current Favicon Preview */}
-                    {config.appearance?.favicon && (
-                      <div className="mb-3 flex items-center space-x-3">
-                        <img 
-                          src={config.appearance.favicon} 
-                          alt="Current favicon" 
-                          className="w-8 h-8 border border-gray-300 rounded"
-                        />
-                        <button
-                          onClick={() => updateAppearanceConfig('favicon', '')}
-                          className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 border border-red-300 rounded transition-colors"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                    
-                    {/* Drag and Drop Area */}
-                    <div
-                      onClick={() => document.getElementById('favicon-upload')?.click()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const file = e.dataTransfer.files[0];
-                        handleFileUpload(file, 'favicon');
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDragEnter={(e) => e.preventDefault()}
-                      className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
-                    >
-                      <div className="space-y-2">
-                        <svg className="mx-auto h-8 w-8 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                          <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <div className="text-sm text-gray-600">
-                          <span className="font-medium text-blue-600 hover:text-blue-500">Click to upload</span> or drag and drop
-                        </div>
-                        <p className="text-xs text-gray-500">Recommended: up to 128x128 (max 5MB)</p>
-                      </div>
-                      <input
-                        id="favicon-upload"
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleFileUpload(file, 'favicon');
-                        }}
-                        className="hidden"
-                      />
-                    </div>
-                    {fileErrors.favicon && (
-                      <p className="text-xs text-red-600 mt-2">{fileErrors.favicon}</p>
-                    )}
-                  </div>
-
-                  {/* Logo Upload */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Logo (fallback to favicon if empty)</label>
-                    
-                    {/* Current Logo Preview */}
-                    {config.appearance?.logo && (
-                      <div className="mb-3 flex items-center space-x-3">
-                        <img 
-                          src={config.appearance.logo} 
-                          alt="Current logo" 
-                          className="w-12 h-12 border border-gray-300 rounded"
-                        />
-                        <button
-                          onClick={() => updateAppearanceConfig('logo', '')}
-                          className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 border border-red-300 rounded transition-colors"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                    
-                    {/* Drag and Drop Area */}
-                    <div
-                      onClick={() => document.getElementById('logo-upload')?.click()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const file = e.dataTransfer.files[0];
-                        handleFileUpload(file, 'logo');
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDragEnter={(e) => e.preventDefault()}
-                      className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
-                    >
-                      <div className="space-y-2">
-                        <svg className="mx-auto h-8 w-8 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                          <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <div className="text-sm text-gray-600">
-                          <span className="font-medium text-blue-600 hover:text-blue-500">Click to upload</span> or drag and drop
-                        </div>
-                        <p className="text-xs text-gray-500">Recommended: square format, 256x256 or larger (max 5MB)</p>
-                      </div>
-                      <input
-                        id="logo-upload"
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleFileUpload(file, 'logo');
-                        }}
-                        className="hidden"
-                      />
-                    </div>
-                    {fileErrors.logo && (
-                      <p className="text-xs text-red-600 mt-2">{fileErrors.logo}</p>
-                    )}
-                  </div>
-
-                  {/* Background Image Upload */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Background Image</label>
-                    
-                    {/* Current Background Preview */}
-                    {config.appearance?.backgroundImage && (
-                      <div className="mb-3 relative">
-                        <img 
-                          src={config.appearance.backgroundImage} 
-                          alt="Current background" 
-                          className="w-full h-24 object-cover border border-gray-300 rounded-md"
-                        />
-                        <button
-                          onClick={() => updateAppearanceConfig('backgroundImage', '')}
-                          className="absolute top-2 right-2 px-2 py-1 text-xs text-red-600 bg-white hover:bg-red-50 border border-red-300 rounded transition-colors"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    )}
-                    
-                    {/* Drag and Drop Area */}
-                    <div
-                      onClick={() => document.getElementById('background-upload')?.click()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        const file = e.dataTransfer.files[0];
-                        handleFileUpload(file, 'backgroundImage');
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDragEnter={(e) => e.preventDefault()}
-                      className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors cursor-pointer"
-                    >
-                      <div className="space-y-2">
-                        <svg className="mx-auto h-8 w-8 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                          <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <div className="text-sm text-gray-600">
-                          <span className="font-medium text-blue-600 hover:text-blue-500">Click to upload</span> or drag and drop
-                        </div>
-                        <p className="text-xs text-gray-500">Background image for the canvas (max 5MB)</p>
-                      </div>
-                      <input
-                        id="background-upload"
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleFileUpload(file, 'backgroundImage');
-                        }}
-                        className="hidden"
-                      />
-                    </div>
-                    {fileErrors.backgroundImage && (
-                        <p className="text-xs text-red-600 mt-2">{fileErrors.backgroundImage}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          {activeTab === 'appearance' && renderAppearanceTab()}
         </div>
 
         {/* Footer */}
@@ -1068,34 +953,50 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           )}
           
           {/* Action Buttons */}
-          <div className="flex items-center justify-end space-x-3">
-            <button
-              onClick={onClose}
-              disabled={isSaving}
-              className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ 
-                backgroundColor: config.appearance?.accentColor || '#3b82f6',
-              }}
-            >
-              {isSaving ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  <span>Saving...</span>
-                </>
-              ) : (
-                <>
-                  <Save size={16} />
-                  <span>Save Changes</span>
-                </>
+          <div className="flex items-center justify-between w-full">
+            {/* Left side - Logout button */}
+            <div>
+              {isLoggedIn && (
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center space-x-2 px-4 py-2 text-red-600 border border-red-300 rounded-md hover:bg-red-50 transition-colors"
+                >
+                  <LogOut size={16} />
+                  <span>Logout</span>
+                </button>
               )}
-            </button>
+            </div>
+            
+            {/* Right side - Cancel and Save buttons */}
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={onClose}
+                disabled={isSaving}
+                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ 
+                  backgroundColor: config.appearance?.accentColor || '#3b82f6',
+                }}
+              >
+                {isSaving ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save size={16} />
+                    <span>Save Changes</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -254,10 +254,20 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
                     <div className="flex items-center space-x-1">
                       {onEditChild && (
                         <div
-                          onClick={(e) => {
+                          onClick={async (e) => {
                             e.stopPropagation();
-
-                            onEditChild(child);
+                            try {
+                              // Save current node first
+                              await onSave(editedNode);
+                              // Then edit the child
+                              onEditChild(child);
+                            } catch (error) {
+                              console.error("Failed to save node before editing child:", error);
+                              // Ask if user wants to continue anyway
+                              if (window.confirm("Failed to save changes. Continue to edit child node? (Current changes will be lost)")) {
+                                onEditChild(child);
+                              }
+                            }
                           }}
                           className="p-1 hover:bg-gray-200 rounded text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
                           title="Edit child node"

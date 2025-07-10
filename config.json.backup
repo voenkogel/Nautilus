@@ -1,0 +1,19 @@
+{
+  "server": {
+    "port": 3069,
+    "healthCheckInterval": 20000,
+    "corsOrigins": []
+  },
+  "client": {
+    "port": 3070,
+    "host": "localhost",
+    "apiPollingInterval": 5000
+  },
+  "tree": {
+    "nodes": []
+  },
+  "appearance": {
+    "title": "Security Test",
+    "accentColor": "#3b82f6"
+  }
+}

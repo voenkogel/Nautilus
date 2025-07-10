@@ -28,7 +28,6 @@ export interface AppearanceConfig {
   logo?: string; // base64 encoded logo image (falls back to favicon if not set)
   accentColor: string;
   backgroundImage?: string; // base64 encoded background image
-  disableBackground?: boolean; // Optional flag to disable the background image
 }
 
 export interface AppConfig {

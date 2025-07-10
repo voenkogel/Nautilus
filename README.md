@@ -2,6 +2,15 @@
 
 A real-time network monitoring dashboard built with React, TypeScript, and Node.js that displays the status of network nodes in a tree structure.
 
+## 🔒 Security Notice
+
+**Nautilus now includes authentication to protect configuration changes.**
+
+- 🔐 **Admin password required** for settings and node editing
+- 🛡️ **Server-side authentication** with session management  
+- 📋 **Read [SECURITY.md](./SECURITY.md)** for setup instructions
+- ⚠️ **Change default password (`1234`) for production use**
+
 ## Architecture Overview
 
 ### How the Server and Frontend Communicate
@@ -51,6 +60,24 @@ When you run `npm run dev`, here's what happens:
 ### Prerequisites
 - Node.js 18.18.0 or higher
 - npm 8.0.0 or higher
+
+### Security Setup (Required)
+
+1. **Copy environment file**:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Set admin password** (change from default):
+   ```bash
+   # Edit .env file
+   NAUTILUS_ADMIN_PASSWORD=your_secure_password
+   ```
+
+3. **Read security documentation**:
+   ```bash
+   # See SECURITY.md for complete setup guide
+   ```
 
 ### Running the Application
 

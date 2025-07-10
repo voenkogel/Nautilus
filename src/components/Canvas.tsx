@@ -7,6 +7,8 @@ import Settings from './Settings';
 import { NodeEditor } from './NodeEditor';
 import { useDeviceDetection } from '../hooks/useDeviceDetection';
 import MobileNodeList from './MobileNodeList';
+import EmptyNodesFallback, { createStartingNode } from './EmptyNodesFallback';
+import { authenticate, getAuthHeaders } from '../utils/auth';
 import { 
   iconImageCache, 
   iconSvgCache, 
@@ -247,14 +249,15 @@ const Canvas: React.FC = () => {
     // Send the config to the server to update the config.json file
     const response = await fetch('/api/config', {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify(newConfig),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
+      if (response.status === 401) {
+        throw new Error('Authentication required. Please log in again.');
+      }
       throw new Error(`Server responded with ${response.status}: ${errorText}`);
     }
 
@@ -273,7 +276,13 @@ const Canvas: React.FC = () => {
     }
   };
   
-  const handleEditNode = (nodeId: string) => {
+  const handleEditNode = async (nodeId: string) => {
+    // Authenticate before allowing node editing
+    const isAuth = await authenticate();
+    if (!isAuth) {
+      return; // User denied access or wrong password
+    }
+
     try {
       const node = findNodeById(currentConfig.tree.nodes, nodeId);
       if (node) {
@@ -301,8 +310,15 @@ const Canvas: React.FC = () => {
     }
   };
 
-  const handleEditChildNode = (childNode: TreeNode) => {
-    // Create a safe copy of the node before setting it
+  const handleEditChildNode = async (childNode: TreeNode) => {
+    // Authenticate before allowing node editing
+    const isAuth = await authenticate();
+    if (!isAuth) {
+      return; // User denied access or wrong password
+    }
+
+    // Create a safe copy of the child node before setting it
+    // Note: The current node should already be saved by the NodeEditor before calling this
     try {
       const nodeCopy = JSON.parse(JSON.stringify(childNode));
       setTimeout(() => {
@@ -319,6 +335,16 @@ const Canvas: React.FC = () => {
         setEditingNode(basicCopy);
       }, 10);
     }
+  };
+
+  const handleOpenSettings = async () => {
+    // Authenticate before allowing settings access
+    const isAuth = await authenticate();
+    if (!isAuth) {
+      return; // User denied access or wrong password
+    }
+    
+    setIsSettingsOpen(true);
   };
 
   const handleSaveNode = async (updatedNode: TreeNode) => {
@@ -385,6 +411,31 @@ const Canvas: React.FC = () => {
     } catch (error) {
       console.error('Error deleting node:', error);
       // The error will be handled by the component that calls this
+    }
+  };
+
+  // Handle creating a starting node when there are no nodes
+  const handleCreateStartingNode = async () => {
+    // Authenticate before allowing node creation
+    const isAuth = await authenticate();
+    if (!isAuth) {
+      return; // User denied access or wrong password
+    }
+
+    try {
+      const startingNode = createStartingNode();
+      const newConfig: AppConfig = {
+        ...currentConfig,
+        tree: {
+          ...currentConfig.tree,
+          nodes: [startingNode]
+        }
+      };
+
+      await handleSaveConfig(newConfig);
+    } catch (error) {
+      console.error('Error creating starting node:', error);
+      // Error will be shown in the UI by handleSaveConfig
     }
   };
   
@@ -1094,28 +1145,23 @@ const Canvas: React.FC = () => {
     
     // Draw static background image (not affected by transform) with cover behavior
     // Only draw if background is not disabled
-    if (backgroundLoaded && backgroundImageRef.current && !currentConfig.appearance?.disableBackground) {
+    if (backgroundLoaded && backgroundImageRef.current) {
       const img = backgroundImageRef.current;
       const canvasAspect = canvas.width / canvas.height;
       const imgAspect = img.width / img.height;
-      
       let drawWidth, drawHeight, drawX, drawY;
-      
       // Object-fit: cover behavior - scale image to completely fill canvas
       if (canvasAspect > imgAspect) {
-        // Canvas is wider than image - scale to fill width, crop top/bottom
         drawWidth = canvas.width;
         drawHeight = canvas.width / imgAspect;
         drawX = 0;
         drawY = (canvas.height - drawHeight) / 2;
       } else {
-        // Canvas is taller than image - scale to fill height, crop left/right
         drawHeight = canvas.height;
         drawWidth = canvas.height * imgAspect;
         drawY = 0;
         drawX = (canvas.width - drawWidth) / 2;
       }
-      
       ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
     }
     
@@ -1509,6 +1555,16 @@ const Canvas: React.FC = () => {
             onMouseLeave={handleMouseLeave}
           />
           
+          {/* Empty nodes fallback for desktop */}
+          {currentConfig.tree.nodes.length === 0 && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center">
+              <EmptyNodesFallback 
+                onCreateStartingNode={handleCreateStartingNode}
+                appConfig={currentConfig}
+              />
+            </div>
+          )}
+          
           {/* Controls - only show when user has moved away from initial position */}
           {hasMovedFromInitial() && (
             <div className="absolute bottom-4 left-4">
@@ -1526,19 +1582,17 @@ const Canvas: React.FC = () => {
       {/* Mobile view with vertical list */}
       {isMobile && (
         <div className="h-full relative">
-          {/* Background image for mobile view - covers entire screen - only show if not disabled */}
-          {!currentConfig.appearance?.disableBackground && (
-            <div 
-              className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
-              style={{ 
-                backgroundImage: `url(${currentConfig.appearance?.backgroundImage || '/background.png'})`,
-                opacity: 0.3,
-                backgroundSize: 'cover'
-              }} 
-            />
-          )}
-          {/* Fallback background in case the first one fails - only show if not disabled */}
-          {!currentConfig.appearance?.disableBackground && !backgroundLoaded && (
+          {/* Background image for mobile view - covers entire screen */}
+          <div 
+            className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
+            style={{ 
+              backgroundImage: `url(${currentConfig.appearance?.backgroundImage || '/background.png'})`,
+              opacity: 0.3,
+              backgroundSize: 'cover'
+            }} 
+          />
+          {/* Fallback background in case the first one fails */}
+          {!backgroundLoaded && (
             <div 
               className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
               style={{ 
@@ -1550,26 +1604,54 @@ const Canvas: React.FC = () => {
           
           {/* Single scrollable container with status card and nodes */}
           <div className="relative z-10 h-full overflow-auto bg-transparent">
-            <MobileNodeList 
-              nodes={currentConfig.tree.nodes} 
-              statuses={statuses}
-              onNodeClick={handleMobileNodeClick}
-              appConfig={currentConfig}
-              statusCard={
-                <StatusCard
-                  onOpenSettings={() => setIsSettingsOpen(true)}
-                  appConfig={currentConfig}
-                  statuses={statuses}
-                  isLoading={isLoading}
-                  error={error}
-                  isConnected={isConnected}
-                  nextCheckCountdown={nextCheckCountdown}
-                  totalInterval={totalInterval}
-                  isQuerying={isQuerying}
-                  isMobile={true}
-                />
-              }
-            />
+            {currentConfig.tree.nodes.length === 0 ? (
+              <div className="flex flex-col h-full">
+                {/* Status card for mobile when no nodes */}
+                <div className="p-4">
+                  <StatusCard
+                    onOpenSettings={handleOpenSettings}
+                    appConfig={currentConfig}
+                    statuses={statuses}
+                    isLoading={isLoading}
+                    error={error}
+                    isConnected={isConnected}
+                    nextCheckCountdown={nextCheckCountdown}
+                    totalInterval={totalInterval}
+                    isQuerying={isQuerying}
+                    isMobile={true}
+                  />
+                </div>
+                
+                {/* Empty nodes fallback for mobile */}
+                <div className="flex-1 flex items-center justify-center p-4">
+                  <EmptyNodesFallback 
+                    onCreateStartingNode={handleCreateStartingNode}
+                    appConfig={currentConfig}
+                  />
+                </div>
+              </div>
+            ) : (
+              <MobileNodeList 
+                nodes={currentConfig.tree.nodes} 
+                statuses={statuses}
+                onNodeClick={handleMobileNodeClick}
+                appConfig={currentConfig}
+                statusCard={
+                  <StatusCard
+                    onOpenSettings={handleOpenSettings}
+                    appConfig={currentConfig}
+                    statuses={statuses}
+                    isLoading={isLoading}
+                    error={error}
+                    isConnected={isConnected}
+                    nextCheckCountdown={nextCheckCountdown}
+                    totalInterval={totalInterval}
+                    isQuerying={isQuerying}
+                    isMobile={true}
+                  />
+                }
+              />
+            )}
           </div>
         </div>
       )}
@@ -1578,7 +1660,7 @@ const Canvas: React.FC = () => {
       {!isMobile && (
         <div className="absolute top-4 right-4 z-20">
           <StatusCard 
-            onOpenSettings={() => setIsSettingsOpen(true)} 
+            onOpenSettings={handleOpenSettings} 
             appConfig={currentConfig}
             statuses={statuses}
             isLoading={isLoading}

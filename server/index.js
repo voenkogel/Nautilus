@@ -6,11 +6,65 @@ import { readFileSync, writeFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 
 // Load environment variables from .env file
 dotenv.config();
 
 const app = express();
+
+// --- Security Configuration ---
+
+// Admin password from environment or default (should be changed in production)
+const ADMIN_PASSWORD = process.env.NAUTILUS_ADMIN_PASSWORD || '1234';
+
+// Session storage for authenticated sessions (in production, use Redis or database)
+const authenticatedSessions = new Map();
+
+// Generate secure session token
+const generateSessionToken = () => {
+  return crypto.randomBytes(32).toString('hex');
+};
+
+// Middleware to authenticate requests
+const authenticateRequest = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      error: 'Unauthorized', 
+      message: 'Missing or invalid authorization header' 
+    });
+  }
+  
+  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+  
+  if (!authenticatedSessions.has(token)) {
+    return res.status(401).json({ 
+      error: 'Unauthorized', 
+      message: 'Invalid or expired session token' 
+    });
+  }
+  
+  // Update session timestamp
+  authenticatedSessions.set(token, Date.now());
+  next();
+};
+
+// Clean up expired sessions (older than 24 hours)
+const cleanupExpiredSessions = () => {
+  const now = Date.now();
+  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+  
+  for (const [token, timestamp] of authenticatedSessions.entries()) {
+    if (now - timestamp > maxAge) {
+      authenticatedSessions.delete(token);
+    }
+  }
+};
+
+// Clean up expired sessions every hour
+setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
 
 // Get current directory (ES module equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -346,20 +400,99 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// API endpoint to get centralized config
+// --- Authentication API ---
+
+// API endpoint for authentication
+app.post('/api/auth/login', (req, res) => {
+  const { password } = req.body;
+  
+  if (!password) {
+    return res.status(400).json({ 
+      error: 'Bad Request', 
+      message: 'Password is required' 
+    });
+  }
+  
+  if (password !== ADMIN_PASSWORD) {
+    // Add a small delay to prevent brute force attacks
+    setTimeout(() => {
+      res.status(401).json({ 
+        error: 'Unauthorized', 
+        message: 'Invalid password' 
+      });
+    }, 1000);
+    return;
+  }
+  
+  // Generate session token
+  const token = generateSessionToken();
+  authenticatedSessions.set(token, Date.now());
+  
+  res.json({ 
+    success: true, 
+    token,
+    message: 'Authentication successful' 
+  });
+});
+
+// API endpoint to validate current session
+app.get('/api/auth/validate', authenticateRequest, (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Session is valid' 
+  });
+});
+
+// API endpoint to logout (invalidate session)
+app.post('/api/auth/logout', (req, res) => {
+  const authHeader = req.headers.authorization;
+  
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    authenticatedSessions.delete(token);
+  }
+  
+  res.json({ 
+    success: true, 
+    message: 'Logged out successfully' 
+  });
+});
+
+// --- Configuration API (Protected) ---
+
+// API endpoint to get centralized config (public - read-only)
 app.get('/api/config', (req, res) => {
   // Return the FULL merged config, not just partial fields
   res.json(appConfig);
 });
 
-// API endpoint to update the configuration
-app.put('/api/config', (req, res) => {
+// API endpoint to update the configuration (protected)
+app.put('/api/config', authenticateRequest, (req, res) => {
   try {
     const newConfig = req.body;
     
     // Validate the configuration structure
+    if (!newConfig || typeof newConfig !== 'object') {
+      return res.status(400).json({ 
+        error: 'Invalid configuration', 
+        message: 'Configuration must be a valid object' 
+      });
+    }
+    
+    // Validate required sections
     if (!newConfig.server || !newConfig.client || !newConfig.tree) {
-      return res.status(400).json({ error: 'Invalid configuration structure' });
+      return res.status(400).json({ 
+        error: 'Invalid configuration structure',
+        message: 'Configuration must include server, client, and tree sections'
+      });
+    }
+    
+    // Validate tree structure
+    if (!Array.isArray(newConfig.tree.nodes)) {
+      return res.status(400).json({ 
+        error: 'Invalid tree structure',
+        message: 'tree.nodes must be an array'
+      });
     }
     
     // Write the new configuration to the file

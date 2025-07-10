@@ -75,7 +75,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
     return status && status.status === 'checking';
   }).length;
 
-  const healthPercentage = totalNodes > 0 ? (healthyNodes / totalNodes) * 100 : 0;
+  const healthPercentage = totalNodes > 0 ? (healthyNodes / totalNodes) * 100 : 100; // 100% when no nodes (green)
 
   // Calculate progress for countdown (0 to 1)
   const countdownProgress = totalInterval > 0 && nextCheckCountdown > 0 
@@ -146,7 +146,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
     );
   };
 
-  if (isLoading) {
+  if (isLoading && totalNodes > 0) {
     return (
       <div className={`${isMobile 
         ? 'bg-white/95 backdrop-blur-sm border-b border-gray-200 px-4 py-4' 
@@ -198,14 +198,17 @@ const StatusCard: React.FC<StatusCardProps> = ({
           <span className="text-sm font-medium text-gray-800 font-roboto">System Health</span>
         </div>
 
-        {/* Settings button */}
-        <button
-          onClick={onOpenSettings}
-          className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
-          title="Open settings"
-        >
-          <SettingsIcon size={16} />
-        </button>
+        {/* Action buttons */}
+        <div className="flex items-center space-x-1">
+          {/* Settings button */}
+          <button
+            onClick={onOpenSettings}
+            className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+            title="Open settings"
+          >
+            <SettingsIcon size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Collapsible content */}
