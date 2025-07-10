@@ -8,18 +8,7 @@
     "disableBackground": true
   },
   "tree": {
-    "nodes": [
-      {
-        "id": "node_1752162851408",
-        "title": "My First Server",
-        "subtitle": "Infrastructure dashboard",
-        "ip": "",
-        "url": "localhost:3000",
-        "icon": "server",
-        "type": "square",
-        "children": []
-      }
-    ]
+    "nodes": []
   },
   "server": {
     "port": 3069,

@@ -108,6 +108,9 @@ const AuthModal: React.FC<AuthModalProps> = ({
           <button
             onClick={onClose}
             className="absolute top-5 right-5 text-gray-400 hover:text-gray-500 p-1 rounded-full hover:bg-gray-100"
+            style={{ 
+              ':hover': { color: accentColor } 
+            } as React.CSSProperties}
           >
             <X size={20} />
           </button>
@@ -129,7 +132,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User size={18} className="text-gray-400" />
+                  <User size={18} style={{ color: username ? accentColor : '#9ca3af' }} />
                 </div>
                 <input
                   ref={usernameInputRef}
@@ -138,10 +141,13 @@ const AuthModal: React.FC<AuthModalProps> = ({
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:border-transparent"
+                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
                   style={{ 
-                    boxShadow: username ? `0 0 0 2px ${accentColor}20` : 'none' 
-                  }}
+                    boxShadow: username ? `0 0 0 2px ${accentColor}20` : 'none',
+                    "--tw-ring-color": `${accentColor}40`,
+                    "--tw-ring-opacity": "1",
+                    "borderColor": username ? accentColor : undefined
+                  } as React.CSSProperties}
                   placeholder="Enter username"
                   disabled={isSubmitting}
                   required
@@ -156,7 +162,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock size={18} className="text-gray-400" />
+                  <Lock size={18} style={{ color: password ? accentColor : '#9ca3af' }} />
                 </div>
                 <input
                   id="password"
@@ -164,10 +170,13 @@ const AuthModal: React.FC<AuthModalProps> = ({
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:border-transparent"
+                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
                   style={{ 
-                    boxShadow: password ? `0 0 0 2px ${accentColor}20` : 'none' 
-                  }}
+                    boxShadow: password ? `0 0 0 2px ${accentColor}20` : 'none',
+                    "--tw-ring-color": `${accentColor}40`,
+                    "--tw-ring-opacity": "1",
+                    "borderColor": password ? accentColor : undefined
+                  } as React.CSSProperties}
                   placeholder="Enter password"
                   disabled={isSubmitting}
                   required
@@ -181,7 +190,10 @@ const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400"
+              className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2"
+              style={{
+                "--tw-ring-color": `${accentColor}40`
+              } as React.CSSProperties}
               disabled={isSubmitting}
             >
               Cancel
@@ -190,8 +202,11 @@ const AuthModal: React.FC<AuthModalProps> = ({
               type="submit"
               className="px-4 py-2 text-white rounded-md hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2"
               style={{ 
-                backgroundColor: accentColor
-              }}
+                backgroundColor: accentColor,
+                "--tw-ring-color": `${accentColor}40`,
+                "--tw-ring-opacity": "1",
+                "borderColor": accentColor
+              } as React.CSSProperties}
               disabled={isSubmitting}
             >
               {isSubmitting ? (

@@ -51,6 +51,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     'download', 'upload', 'github', 'chrome', 'firefox', 'home', 'building'
   ];
 
+  // Get accent color from configuration
+  const accentColor = config.appearance?.accentColor || '#3b82f6';
+
   // Helper function to convert kebab-case to PascalCase for icon component names
   const kebabToPascal = (kebabCase: string): string => {
     return kebabCase
@@ -850,9 +853,13 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
             onClick={() => setActiveTab('general')}
             className={`px-6 py-3 text-sm font-medium transition-colors ${
               activeTab === 'general'
-                ? 'border-b-2 border-blue-500 text-blue-600'
+                ? 'border-b-2 text-gray-800'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
+            style={{
+              borderColor: activeTab === 'general' ? accentColor : 'transparent',
+              color: activeTab === 'general' ? accentColor : undefined
+            }}
           >
             General
           </button>
@@ -860,9 +867,13 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
             onClick={() => setActiveTab('nodes')}
             className={`px-6 py-3 text-sm font-medium transition-colors ${
               activeTab === 'nodes'
-                ? 'border-b-2 border-blue-500 text-blue-600'
+                ? 'border-b-2 text-gray-800'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
+            style={{
+              borderColor: activeTab === 'nodes' ? accentColor : 'transparent',
+              color: activeTab === 'nodes' ? accentColor : undefined
+            }}
           >
             Nodes
           </button>
@@ -870,9 +881,13 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
             onClick={() => setActiveTab('appearance')}
             className={`px-6 py-3 text-sm font-medium transition-colors ${
               activeTab === 'appearance'
-                ? 'border-b-2 border-blue-500 text-blue-600'
+                ? 'border-b-2 text-gray-800'
                 : 'text-gray-500 hover:text-gray-700'
             }`}
+            style={{
+              borderColor: activeTab === 'appearance' ? accentColor : 'transparent',
+              color: activeTab === 'appearance' ? accentColor : undefined
+            }}
           >
             Appearance
           </button>
@@ -890,7 +905,11 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                     type="number"
                     value={config.server.healthCheckInterval}
                     onChange={(e) => updateServerConfig('healthCheckInterval', parseInt(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
+                    style={{ 
+                      "--tw-ring-color": `${accentColor}40`,
+                      borderColor: `${accentColor}` 
+                    } as React.CSSProperties}
                   />
                   <p className="text-xs text-gray-500 mt-1">How often to check node status (in milliseconds)</p>
                 </div>
@@ -959,7 +978,11 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
               {isLoggedIn && (
                 <button
                   onClick={handleLogout}
-                  className="flex items-center space-x-2 px-4 py-2 text-red-600 border border-red-300 rounded-md hover:bg-red-50 transition-colors"
+                  className="flex items-center space-x-2 px-4 py-2 border rounded-md hover:bg-red-50 transition-colors"
+                  style={{
+                    color: accentColor,
+                    borderColor: `${accentColor}40`,
+                  }}
                 >
                   <LogOut size={16} />
                   <span>Logout</span>

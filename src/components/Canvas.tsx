@@ -8,7 +8,7 @@ import { NodeEditor } from './NodeEditor';
 import { useDeviceDetection } from '../hooks/useDeviceDetection';
 import MobileNodeList from './MobileNodeList';
 import EmptyNodesFallback, { createStartingNode } from './EmptyNodesFallback';
-import { authenticate, getAuthHeaders } from '../utils/auth';
+import { authenticate, getAuthHeaders, setAuthModalAppConfig } from '../utils/auth';
 import { 
   iconImageCache, 
   iconSvgCache, 
@@ -164,13 +164,17 @@ const Canvas: React.FC = () => {
           };
           
           setCurrentConfig(completeConfig);
+          // Set app config for auth modal
+          setAuthModalAppConfig(completeConfig);
         } else {
           console.warn('Failed to fetch config from server, using default');
           setCurrentConfig(initialAppConfig);
+          setAuthModalAppConfig(initialAppConfig);
         }
       } catch (error) {
         console.warn('Failed to fetch config from server, using default:', error);
         setCurrentConfig(initialAppConfig);
+        setAuthModalAppConfig(initialAppConfig);
       }
     };
 
