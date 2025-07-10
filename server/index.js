@@ -216,7 +216,7 @@ function initializeNodeStatuses(preserveExisting = false) {
 }
 
 // Load node identifiers from centralized config and initialize statuses
-const nodeIdentifiers = initializeNodeStatuses();
+let nodeIdentifiers = initializeNodeStatuses();
 
 // Create HTTPS agent that ignores self-signed certificates
 const httpsAgent = new https.Agent({
@@ -503,77 +503,55 @@ app.post('/api/auth/logout', (req, res) => {
 
 // API endpoint to get centralized config (public - read-only)
 app.get('/api/config', (req, res) => {
-  // Return the FULL merged config, not just partial fields
   res.json(appConfig);
 });
 
-// API endpoint to update the configuration (protected)
-app.put('/api/config', authenticateRequest, (req, res) => {
+// Helper function to deep merge objects
+function deepMerge(target, source) {
+  const result = { ...target };
+  
+  for (const key in source) {
+    if (source.hasOwnProperty(key)) {
+      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+        // If both target and source have this key as objects, merge them recursively
+        result[key] = result[key] && typeof result[key] === 'object' && !Array.isArray(result[key])
+          ? deepMerge(result[key], source[key])
+          : source[key];
+      } else {
+        // For arrays and primitive values, replace completely
+        result[key] = source[key];
+      }
+    }
+  }
+  
+  return result;
+}
+
+// Endpoint to update the configuration
+app.post('/api/config', authenticateRequest, (req, res) => {
+  const newConfig = req.body;
+  
   try {
-    const newConfig = req.body;
-    
-    // Validate the configuration structure
-    if (!newConfig || typeof newConfig !== 'object') {
-      return res.status(400).json({ 
-        error: 'Invalid configuration', 
-        message: 'Configuration must be a valid object' 
-      });
-    }
-    
-    // Validate required sections
-    if (!newConfig.server || !newConfig.client || !newConfig.tree) {
-      return res.status(400).json({ 
-        error: 'Invalid configuration structure',
-        message: 'Configuration must include server, client, and tree sections'
-      });
-    }
-    
-    // Validate tree structure
-    if (!Array.isArray(newConfig.tree.nodes)) {
-      return res.status(400).json({ 
-        error: 'Invalid tree structure',
-        message: 'tree.nodes must be an array'
-      });
-    }
+    // Deep merge new config with existing config
+    appConfig = deepMerge(appConfig, newConfig);
     
     // Write the new configuration to the file
     const configPath = join(__dirname, '../config.json');
-    writeFileSync(configPath, JSON.stringify(newConfig, null, 2), 'utf8');
+    writeFileSync(configPath, JSON.stringify(appConfig, null, 2), 'utf8');
     
-    // Update the in-memory config immediately (no restart needed)
-    appConfig = {
-      ...appConfig,
-      ...newConfig,
-      // Ensure webhook settings are included
-      webhooks: newConfig.webhooks
-    };
-    
-    // Reinitialize node monitoring with new config, preserving existing statuses
-    const nodeIdentifiers = initializeNodeStatuses(true);
-    console.log(`🔄 Config updated - now monitoring ${nodeIdentifiers.length} nodes (preserving existing statuses)`);
-    
-    // Log webhook configuration status
-    if (appConfig.webhooks?.statusNotifications?.endpoint) {
-      console.log(`✅ Webhook notifications configured for ${appConfig.webhooks.statusNotifications.endpoint}`);
-      
-      const events = [];
-      if (appConfig.webhooks.statusNotifications.notifyOnline) events.push('online');
-      if (appConfig.webhooks.statusNotifications.notifyOffline) events.push('offline');
-      
-      console.log(`✅ Webhook events enabled: ${events.length ? events.join(', ') : 'none'}`);
-    } else {
-      console.log('ℹ️ No webhook notifications configured');
-    }
-    
-    console.log('✅ Configuration updated and applied immediately');
+    // Reinitialize node monitoring with new config and update nodeIdentifiers
+    nodeIdentifiers = initializeNodeStatuses(true);
     
     res.json({ 
       success: true, 
-      message: 'Configuration updated and applied successfully!' 
+      message: 'Configuration updated successfully' 
     });
   } catch (error) {
-    console.error('❌ Failed to update configuration:', error);
-    res.status(500).json({ error: 'Failed to update configuration: ' + error.message });
+    console.error('Error updating configuration:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update configuration' 
+    });
   }
 });
 

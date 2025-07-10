@@ -183,11 +183,11 @@ const StatusCard: React.FC<StatusCardProps> = ({
             className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
             title={isCollapsed ? "Expand status card" : "Collapse status card"}
           >
-            {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+            {isCollapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
           </button>
           
           {/* System Health title - now always visible */}
-          <span className="text-sm font-medium text-gray-800 font-roboto">System Health</span>
+          <span className="text-base font-medium text-gray-800 font-roboto">System Health</span>
         </div>
 
         {/* Action buttons */}
@@ -198,7 +198,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
             className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
             title="Open settings"
           >
-            <SettingsIcon size={16} />
+            <SettingsIcon size={18} />
           </button>
         </div>
       </div>

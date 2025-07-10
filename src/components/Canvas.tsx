@@ -253,8 +253,11 @@ const Canvas: React.FC = () => {
   const handleSaveConfig = async (newConfig: AppConfig) => {
     // Send the config to the server to update the config.json file
     const response = await fetch('/api/config', {
-      method: 'PUT',
-      headers: getAuthHeaders(),
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
       body: JSON.stringify(newConfig),
     });
 

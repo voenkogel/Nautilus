@@ -459,20 +459,24 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                 </h4>
               </div>
               <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
-                <button
-                  onClick={() => addChildNode(node.id)}
-                  className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors"
-                  title="Add child node"
-                >
-                  <Plus size={16} />
-                </button>
-                <button
-                  onClick={() => deleteNode(node.id)}
-                  className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
-                  title="Delete node"
-                >
-                  <Trash2 size={16} />
-                </button>
+                {isLoggedIn && (
+                  <>
+                    <button
+                      onClick={() => addChildNode(node.id)}
+                      className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors"
+                      title="Add child node"
+                    >
+                      <Plus size={16} />
+                    </button>
+                    <button
+                      onClick={() => deleteNode(node.id)}
+                      className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
+                      title="Delete node"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
             
@@ -848,10 +852,10 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-gray-200 flex-shrink-0">
+        <div className="flex border-b border-gray-200 flex-shrink-0 overflow-x-auto">
           <button
             onClick={() => setActiveTab('general')}
-            className={`px-6 py-3 text-sm font-medium transition-colors ${
+            className={`px-6 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
               activeTab === 'general'
                 ? 'border-b-2 text-gray-800'
                 : 'text-gray-500 hover:text-gray-700'
@@ -865,7 +869,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           </button>
           <button
             onClick={() => setActiveTab('nodes')}
-            className={`px-6 py-3 text-sm font-medium transition-colors ${
+            className={`px-6 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
               activeTab === 'nodes'
                 ? 'border-b-2 text-gray-800'
                 : 'text-gray-500 hover:text-gray-700'
@@ -879,7 +883,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           </button>
           <button
             onClick={() => setActiveTab('appearance')}
-            className={`px-6 py-3 text-sm font-medium transition-colors ${
+            className={`px-6 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
               activeTab === 'appearance'
                 ? 'border-b-2 text-gray-800'
                 : 'text-gray-500 hover:text-gray-700'
@@ -893,7 +897,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           </button>
           <button
             onClick={() => setActiveTab('notifications')}
-            className={`px-6 py-3 text-sm font-medium transition-colors ${
+            className={`px-6 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
               activeTab === 'notifications'
                 ? 'border-b-2 text-gray-800'
                 : 'text-gray-500 hover:text-gray-700'
@@ -1108,11 +1112,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
               {isLoggedIn && (
                 <button
                   onClick={handleLogout}
-                  className="flex items-center space-x-2 px-4 py-2 border rounded-md hover:bg-red-50 transition-colors"
-                  style={{
-                    color: accentColor,
-                    borderColor: `${accentColor}40`,
-                  }}
+                  className="flex items-center space-x-2 px-4 py-2 border border-red-300 text-red-600 rounded-md hover:bg-red-50 hover:border-red-400 transition-colors"
                 >
                   <LogOut size={16} />
                   <span>Logout</span>
