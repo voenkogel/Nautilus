@@ -10,37 +10,14 @@
   "tree": {
     "nodes": [
       {
-        "id": "root-1",
-        "title": "Proxmox",
-        "subtitle": "Primary application server",
-        "ip": "proxmox.lan:8006",
-        "url": "proxmox.koenvogel.com",
-        "icon": "tv",
+        "id": "node_1752162851408",
+        "title": "My First Server",
+        "subtitle": "Infrastructure dashboard",
+        "ip": "",
+        "url": "localhost:3000",
+        "icon": "server",
         "type": "square",
-        "children": [
-          {
-            "id": "child-1-1",
-            "title": "Radarr",
-            "subtitle": "User interface application",
-            "ip": "pirate.lan:7878",
-            "url": "radarr.koenvogel.com",
-            "icon": "clapperboard",
-            "type": "circular",
-            "children": [
-              {
-                "id": "grandchild-1-1-1",
-                "title": "Sonarr",
-                "subtitle": "Authentication module",
-                "ip": "",
-                "url": "sonarr.koenvogel.com",
-                "icon": "tv",
-                "type": "circular",
-                "children": []
-              }
-            ],
-            "hasWebGui": true
-          }
-        ]
+        "children": []
       }
     ]
   },

@@ -1,8 +1,7 @@
 // Server-side session-based authentication utility
 import React from 'react';
-import { createRoot } from 'react-dom/client';
+import ReactDOM from 'react-dom';
 import AuthModal from '../components/AuthModal';
-import type { AppConfig } from '../types/config';
 
 const AUTH_TOKEN_KEY = 'nautilus_auth_token';
 
@@ -14,7 +13,7 @@ export interface AuthSession {
 
 // Global state for auth modal
 let authModalRoot: HTMLDivElement | null = null;
-let currentAppConfig: AppConfig | null = null;
+let currentAppConfig: any = null;
 
 // Get stored auth token
 const getStoredToken = (): string | null => {
@@ -45,7 +44,7 @@ const removeToken = (): void => {
 };
 
 // Set the app config for the auth modal
-export const setAuthModalAppConfig = (config: AppConfig): void => {
+export const setAuthModalAppConfig = (config: any): void => {
   currentAppConfig = config;
 };
 
@@ -80,20 +79,14 @@ export const isAuthenticated = async (): Promise<boolean> => {
 // Show auth modal and return a promise that resolves when authenticated
 const showAuthModal = (): Promise<boolean> => {
   return new Promise((resolve) => {
-    // Create modal container if it doesn't exist
     if (!authModalRoot) {
       authModalRoot = document.createElement('div');
       authModalRoot.id = 'auth-modal-root';
       document.body.appendChild(authModalRoot);
     }
 
-    // Create React root
-    const root = createRoot(authModalRoot);
-    
-    // Track error state
     let errorMessage: string | null = null;
 
-    // Handle form submission
     const handleSubmit = async (username: string, password: string) => {
       try {
         const response = await fetch('/api/auth/login', {
@@ -107,11 +100,11 @@ const showAuthModal = (): Promise<boolean> => {
         const data = await response.json();
         
         if (response.ok && data.success && data.token) {
-          // Store the token and close modal
+          // Store the token
           storeToken(data.token);
           closeModal(true);
         } else {
-          // Authentication failed - show error and re-render
+          // Authentication failed
           errorMessage = data.message || 'Authentication failed. Please check your credentials.';
           renderModal();
         }
@@ -122,28 +115,23 @@ const showAuthModal = (): Promise<boolean> => {
       }
     };
 
-    // Close modal and resolve promise
     const closeModal = (success: boolean = false) => {
       if (authModalRoot) {
-        root.unmount();
-        if (authModalRoot.parentNode) {
-          authModalRoot.parentNode.removeChild(authModalRoot);
-        }
-        authModalRoot = null;
+        ReactDOM.unmountComponentAtNode(authModalRoot);
       }
       resolve(success);
     };
 
-    // Render modal
     const renderModal = () => {
-      root.render(
-        React.createElement(AuthModal, {
-          isOpen: true,
-          onClose: () => closeModal(false),
-          onSubmit: handleSubmit,
-          error: errorMessage,
-          appConfig: currentAppConfig || undefined
-        })
+      ReactDOM.render(
+        <AuthModal
+          isOpen={true}
+          onClose={() => closeModal(false)}
+          onSubmit={handleSubmit}
+          error={errorMessage}
+          appConfig={currentAppConfig}
+        />,
+        authModalRoot
       );
     };
 

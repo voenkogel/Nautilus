@@ -15,7 +15,8 @@ const app = express();
 
 // --- Security Configuration ---
 
-// Admin password from environment or default (should be changed in production)
+// Admin credentials from environment or defaults (should be changed in production)
+const ADMIN_USERNAME = process.env.NAUTILUS_ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.NAUTILUS_ADMIN_PASSWORD || '1234';
 
 // Session storage for authenticated sessions (in production, use Redis or database)
@@ -404,21 +405,21 @@ app.get('/api/status', (req, res) => {
 
 // API endpoint for authentication
 app.post('/api/auth/login', (req, res) => {
-  const { password } = req.body;
+  const { username, password } = req.body;
   
-  if (!password) {
+  if (!username || !password) {
     return res.status(400).json({ 
       error: 'Bad Request', 
-      message: 'Password is required' 
+      message: 'Username and password are required' 
     });
   }
   
-  if (password !== ADMIN_PASSWORD) {
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
     // Add a small delay to prevent brute force attacks
     setTimeout(() => {
       res.status(401).json({ 
         error: 'Unauthorized', 
-        message: 'Invalid password' 
+        message: 'Invalid username or password' 
       });
     }, 1000);
     return;
