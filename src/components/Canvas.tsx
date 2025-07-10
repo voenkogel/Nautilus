@@ -769,12 +769,9 @@ const Canvas: React.FC = () => {
             // If all else fails, navigate current window
             window.location.href = url;
           }
-        } else if (isMobile) {
-          // On mobile, show iframe overlay instead of opening externally
-          setIframeOverlay({ url, title: node.title || 'External Site' });
         } else {
-          // Not in iframe and not mobile, use normal behavior
-          window.open(url, '_blank', 'noopener,noreferrer');
+          // Show iframe overlay instead of opening externally
+          setIframeOverlay({ url, title: node.title || 'External Site' });
         }
       }
     }
@@ -1557,7 +1554,7 @@ const Canvas: React.FC = () => {
   const handleMobileNodeClick = useCallback((node: TreeNode) => {
     if (node.url) {
       const url = node.url.includes('://') ? node.url : `https://${node.url}`;
-      // On mobile, show iframe overlay instead of opening externally
+      // Show iframe overlay instead of opening externally
       setIframeOverlay({ url, title: node.title || 'External Site' });
     }
   }, []);
@@ -1792,33 +1789,34 @@ const Canvas: React.FC = () => {
         </div>
       )} */}
 
-      {/* Mobile Iframe Overlay */}
-      {isMobile && iframeOverlay && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2">
+      {/* Iframe Overlay for all devices */}
+      {iframeOverlay && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 md:p-8">
           <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-full max-h-full flex flex-col">
-            {/* Header with title and buttons */}
-            <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gray-50 rounded-t-lg">
-              <h3 className="text-lg font-semibold text-gray-900 truncate flex-1 mr-4">
+            {/* Header with title and buttons - reduced height */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-gray-50 rounded-t-lg">
+              <h3 className="text-base font-semibold text-gray-900 truncate flex-1 mr-4">
                 {iframeOverlay.title}
               </h3>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
                 <button
                   onClick={() => {
                     window.open(iframeOverlay.url, '_blank', 'noopener,noreferrer');
+                    setIframeOverlay(null);
                   }}
-                  className="p-2 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
+                  className="p-1.5 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
                   aria-label="Open in new tab"
                 >
-                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                   </svg>
                 </button>
                 <button
                   onClick={() => setIframeOverlay(null)}
-                  className="p-2 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
+                  className="p-1.5 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
                   aria-label="Close"
                 >
-                  <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>

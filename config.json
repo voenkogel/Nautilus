@@ -59,8 +59,17 @@
                         "title": "New Child Node",
                         "subtitle": "Description",
                         "icon": "server",
-                        "type": "circular",
+                        "type": "angular",
                         "children": []
+                      },
+                      {
+                        "id": "node_1752186901597",
+                        "title": "New Node",
+                        "subtitle": "sdfhsdffffffffffffffffffffffffffffffffshfgggggggggggggggggggggggggggggggg",
+                        "type": "circular",
+                        "icon": "server",
+                        "children": [],
+                        "hasWebGui": false
                       }
                     ]
                   }
