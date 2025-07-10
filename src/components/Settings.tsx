@@ -245,8 +245,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       id: `node-${Date.now()}`,
       title: 'New Node',
       subtitle: 'Description',
-      ip: 'localhost:3000',
-      url: 'localhost:3000',
       icon: 'server',
       type: 'square',
       children: []
@@ -314,8 +312,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       id: `node-${Date.now()}`,
       title: 'New Child Node',
       subtitle: 'Description',
-      ip: 'localhost:3000',
-      url: 'localhost:3000',
       icon: 'server',
       type: 'square',
       children: []

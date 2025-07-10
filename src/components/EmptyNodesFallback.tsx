@@ -73,8 +73,6 @@ export const createStartingNode = (): TreeNode => {
     id: `node_${Date.now()}`,
     title: 'My First Server',
     subtitle: 'Infrastructure dashboard',
-    ip: '',
-    url: 'localhost:3000',
     icon: 'server',
     type: 'square',
     children: []

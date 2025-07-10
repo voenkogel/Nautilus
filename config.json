@@ -35,7 +35,38 @@
             "subtitle": "New subtitle",
             "type": "square",
             "icon": "server",
-            "children": []
+            "children": [
+              {
+                "id": "node-1752185738696",
+                "title": "New Child Node",
+                "subtitle": "Description",
+                "ip": "localhost:3000",
+                "url": "localhost:3000",
+                "icon": "server",
+                "type": "square",
+                "children": [
+                  {
+                    "id": "node-1752185740947",
+                    "title": "New Child Node",
+                    "subtitle": "Description",
+                    "ip": "localhost:3000",
+                    "url": "localhost:3000",
+                    "icon": "server",
+                    "type": "square",
+                    "children": [
+                      {
+                        "id": "node-1752185964116",
+                        "title": "New Child Node",
+                        "subtitle": "Description",
+                        "icon": "server",
+                        "type": "circular",
+                        "children": []
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
