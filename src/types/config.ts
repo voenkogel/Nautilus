@@ -37,10 +37,21 @@ export interface AppConfig {
   tree: {
     nodes: TreeNode[];
   };
+  webhooks?: WebhookSettings;
 }
 
 export interface NodeStatus {
   status: 'online' | 'offline' | 'checking';
   latency?: number;
   lastChecked: string;
+}
+
+export interface WebhookConfig {
+  endpoint: string;
+  notifyOffline: boolean;
+  notifyOnline: boolean;
+}
+
+export interface WebhookSettings {
+  statusNotifications: WebhookConfig;
 }

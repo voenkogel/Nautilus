@@ -14,7 +14,7 @@ interface SettingsProps {
 
 const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onSave, focusNodeId }) => {
   const [config, setConfig] = useState<AppConfig>(() => JSON.parse(JSON.stringify(initialConfig)));
-  const [activeTab, setActiveTab] = useState<'general' | 'nodes' | 'appearance'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'nodes' | 'appearance' | 'notifications'>('general');
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [iconDropdownOpen, setIconDropdownOpen] = useState<string | null>(null);
   const [fileErrors, setFileErrors] = useState<{ favicon?: string; backgroundImage?: string; logo?: string }>({});
@@ -891,6 +891,20 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           >
             Appearance
           </button>
+          <button
+            onClick={() => setActiveTab('notifications')}
+            className={`px-6 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'notifications'
+                ? 'border-b-2 text-gray-800'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            style={{
+              borderColor: activeTab === 'notifications' ? accentColor : 'transparent',
+              color: activeTab === 'notifications' ? accentColor : undefined
+            }}
+          >
+            Notifications
+          </button>
         </div>
 
         {/* Content */}
@@ -940,6 +954,122 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           )}
 
           {activeTab === 'appearance' && renderAppearanceTab()}
+
+          {activeTab === 'notifications' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Status Notification Webhooks</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Configure webhooks to receive notifications when node status changes.
+                </p>
+
+                {/* Webhook Endpoint */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Webhook Endpoint URL
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="https://example.com/webhook"
+                    value={config.webhooks?.statusNotifications?.endpoint || ''}
+                    onChange={(e) => {
+                      setConfig({
+                        ...config,
+                        webhooks: {
+                          ...config.webhooks,
+                          statusNotifications: {
+                            ...(config.webhooks?.statusNotifications || { notifyOffline: false, notifyOnline: false }),
+                            endpoint: e.target.value
+                          }
+                        }
+                      });
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
+                    style={{ 
+                      "--tw-ring-color": `${accentColor}40`,
+                      borderColor: `${accentColor}` 
+                    } as React.CSSProperties}
+                  />
+                  <p className="mt-1 text-xs text-gray-500">
+                    The URL where status notifications will be sent via POST request with JSON payload.
+                  </p>
+                </div>
+
+                {/* Notification Options */}
+                <div className="space-y-4">
+                  <h4 className="text-md font-medium text-gray-800">Notification Triggers</h4>
+                  
+                  {/* Notify when offline */}
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="notify-offline"
+                      checked={config.webhooks?.statusNotifications?.notifyOffline || false}
+                      onChange={(e) => {
+                        setConfig({
+                          ...config,
+                          webhooks: {
+                            ...config.webhooks,
+                            statusNotifications: {
+                              ...(config.webhooks?.statusNotifications || { endpoint: '', notifyOnline: false }),
+                              notifyOffline: e.target.checked
+                            }
+                          }
+                        });
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      style={{ 
+                        accentColor: accentColor
+                      }}
+                    />
+                    <label htmlFor="notify-offline" className="ml-2 block text-sm text-gray-700">
+                      Notify when a node goes offline
+                    </label>
+                  </div>
+                  
+                  {/* Notify when online */}
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      id="notify-online"
+                      checked={config.webhooks?.statusNotifications?.notifyOnline || false}
+                      onChange={(e) => {
+                        setConfig({
+                          ...config,
+                          webhooks: {
+                            ...config.webhooks,
+                            statusNotifications: {
+                              ...(config.webhooks?.statusNotifications || { endpoint: '', notifyOffline: false }),
+                              notifyOnline: e.target.checked
+                            }
+                          }
+                        });
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      style={{ 
+                        accentColor: accentColor
+                      }}
+                    />
+                    <label htmlFor="notify-online" className="ml-2 block text-sm text-gray-700">
+                      Notify when a node comes online
+                    </label>
+                  </div>
+                </div>
+
+                {/* Example Payload */}
+                <div className="mt-6 p-4 bg-gray-50 rounded-md border border-gray-200">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Example Payload</h4>
+                  <pre className="text-xs bg-gray-100 p-3 rounded overflow-x-auto">
+{`{
+  "message": "❌ Node name has gone offline",
+  "timestamp": "${new Date().toISOString()}"
+}`}
+                  </pre>
+                  <p className="text-xs text-gray-500 mt-2">✅ Online notifications include a green checkmark<br/>❌ Offline notifications include a red X</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}

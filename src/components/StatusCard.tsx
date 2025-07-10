@@ -78,40 +78,28 @@ const StatusCard: React.FC<StatusCardProps> = ({
   const healthPercentage = totalNodes > 0 ? (healthyNodes / totalNodes) * 100 : 100; // 100% when no nodes (green)
 
   // Calculate progress for countdown (0 to 1)
-  const countdownProgress = totalInterval > 0 && nextCheckCountdown > 0 
-    ? ((totalInterval - (nextCheckCountdown * 1000)) / totalInterval) 
-    : 0;
+  // Simpler calculation with smoother transitions
+  const countdownProgress = isQuerying 
+    ? 1 // Full circle when querying 
+    : (totalInterval > 0 && nextCheckCountdown > 0)
+      ? Math.min(1, Math.max(0, 1 - (nextCheckCountdown / (totalInterval / 1000))))
+      : 0;
 
   // Circular progress bar component with querying state
   const CircularProgress: React.FC<{ progress: number; size: number; isQuerying: boolean }> = ({ progress, size, isQuerying }) => {
     const radius = size / 2 - 2;
     const circumference = 2 * Math.PI * radius;
-    const strokeDashoffset = circumference - (progress * circumference);
+    // Ensure smooth transitions with clamped values
+    const strokeDashoffset = circumference - (Math.min(1, Math.max(0, progress)) * circumference);
 
-    if (isQuerying) {
-      // Show spinning indicator during queries
-      return (
-        <div className="relative" style={{ width: size, height: size }}>
-          <svg className="animate-spin" width={size} height={size}>
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              stroke="currentColor"
-              strokeWidth="2"
-              fill="none"
-              strokeDasharray={`${circumference * 0.25} ${circumference * 0.75}`}
-              className="text-blue-500"
-              strokeLinecap="round"
-            />
-          </svg>
-        </div>
-      );
-    }
-
+    // Use a single SVG structure for both states to prevent DOM replacement jittering
     return (
       <div className="relative" style={{ width: size, height: size }}>
-        <svg className="transform -rotate-90" width={size} height={size}>
+        <svg 
+          className={isQuerying ? "animate-spin" : "transform -rotate-90"} 
+          width={size} 
+          height={size}
+        >
           {/* Background circle */}
           <circle
             cx={size / 2}
@@ -122,6 +110,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
             fill="none"
             className="text-gray-200"
           />
+          
           {/* Progress circle */}
           <circle
             cx={size / 2}
@@ -131,17 +120,20 @@ const StatusCard: React.FC<StatusCardProps> = ({
             strokeWidth="2"
             fill="none"
             strokeDasharray={circumference}
-            strokeDashoffset={strokeDashoffset}
-            className="text-green-500 transition-all duration-100 ease-linear"
+            strokeDashoffset={isQuerying ? circumference * 0.75 : strokeDashoffset}
+            className={`transition-all duration-300 ease-in-out ${isQuerying ? "text-blue-500" : "text-green-500"}`}
             strokeLinecap="round"
           />
         </svg>
+        
         {/* Timer text - only show when not querying */}
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-xs font-medium text-gray-600 font-roboto">
-            {nextCheckCountdown > 0 ? Math.ceil(nextCheckCountdown) : '⏱️'}
-          </span>
-        </div>
+        {!isQuerying && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-xs font-medium text-gray-600 font-roboto">
+              {nextCheckCountdown > 0 ? Math.ceil(nextCheckCountdown) : '⏱️'}
+            </span>
+          </div>
+        )}
       </div>
     );
   };

@@ -20,7 +20,8 @@ const formatTimeSince = (timestamp: string): string => {
   } else if (diffMinutes > 0) {
     return `${diffMinutes}m`;
   } else {
-    return `${Math.max(1, diffSeconds)}s`;
+    // For anything less than a minute, show "<1m" instead of seconds
+    return `<1m`;
   }
 };
 

@@ -8,7 +8,17 @@
     "disableBackground": true
   },
   "tree": {
-    "nodes": []
+    "nodes": [
+      {
+        "id": "node_1752172583793",
+        "title": "radarr",
+        "subtitle": "Infrastructure dashboard",
+        "ip": "pirate.lan:7878",
+        "url": "radarr.koenvogel.com",
+        "type": "circular",
+        "children": []
+      }
+    ]
   },
   "server": {
     "port": 3069,
@@ -21,5 +31,12 @@
     "port": 3070,
     "host": "localhost",
     "apiPollingInterval": 5000
+  },
+  "webhooks": {
+    "statusNotifications": {
+      "notifyOffline": true,
+      "notifyOnline": true,
+      "endpoint": "http://homeassistant.lan:8123/api/webhook/nautilusNotifications"
+    }
   }
 }

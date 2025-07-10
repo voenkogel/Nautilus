@@ -8,6 +8,9 @@ import { dirname, join } from 'path';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 
+// Import the webhook utility
+import { sendStatusWebhook } from './utils/webhooks.js';
+
 // Load environment variables from .env file
 dotenv.config();
 
@@ -302,13 +305,33 @@ async function checkNodeHealth(identifier) {
       error: isOnline ? undefined : `HTTP ${response.status}`
     };
     
+    // Check if the status has changed (for webhook notifications)
+    const previousStatus = nodeStatuses.get(normalizedIdentifier);
+    const statusChanged = !previousStatus || previousStatus.status !== result.status;
+    
     // Store using normalized identifier for consistent lookups
     nodeStatuses.set(normalizedIdentifier, result);
     
-    if (isOnline) {
-
-    } else {
-
+    // Send webhook notification if status changed and webhooks are configured
+    if (statusChanged && appConfig.webhooks?.statusNotifications) {
+      // Get the node name for a more descriptive notification
+      const nodeName = nodeData?.title || normalizedIdentifier;
+      
+      if (isOnline) {
+        // Node came online
+        await sendStatusWebhook(
+          appConfig.webhooks.statusNotifications, 
+          nodeName, 
+          'online'
+        );
+      } else {
+        // Node went offline
+        await sendStatusWebhook(
+          appConfig.webhooks.statusNotifications, 
+          nodeName, 
+          'offline'
+        );
+      }
     }
     
   } catch (error) {
@@ -337,8 +360,25 @@ async function checkNodeHealth(identifier) {
       error: errorMessage
     };
     
+    // Check if the status has changed (for webhook notifications)
+    const previousStatus = nodeStatuses.get(normalizedIdentifier);
+    const statusChanged = !previousStatus || previousStatus.status !== result.status;
+    
     // Store using normalized identifier for consistent lookups
     nodeStatuses.set(normalizedIdentifier, result);
+    
+    // Send webhook notification if status changed from online to offline and webhooks are configured
+    if (statusChanged && previousStatus?.status === 'online' && appConfig.webhooks?.statusNotifications) {
+      // Get the node name for a more descriptive notification
+      const nodeName = nodeData?.title || normalizedIdentifier;
+      
+      // Node went offline
+      await sendStatusWebhook(
+        appConfig.webhooks.statusNotifications, 
+        nodeName, 
+        'offline'
+      );
+    }
 
   }
 }
@@ -501,11 +541,29 @@ app.put('/api/config', authenticateRequest, (req, res) => {
     writeFileSync(configPath, JSON.stringify(newConfig, null, 2), 'utf8');
     
     // Update the in-memory config immediately (no restart needed)
-    appConfig = newConfig;
+    appConfig = {
+      ...appConfig,
+      ...newConfig,
+      // Ensure webhook settings are included
+      webhooks: newConfig.webhooks
+    };
     
     // Reinitialize node monitoring with new config, preserving existing statuses
     const nodeIdentifiers = initializeNodeStatuses(true);
     console.log(`🔄 Config updated - now monitoring ${nodeIdentifiers.length} nodes (preserving existing statuses)`);
+    
+    // Log webhook configuration status
+    if (appConfig.webhooks?.statusNotifications?.endpoint) {
+      console.log(`✅ Webhook notifications configured for ${appConfig.webhooks.statusNotifications.endpoint}`);
+      
+      const events = [];
+      if (appConfig.webhooks.statusNotifications.notifyOnline) events.push('online');
+      if (appConfig.webhooks.statusNotifications.notifyOffline) events.push('offline');
+      
+      console.log(`✅ Webhook events enabled: ${events.length ? events.join(', ') : 'none'}`);
+    } else {
+      console.log('ℹ️ No webhook notifications configured');
+    }
     
     console.log('✅ Configuration updated and applied immediately');
     

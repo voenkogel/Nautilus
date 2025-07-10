@@ -15,6 +15,7 @@ Nautilus now includes **server-side authentication** to protect configuration ch
 - ✅ **Node Editing**: Requires authentication  
 - ✅ **Configuration Changes**: Server-side validation
 - ✅ **Session Management**: Server-side token validation
+- ✅ **Webhook Configuration**: Requires authentication
 - ❌ **Node Viewing**: Public (read-only)
 - ❌ **Status Monitoring**: Public (read-only)
 
@@ -119,7 +120,34 @@ NAUTILUS_HOST=localhost
 - ✅ Type checking for critical fields
 - ✅ Error handling and user feedback
 
-## 🚨 Security Limitations
+## � Webhook Integration
+
+Nautilus provides webhook notifications for node status changes:
+
+### Webhook Features
+- ✅ **Status Notifications**: Send webhooks when nodes go online or offline
+- ✅ **Configurable Endpoints**: Set custom webhook URLs
+- ✅ **Selective Events**: Choose which events trigger notifications
+- ✅ **JSON Payloads**: Simple message with timestamp
+
+### Security Considerations
+- ⚠️ **Authentication**: Webhook endpoints should implement authentication
+- ⚠️ **HTTPS Recommended**: Use secure endpoints for webhook delivery
+- ⚠️ **Validation**: Verify webhook source in your receiving application
+
+### Webhook Payload Example
+```json
+{
+  "message": "❌ Server-01 has gone offline",
+  "timestamp": "2025-07-10T14:30:45.123Z"
+}
+```
+
+Status indicators:
+- ✅ Green checkmark for nodes coming online
+- ❌ Red X for nodes going offline
+
+## �🚨 Security Limitations
 
 ### Current Limitations
 - ❌ **No user management**: Single admin password only

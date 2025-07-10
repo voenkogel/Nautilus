@@ -55,8 +55,6 @@ export const useNodeStatus = (appConfig: AppConfig) => {
       return;
     }
 
-    setIsQuerying(true);
-
     try {
       const response = await fetch('/api/status');
       if (!response.ok) {
@@ -116,33 +114,102 @@ export const useNodeStatus = (appConfig: AppConfig) => {
         return offlineStatuses;
       });
     } finally {
-      setIsQuerying(false);
+      // Note: We don't set isQuerying to false here anymore
+      // This is now handled by the timer mechanism to ensure clean transitions
       setIsLoading(false);
     }
   }, [appConfig, isConnected]);
 
   useEffect(() => {
-    // Initial fetch
-    fetchStatuses();
-
-    const apiInterval = appConfig.client?.apiPollingInterval || 5000;
-    const healthInterval = appConfig.server?.healthCheckInterval || 20000;
-    const timer = setInterval(fetchStatuses, apiInterval);
-
-    // Countdown timer logic - show countdown for health check interval with smooth progress
-    let countdown = healthInterval / 1000;
-    setNextCheckCountdown(countdown);
-    const countdownTimer = setInterval(() => {
-      countdown -= 0.1; // Update every 100ms for smooth animation
-      if (countdown <= 0) {
-        countdown = healthInterval / 1000;
+    // Track if the component is mounted
+    let isMounted = true;
+    
+    // Define the polling interval and health check interval
+    const healthInterval = appConfig.server?.healthCheckInterval || 20000; // ms
+    
+    // Initial state
+    let currentCountdown = healthInterval / 1000; // Convert to seconds
+    setNextCheckCountdown(currentCountdown);
+    
+    // Function to perform status fetch with query state management
+    const performFetch = async () => {
+      if (!isMounted) return;
+      
+      // Set querying state to true before fetch
+      setIsQuerying(true);
+      
+      try {
+        // Perform the actual fetch
+        await fetchStatuses();
+      } catch (error) {
+        console.error("Error fetching statuses:", error);
+      } finally {
+        if (isMounted) {
+          // Reset querying state after fetch completes
+          setIsQuerying(false);
+        }
       }
-      setNextCheckCountdown(countdown);
-    }, 100); // Update every 100ms
-
+    };
+    
+    // Function to handle the countdown
+    const runCountdown = () => {
+      // Create a precise timer using performance.now()
+      let lastTimestamp = performance.now();
+      let accumulatedTime = 0;
+      const updateInterval = 100; // Update UI every 100ms for smooth animation
+      
+      const tick = () => {
+        if (!isMounted) return;
+        
+        const now = performance.now();
+        const deltaTime = now - lastTimestamp;
+        lastTimestamp = now;
+        
+        // Accumulate time to handle sub-millisecond precision
+        accumulatedTime += deltaTime;
+        
+        // Only update UI when enough time has passed (reduces jitter)
+        if (accumulatedTime >= updateInterval) {
+          // Convert accumulated ms to seconds
+          const decrement = accumulatedTime / 1000;
+          accumulatedTime = 0;
+          
+          // Update countdown
+          currentCountdown = Math.max(0, currentCountdown - decrement);
+          setNextCheckCountdown(currentCountdown);
+          
+          // If countdown reached zero, fetch status and reset
+          if (currentCountdown === 0) {
+            // Perform fetch and then reset the countdown
+            performFetch().then(() => {
+              if (isMounted) {
+                currentCountdown = healthInterval / 1000;
+                setNextCheckCountdown(currentCountdown);
+              }
+            });
+          }
+        }
+        
+        // Continue countdown if still mounted
+        if (isMounted) {
+          requestAnimationFrame(tick);
+        }
+      };
+      
+      // Start the animation frame loop
+      requestAnimationFrame(tick);
+    };
+    
+    // Start the initial fetch and countdown
+    performFetch().then(() => {
+      if (isMounted) {
+        runCountdown();
+      }
+    });
+    
+    // Cleanup function
     return () => {
-      clearInterval(timer);
-      clearInterval(countdownTimer);
+      isMounted = false;
     };
   }, [appConfig, fetchStatuses]);
 
