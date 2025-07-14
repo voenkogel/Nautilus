@@ -1,5 +1,5 @@
 import React, { useCallback } from 'react';
-import type { TreeNode, AppearanceConfig } from '../types/config';
+import type { TreeNode } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
 import { getIconSvg } from '../utils/iconUtils';
 
@@ -25,13 +25,13 @@ const formatTimeSince = (timestamp: string): string => {
   }
 };
 
+import type { AppConfig } from '../types/config';
+
 interface MobileNodeListProps {
   nodes: TreeNode[];
   statuses: Record<string, NodeStatus>;
   onNodeClick: (node: TreeNode) => void;
-  appConfig?: {
-    appearance?: AppearanceConfig;
-  };
+  appConfig?: AppConfig;
   statusCard?: React.ReactNode;
 }
 
@@ -277,7 +277,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
           <div className="flex justify-center items-center py-6 mt-4">
             <img 
               src={appConfig.appearance.logo || appConfig.appearance.favicon} 
-              alt={appConfig.appearance.title || 'Logo'} 
+              alt={appConfig.general?.title || 'Logo'} 
               className="w-12 h-12 opacity-80 filter drop-shadow-lg"
               onError={(e) => {
               // Fallback to a default icon if logo/favicon fails

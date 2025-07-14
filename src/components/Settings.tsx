@@ -15,6 +15,10 @@ interface SettingsProps {
 const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onSave, focusNodeId }) => {
   // Use initialConfig as the source of truth, reflecting merged config from env vars and config.json
   const [config, setConfig] = useState<AppConfig>(() => ({
+    general: {
+      title: initialConfig.general?.title ?? 'Nautilus',
+      openNodesAsOverlay: initialConfig.general?.openNodesAsOverlay ?? true,
+    },
     server: {
       healthCheckInterval: initialConfig.server?.healthCheckInterval ?? 20000,
       corsOrigins: initialConfig.server?.corsOrigins ?? ['http://localhost:3070']
@@ -23,7 +27,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       apiPollingInterval: initialConfig.client?.apiPollingInterval ?? 5000
     },
     appearance: {
-      title: initialConfig.appearance?.title ?? 'Nautilus',
       accentColor: initialConfig.appearance?.accentColor ?? '#3b82f6',
       favicon: initialConfig.appearance?.favicon ?? '',
       backgroundImage: initialConfig.appearance?.backgroundImage ?? '',
@@ -179,6 +182,16 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       ...prev,
       appearance: {
         ...prev.appearance,
+        [field]: value
+      }
+    }));
+  };
+
+  const updateGeneralConfig = (field: keyof AppConfig['general'], value: string | boolean) => {
+    setConfig(prev => ({
+      ...prev,
+      general: {
+        ...prev.general,
         [field]: value
       }
     }));
@@ -665,18 +678,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
 
   const renderAppearanceTab = () => (
     <div className="space-y-6">
-      <div>
-        <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-          Page Title
-        </label>
-        <input
-          type="text"
-          id="title"
-          value={config.appearance.title}
-          onChange={(e) => updateAppearanceConfig('title', e.target.value)}
-          className="mt-1 block w-full px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-        />
-      </div>
+      {/* Removed title from appearance tab, now in general tab */}
       <div>
         <label htmlFor="accentColor" className="block text-sm font-medium text-gray-700">
           Accent Color
@@ -963,18 +965,46 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
               <div>
                 <h3 className="text-lg font-medium text-gray-800 mb-4">General Settings</h3>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Health Check Interval (ms)</label>
-                  <input
-                    type="number"
-                    value={config.server.healthCheckInterval}
-                    onChange={(e) => updateServerConfig('healthCheckInterval', parseInt(e.target.value))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
-                    style={{ 
-                      "--tw-ring-color": `${accentColor}40`,
-                      borderColor: `${accentColor}` 
-                    } as React.CSSProperties}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">How often to check node status (in milliseconds)</p>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Health Check Interval (ms)</label>
+          <input
+            type="number"
+            min={2000}
+            value={config.server.healthCheckInterval}
+            onChange={(e) => updateServerConfig('healthCheckInterval', Math.max(2000, parseInt(e.target.value)))}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
+            style={{ 
+              "--tw-ring-color": `${accentColor}40`,
+              borderColor: `${accentColor}` 
+            } as React.CSSProperties}
+          />
+          <p className="text-xs text-gray-500 mt-1">How often to check node status (minimum 2000 ms)</p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">App Title</label>
+                <input
+                  type="text"
+                  value={config.general.title}
+                  onChange={(e) => updateGeneralConfig('title', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
+                  style={{ 
+                    "--tw-ring-color": `${accentColor}40`,
+                    borderColor: `${accentColor}` 
+                  } as React.CSSProperties}
+                />
+                <p className="text-xs text-gray-500 mt-1">Displayed in the app header and browser tab</p>
+              </div>
+              <div className="flex items-center mt-4">
+                <input
+                  type="checkbox"
+                  id="open-nodes-overlay"
+                  checked={config.general.openNodesAsOverlay}
+                  onChange={(e) => updateGeneralConfig('openNodesAsOverlay', e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  style={{ accentColor: accentColor }}
+                />
+                <label htmlFor="open-nodes-overlay" className="ml-2 block text-sm text-gray-700">
+                  Open nodes as overlay (recommended)
+                </label>
+              </div>
                 </div>
               </div>
             </div>

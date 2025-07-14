@@ -25,7 +25,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
   // Get accent color from config or use default
   const accentColor = appConfig?.appearance?.accentColor || '#3b82f6';
-  const appTitle = appConfig?.appearance?.title || 'Nautilus';
+  const appTitle = appConfig?.general?.title || 'Nautilus';
 
   // Focus username input when modal opens
   useEffect(() => {

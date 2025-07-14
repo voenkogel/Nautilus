@@ -18,8 +18,12 @@ import {
 } from '../utils/iconUtils';
 
 const initialAppConfig: AppConfig = {
-  appearance: {
+  general: {
     title: "Nautilus",
+    openNodesAsOverlay: true
+  },
+  appearance: {
+    // Removed title from appearance config
     accentColor: "#3b82f6",
     backgroundImage: "",
     favicon: "",
@@ -130,6 +134,9 @@ const Canvas: React.FC = () => {
   
   // State for mobile iframe overlay
   const [iframeOverlay, setIframeOverlay] = useState<{ url: string; title: string } | null>(null);
+
+  // Helper to get app title from config
+  const appTitle = currentConfig.general?.title || 'External Site';
   
   // Use the status monitoring hook, now passing the live config
   const { 
@@ -144,7 +151,7 @@ const Canvas: React.FC = () => {
   } = useNodeStatus(currentConfig);
 
   // Apply appearance settings
-  useAppearance(currentConfig.appearance || { title: 'Nautilus', accentColor: '#3b82f6' });
+  useAppearance(currentConfig);
 
   // Fetch current config from server on mount
   useEffect(() => {
@@ -736,53 +743,23 @@ const Canvas: React.FC = () => {
   // Function to open node URL with debouncing to prevent double-opens
   const openNodeUrl = useCallback((node: PositionedNode) => {
     if (node.url) {
-      // Use the URL as-is if it already has a protocol, otherwise add https://
       const url = node.url.includes('://') ? node.url : `https://${node.url}`;
-      
-      // Simple debouncing: check if we already opened this URL recently
       const now = Date.now();
       const lastOpenKey = `lastOpen_${node.id}`;
       const lastOpenTime = (window as any)[lastOpenKey] || 0;
-      
       if (now - lastOpenTime > 1000) { // 1 second debounce
         (window as any)[lastOpenKey] = now;
-        
-        // Check if we're in an iframe
-        if (isInIframe()) {
-          // Try window.open first, but also provide fallback
-          try {
-            const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
-            // If popup was blocked, try alternative approach
-            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
-              // Fallback: try to open in parent window
-              if (window.parent) {
-                window.parent.postMessage({ type: 'OPEN_URL', url: url }, '*');
-              } else {
-                // Last resort: navigate current window
-                window.location.href = url;
-              }
-            }
-          } catch (e) {
-            // If all else fails, navigate current window
-            window.location.href = url;
-          }
+        if (currentConfig.general?.openNodesAsOverlay !== false) {
+          setIframeOverlay({ url, title: node.title || appTitle });
         } else {
-          // Show iframe overlay instead of opening externally
-          setIframeOverlay({ url, title: node.title || 'External Site' });
+          window.open(url, '_blank', 'noopener,noreferrer');
         }
       }
     }
     // If no URL, do nothing (node is not clickable)
-  }, []);
+  }, [currentConfig, appTitle]);
 
-  // Check if running in iframe
-  const isInIframe = () => {
-    try {
-      return window.self !== window.top;
-    } catch (e) {
-      return true;
-    }
-  };
+  // ...existing code...
 
   const drawRoundedRect = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
     ctx.beginPath();
@@ -1552,7 +1529,7 @@ const Canvas: React.FC = () => {
     if (node.url) {
       const url = node.url.includes('://') ? node.url : `https://${node.url}`;
       // Show iframe overlay instead of opening externally
-      setIframeOverlay({ url, title: node.title || 'External Site' });
+      setIframeOverlay({ url, title: node.title || appTitle });
     }
   }, []);
 
@@ -1720,7 +1697,7 @@ const Canvas: React.FC = () => {
           {(currentConfig?.appearance?.logo || currentConfig?.appearance?.favicon) ? (
             <img 
               src={currentConfig.appearance.logo || currentConfig.appearance.favicon} 
-              alt={currentConfig.appearance.title || 'Logo'} 
+              alt={currentConfig.general?.title || 'Logo'}
               className="w-24 h-24 opacity-90 filter drop-shadow-lg bg-white/20 backdrop-blur-sm rounded-xl p-3"
               onError={(e) => {
                 // Fallback to default icon

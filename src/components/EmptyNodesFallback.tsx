@@ -30,7 +30,7 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
 
         {/* Title */}
         <h2 className="text-2xl font-semibold text-gray-900 mb-4">
-          Welcome to {appConfig.appearance?.title || 'Nautilus'}
+          Welcome to {appConfig.general?.title || 'Nautilus'}
         </h2>
 
         {/* Description */}

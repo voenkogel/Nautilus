@@ -19,15 +19,21 @@ export interface ClientConfig {
   apiPollingInterval: number;
 }
 
+
 export interface AppearanceConfig {
-  title: string;
   favicon?: string; // base64 encoded favicon
   logo?: string; // base64 encoded logo image (falls back to favicon if not set)
   accentColor: string;
   backgroundImage?: string; // base64 encoded background image
 }
 
+export interface GeneralConfig {
+  title: string;
+  openNodesAsOverlay: boolean;
+}
+
 export interface AppConfig {
+  general: GeneralConfig;
   server: ServerConfig;
   client: ClientConfig;
   appearance: AppearanceConfig;
