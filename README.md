@@ -59,39 +59,32 @@ When you run `npm run dev`, here's what happens:
 
 ### Prerequisites
 - Node.js 18.18.0 or higher
-- npm 8.0.0 or higher
-
-### Security Setup (Required)
-
 1. **Copy environment file**:
    ```bash
    cp .env.example .env
    ```
-
+4. **Port and Host Management**: Server and client ports/host are now managed by environment variables, not config
+5. **Real-time Updates**: Frontend displays color-coded node statuses based on server response
 2. **Set admin password** (change from default):
    ```bash
    # Edit .env file
-   NAUTILUS_ADMIN_PASSWORD=your_secure_password
-   ```
+### Customizing Polling Intervals
+- **Backend health checks**: Edit `healthCheckInterval` in `config.json` (default: 20 seconds)
+- **Frontend polling**: Edit `apiPollingInterval` in `config.json` (default: 5 seconds)
 
 3. **Read security documentation**:
    ```bash
-   # See SECURITY.md for complete setup guide
-   ```
-
-### Running the Application
-
-#### Option 1: Full Stack (Recommended)
+server: {
+  healthCheckInterval: 20000,    // Health check frequency (20 seconds)
+  corsOrigins: ['http://localhost:5173', ...] // Allowed frontend origins
+}
 ```bash
 npm run dev:full
 ```
 This runs both the backend server and frontend development server concurrently.
-
-#### Option 2: Separate Terminals
-```bash
-# Terminal 1 - Start the backend
-npm run server
-
+client: {
+  apiPollingInterval: 5000,      // How often frontend polls server (5 seconds)
+}
 # Terminal 2 - Start the frontend
 npm run dev
 ```

@@ -7,8 +7,6 @@ All application settings are now managed in a single file: `config.json`
 ### Server Configuration
 ```typescript
 server: {
-  port: 3001,                    // Primary server port
-  fallbackPorts: [3002, 3003, 3004, 3005], // Backup ports if primary is busy
   healthCheckInterval: 20000,    // Health check frequency (20 seconds)
   corsOrigins: ['http://localhost:5173', ...] // Allowed frontend origins
 }
@@ -17,10 +15,7 @@ server: {
 ### Client Configuration
 ```typescript
 client: {
-  port: 5173,                    // Primary frontend port
-  fallbackPorts: [5174, 5175, 5176, 5177], // Backup ports if primary is busy
   apiPollingInterval: 5000,      // How often frontend polls server (5 seconds)
-  host: 'localhost'              // Server hostname
 }
 ```
 
@@ -74,6 +69,6 @@ No code changes needed elsewhere!
 
 ✅ **Single source of truth** - All config in one place  
 ✅ **No scattered files** - Eliminated server-port.txt and separate tree config  
-✅ **Automatic port fallback** - Both server and client handle busy ports  
+✅ **Automatic port fallback** - Both server and client handle busy ports via environment variables  
 ✅ **Dynamic IP extraction** - Server reads IPs directly from tree structure  
 ✅ **Easy maintenance** - Change ports/intervals in one place  

@@ -13,7 +13,34 @@ interface SettingsProps {
 }
 
 const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onSave, focusNodeId }) => {
-  const [config, setConfig] = useState<AppConfig>(() => JSON.parse(JSON.stringify(initialConfig)));
+  // Use initialConfig as the source of truth, reflecting merged config from env vars and config.json
+  const [config, setConfig] = useState<AppConfig>(() => ({
+    server: {
+      healthCheckInterval: initialConfig.server?.healthCheckInterval ?? 20000,
+      corsOrigins: initialConfig.server?.corsOrigins ?? ['http://localhost:3070']
+    },
+    client: {
+      apiPollingInterval: initialConfig.client?.apiPollingInterval ?? 5000
+    },
+    appearance: {
+      title: initialConfig.appearance?.title ?? 'Nautilus',
+      accentColor: initialConfig.appearance?.accentColor ?? '#3b82f6',
+      favicon: initialConfig.appearance?.favicon ?? '',
+      backgroundImage: initialConfig.appearance?.backgroundImage ?? '',
+      logo: initialConfig.appearance?.logo ?? '',
+      disableBackground: (initialConfig.appearance as any)?.disableBackground ?? false
+    },
+    tree: {
+      nodes: initialConfig.tree?.nodes ?? []
+    },
+    webhooks: initialConfig.webhooks ?? {
+      statusNotifications: {
+        endpoint: '',
+        notifyOffline: false,
+        notifyOnline: false
+      }
+    }
+  }));
   const [activeTab, setActiveTab] = useState<'general' | 'nodes' | 'appearance' | 'notifications'>('general');
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [iconDropdownOpen, setIconDropdownOpen] = useState<string | null>(null);
@@ -21,6 +48,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [showClearNodesConfirm, setShowClearNodesConfirm] = useState(false);
+  // State for clear nodes confirmation modal
+  // State for clear nodes confirmation modal
 
   // Check authentication status on mount
   useEffect(() => {
@@ -52,15 +82,17 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   ];
 
   // Get accent color from configuration
-  const accentColor = config.appearance?.accentColor || '#3b82f6';
+  const accentColor = config.appearance?.accentColor ?? '#3b82f6';
 
   // Helper function to convert kebab-case to PascalCase for icon component names
   const kebabToPascal = (kebabCase: string): string => {
     return kebabCase
       .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
   };
+
+  // ...existing code...
 
   // Function to check if an icon exists and render it
   const renderIconPreview = (iconName: string, size: number = 16, useDefault: boolean = true) => {
@@ -131,44 +163,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     setConfig(JSON.parse(JSON.stringify(initialConfig)));
   }, [initialConfig]);
 
-  const handleSave = async () => {
-    setIsSaving(true);
-    setSaveError(null);
-    
-    try {
-      await onSave(config);
-      onClose();
-    } catch (error) {
-      console.error('Error saving configuration:', error);
-      
-      // Extract meaningful error message
-      let errorMessage = 'Unknown error occurred';
-      
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === 'string') {
-        errorMessage = error;
-      }
-      
-      // Handle specific error types
-      if (errorMessage.includes('PayloadTooLargeError') || errorMessage.includes('413')) {
-        errorMessage = 'One or more images are too large. Please use smaller images (under 5MB each).';
-      } else if (errorMessage.includes('NetworkError') || errorMessage.includes('Failed to fetch')) {
-        errorMessage = 'Network error. Please check your connection and try again.';
-      } else if (errorMessage.includes('Server responded with')) {
-        // Extract server error messages more cleanly
-        const match = errorMessage.match(/Server responded with \d+: (.+)/);
-        if (match) {
-          errorMessage = `Server error: ${match[1]}`;
-        }
-      }
-      
-      setSaveError(errorMessage);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
+  // Ensure config updates always reflect the merged config structure
   const updateServerConfig = (field: keyof AppConfig['server'], value: number) => {
     setConfig(prev => ({
       ...prev,
@@ -189,6 +184,20 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }));
   };
 
+  // Clear all nodes (for "Clear Nodes" button)
+  const clearNodes = () => {
+    setConfig(prev => ({
+      ...prev,
+      tree: {
+        ...prev.tree,
+        nodes: []
+      }
+    }));
+  };
+
+  // Save handler ensures config matches centralized structure
+  // ...existing code...
+  // Restore handleFileUpload for image uploads
   const handleFileUpload = (file: File, field: 'favicon' | 'backgroundImage' | 'logo') => {
     setFileErrors(prev => ({ ...prev, [field]: undefined })); // Clear previous error
 
@@ -239,6 +248,46 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       setFileErrors(prev => ({ ...prev, [field]: 'An error occurred while reading the file.' }));
     };
   };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    setSaveError(null);
+    
+    try {
+      await onSave(config);
+      onClose();
+    } catch (error) {
+      console.error('Error saving configuration:', error);
+      
+      // Extract meaningful error message
+      let errorMessage = 'Unknown error occurred';
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+      
+      // Handle specific error types
+      if (errorMessage.includes('PayloadTooLargeError') || errorMessage.includes('413')) {
+        errorMessage = 'One or more images are too large. Please use smaller images (under 5MB each).';
+      } else if (errorMessage.includes('NetworkError') || errorMessage.includes('Failed to fetch')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      } else if (errorMessage.includes('Server responded with')) {
+        // Extract server error messages more cleanly
+        const match = errorMessage.match(/Server responded with \d+: (.+)/);
+        if (match) {
+          errorMessage = `Server error: ${match[1]}`;
+        }
+      }
+      
+      setSaveError(errorMessage);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ...existing code...
 
   const addNode = () => {
     const newNode: TreeNode = {
@@ -935,22 +984,58 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-medium text-gray-800">Node Configuration</h3>
-                <button
-                  onClick={addNode}
-                  className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors"
-                  style={{ 
-                    backgroundColor: config.appearance?.accentColor || '#3b82f6',
-                  }}
-                >
-                  <Plus size={16} />
-                  <span>Add Root Node</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setShowClearNodesConfirm(true)}
+                    className="flex items-center space-x-2 px-4 py-2 text-white rounded-md transition-colors bg-red-600 hover:bg-red-700"
+                  >
+                    <Trash2 size={16} />
+                    <span>Clear Nodes</span>
+                  </button>
+                  <button
+                    onClick={addNode}
+                    className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors"
+                    style={{ 
+                      backgroundColor: config.appearance?.accentColor || '#3b82f6',
+                    }}
+                  >
+                    <Plus size={16} />
+                    <span>Add Root Node</span>
+                  </button>
+                </div>
               </div>
-              
               <div className="space-y-4">
                 {config.tree.nodes.map(node => renderNodeEditor(node))}
               </div>
+              {/* Confirmation Modal Overlay */}
+              {showClearNodesConfirm && (
+                <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50">
+                  <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full flex flex-col items-center">
+                    <Trash2 size={32} className="text-red-600 mb-2" />
+                    <h4 className="text-lg font-semibold text-gray-800 mb-2">Clear All Nodes?</h4>
+                    <p className="text-sm text-gray-600 mb-6 text-center">This will remove <b>all nodes</b> from the configuration. This action cannot be undone.<br />Are you sure you want to proceed?</p>
+                    <div className="flex gap-4">
+                      <button
+                        onClick={() => setShowClearNodesConfirm(false)}
+                        className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 bg-gray-100 hover:bg-gray-200"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          clearNodes();
+                          setShowClearNodesConfirm(false);
+                        }}
+                        className="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700"
+                      >
+                        Yes, Clear All
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
+  // State for clear nodes confirmation modal
           )}
 
           {activeTab === 'appearance' && renderAppearanceTab()}

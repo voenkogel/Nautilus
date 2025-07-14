@@ -29,13 +29,10 @@ const initialAppConfig: AppConfig = {
     nodes: []
   },
   server: {
-    port: 3069,
     healthCheckInterval: 20000,
     corsOrigins: ["http://localhost:3070"]
   },
   client: {
-    port: 3070,
-    host: "localhost",
     apiPollingInterval: 5000
   }
 };

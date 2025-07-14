@@ -105,7 +105,7 @@ const defaultConfig = {
 // 2. Load configuration from config.json, if it exists
 let appConfig;
 try {
-  const configPath = join(__dirname, '../config.json');
+  const configPath = '/data/config.json';
   const configContent = readFileSync(configPath, 'utf8');
   const savedConfig = JSON.parse(configContent);
   
@@ -217,6 +217,7 @@ function initializeNodeStatuses(preserveExisting = false) {
 
 // Load node identifiers from centralized config and initialize statuses
 let nodeIdentifiers = initializeNodeStatuses();
+let initialHealthCheck = true;
 
 // Create HTTPS agent that ignores self-signed certificates
 const httpsAgent = new https.Agent({
@@ -312,11 +313,10 @@ async function checkNodeHealth(identifier) {
     // Store using normalized identifier for consistent lookups
     nodeStatuses.set(normalizedIdentifier, result);
     
-    // Send webhook notification if status changed and webhooks are configured
-    if (statusChanged && appConfig.webhooks?.statusNotifications) {
+    // Suppress notifications for the initial health check cycle after startup
+    if (!initialHealthCheck && statusChanged && appConfig.webhooks?.statusNotifications) {
       // Get the node name for a more descriptive notification
       const nodeName = nodeData?.title || normalizedIdentifier;
-      
       if (isOnline) {
         // Node came online
         await sendStatusWebhook(
@@ -333,6 +333,8 @@ async function checkNodeHealth(identifier) {
         );
       }
     }
+// At the end of the initial health check cycle, set the flag to false
+// If you have a loop or batch health check, set initialHealthCheck = false after the first run
     
   } catch (error) {
     const responseTime = Date.now() - attemptStart;
@@ -536,7 +538,7 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     appConfig = deepMerge(appConfig, newConfig);
     
     // Write the new configuration to the file
-    const configPath = join(__dirname, '../config.json');
+    const configPath = '/data/config.json';
     writeFileSync(configPath, JSON.stringify(appConfig, null, 2), 'utf8');
     
     // Reinitialize node monitoring with new config and update nodeIdentifiers

@@ -33,9 +33,6 @@ WORKDIR /app
 # These can all be overridden at runtime.
 ENV NAUTILUS_SERVER_PORT=3069
 ENV NAUTILUS_CLIENT_PORT=3070
-ENV NAUTILUS_PAGE_TITLE="Nautilus"
-ENV NAUTILUS_HEALTH_CHECK_INTERVAL=20000
-ENV NAUTILUS_API_POLLING_INTERVAL=5000
 ENV NAUTILUS_HOST="localhost"
 ENV NODE_ENV=production
 
@@ -45,16 +42,24 @@ RUN npm install --omit=dev
 
 # Copy server source code
 COPY server/ ./server/
-# Copy the final config.json to the root of the app directory
-COPY config.json ./
+# Copy the defaultConfig.json to the root of the app directory
+COPY defaultConfig.json ./
+# Copy entrypoint script
+COPY entrypoint.sh ./
+
+# Make entrypoint.sh executable
+RUN chmod +x entrypoint.sh
 
 # Copy the built frontend from the 'builder' stage
 # This places the optimized React app into a 'public' directory that the server will use
 COPY --from=builder /app/dist ./server/public
 
+
 # Expose the port the server will run on
 EXPOSE ${NAUTILUS_SERVER_PORT}
 
-# The command to run the application
-# This starts the Node.js server, which will also serve the frontend
-CMD ["node", "server/index.js"]
+# Define a volume for persistent config
+VOLUME ["/data"]
+
+# Use entrypoint script to initialize config and start the app
+ENTRYPOINT ["/app/entrypoint.sh"]

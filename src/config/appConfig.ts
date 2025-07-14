@@ -10,15 +10,12 @@ export interface TreeNode {
 }
 
 export interface ServerConfig {
-  port: number;
   healthCheckInterval: number;
   corsOrigins: string[];
 }
 
 export interface ClientConfig {
-  port: number;
   apiPollingInterval: number;
-  host: string;
 }
 
 export interface AppearanceConfig {
