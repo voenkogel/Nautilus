@@ -1,4 +1,5 @@
 import React from 'react';
+import NetworkScanWindow from './NetworkScanWindow';
 import { Plus, Server } from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
 
@@ -13,6 +14,24 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
 }) => {
   const accentColor = appConfig.appearance?.accentColor || '#3b82f6';
 
+  const [showScanWindow, setShowScanWindow] = React.useState(false);
+  const [scanActive, setScanActive] = React.useState(false);
+  React.useEffect(() => {
+    // Poll backend for scan status on mount
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/network-scan/progress');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 'scanning') {
+            setScanActive(true);
+            setShowScanWindow(true);
+          }
+        }
+      } catch {}
+    };
+    poll();
+  }, []);
   return (
     <div className="flex items-center justify-center min-h-[400px] w-full">
       <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg p-8 max-w-md mx-auto text-center border border-gray-200">
@@ -58,11 +77,24 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
           Create Your First Node
         </button>
 
+        {/* Auto Generate Nodes Button */}
+        <button
+          onClick={() => setShowScanWindow(true)}
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105 mt-4 bg-green-600"
+          disabled={scanActive}
+        >
+          <Server size={20} />
+          Auto Generate Nodes
+        </button>
+
         {/* Helpful hint */}
         <p className="text-sm text-gray-500 mt-4">
           You can add nodes for servers, applications, services, or any infrastructure you want to monitor.
         </p>
       </div>
+      {showScanWindow && (
+        <NetworkScanWindow />
+      )}
     </div>
   );
 };

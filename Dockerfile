@@ -3,6 +3,8 @@
 # --- Stage 1: Build the Frontend ---
 # Use a specific Node.js version for consistency
 FROM node:18-alpine AS builder
+# Install nmap and expect (for unbuffer) for network scanning
+RUN apk add --no-cache nmap expect
 
 # Set the working directory
 WORKDIR /app
@@ -24,6 +26,8 @@ RUN npm run build
 # --- Stage 2: Production Image ---
 # Use a fresh, lightweight Node.js image for the final stage
 FROM node:18-alpine
+# Install nmap and expect (for unbuffer) for network scanning in production
+RUN apk add --no-cache nmap expect
 
 # Set the working directory for the server
 WORKDIR /app

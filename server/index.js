@@ -1,4 +1,5 @@
 import express from 'express';
+import { NetworkScanService } from './network_scan_service.js';
 import cors from 'cors';
 import fetch from 'node-fetch';
 import https from 'https';
@@ -15,6 +16,7 @@ import { sendStatusWebhook } from './utils/webhooks.js';
 dotenv.config();
 
 const app = express();
+app.use(express.json());
 
 // --- Security Configuration ---
 
@@ -589,6 +591,27 @@ app.get('/health', (req, res) => {
 });
 
 // Start server
+// --- Network Scan API ---
+const networkScanService = new NetworkScanService();
+
+app.post('/api/network-scan/start', (req, res) => {
+  try {
+    const subnet = req.body && req.body.subnet ? req.body.subnet : '10.20.148.0/16';
+    networkScanService.start_scan({ subnet });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/network-scan/progress', (req, res) => {
+  res.json(networkScanService.get_progress());
+});
+
+app.post('/api/network-scan/cancel', (req, res) => {
+  networkScanService.cancel_scan();
+  res.json({ success: true });
+});
 app.listen(appConfig.server.port, () => {
   console.log(` Monitoring ${nodeIdentifiers.length} nodes every ${appConfig.server.healthCheckInterval / 1000}s`);
   console.log(`🔍 Using HTTP GET requests with 5s timeout (URL preferred over IP)`);
