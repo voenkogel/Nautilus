@@ -34,6 +34,7 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
-    assetsInlineLimit: 0
+    assetsInlineLimit: 0,
+    sourcemap: true
   }
 })

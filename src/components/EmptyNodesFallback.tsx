@@ -1,6 +1,6 @@
 import React from 'react';
 import NetworkScanWindow from './NetworkScanWindow';
-import { Plus, Server } from 'lucide-react';
+import { Plus, Server, Network } from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
 
 interface EmptyNodesFallbackProps {
@@ -32,6 +32,20 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
     };
     poll();
   }, []);
+
+  React.useEffect(() => {
+    // Listen for closeScanWindow event to close modal from child
+    const closeHandler = () => setShowScanWindow(false);
+    window.addEventListener('closeScanWindow', closeHandler);
+    // Listen for openScanWindow event to open modal from settings
+    const openHandler = () => setShowScanWindow(true);
+    window.addEventListener('openScanWindow', openHandler);
+    return () => {
+      window.removeEventListener('closeScanWindow', closeHandler);
+      window.removeEventListener('openScanWindow', openHandler);
+    };
+  }, []);
+  
   return (
     <div className="flex items-center justify-center min-h-[400px] w-full">
       <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg p-8 max-w-md mx-auto text-center border border-gray-200">
@@ -58,33 +72,27 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
           Get started by creating your first node to monitor your services and applications.
         </p>
 
-        {/* Create Node Button */}
+        {/* Discover Nodes Button (now on top) */}
+        <button
+          onClick={() => setShowScanWindow(true)}
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105 mb-2"
+          style={{ backgroundColor: accentColor }}
+          disabled={scanActive}
+        >
+          <Network size={20} />
+          Discover Nodes
+        </button>
+        <div className="w-full flex items-center justify-center my-2">
+          <span className="text-gray-500 font-semibold italic text-lg">or</span>
+        </div>
+        {/* Create Node Manually Button (now below) */}
         <button
           onClick={onCreateStartingNode}
           className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105"
-          style={{ 
-            backgroundColor: accentColor,
-            '--hover-bg': `${accentColor}dd`
-          } as React.CSSProperties}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = (e.currentTarget.style as any)['--hover-bg'];
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = accentColor;
-          }}
+          style={{ backgroundColor: accentColor }}
         >
           <Plus size={20} />
-          Create Your First Node
-        </button>
-
-        {/* Auto Generate Nodes Button */}
-        <button
-          onClick={() => setShowScanWindow(true)}
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105 mt-4 bg-green-600"
-          disabled={scanActive}
-        >
-          <Server size={20} />
-          Auto Generate Nodes
+          Create Node Manually
         </button>
 
         {/* Helpful hint */}
@@ -93,7 +101,11 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
         </p>
       </div>
       {showScanWindow && (
-        <NetworkScanWindow />
+        <NetworkScanWindow
+          appConfig={appConfig}
+          scanActive={scanActive}
+          setScanActive={setScanActive}
+        />
       )}
     </div>
   );

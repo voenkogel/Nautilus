@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, X, Plus, Trash2, Save, ChevronDown, ChevronRight, LogOut } from 'lucide-react';
+import { Settings as SettingsIcon, X, Plus, Trash2, Save, ChevronDown, ChevronRight, LogOut, Network } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
 import { clearAuthentication, isAuthenticated } from '../utils/auth';
@@ -94,8 +94,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join('');
   };
-
-  // ...existing code...
 
   // Function to check if an icon exists and render it
   const renderIconPreview = (iconName: string, size: number = 16, useDefault: boolean = true) => {
@@ -1021,6 +1019,26 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                   >
                     <Trash2 size={16} />
                     <span>Clear Nodes</span>
+                  </button>
+                  <button
+                    onClick={async () => {
+                      // Require admin authentication before opening scan window
+                      const authenticated = await isAuthenticated();
+                      if (!authenticated) {
+                        alert('Admin authentication required to discover nodes.');
+                        return;
+                      }
+                      if (typeof window !== 'undefined' && window.dispatchEvent) {
+                        window.dispatchEvent(new CustomEvent('openScanWindow'));
+                      }
+                      // Close settings window if open
+                      if (typeof onClose === 'function') onClose();
+                    }}
+                    className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors"
+                    style={{ backgroundColor: config.appearance?.accentColor || '#3b82f6' }}
+                  >
+                    <Network size={16} />
+                    <span>Discover Nodes</span>
                   </button>
                   <button
                     onClick={addNode}

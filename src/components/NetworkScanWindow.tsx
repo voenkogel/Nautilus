@@ -1,165 +1,319 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const NetworkScanWindow: React.FC = () => {
-  const [isScanning, setIsScanning] = useState(false);
+import ReactDOM from 'react-dom';
+
+// ...existing state/utility declarations...
+// Polling logic for scan progress
+const NetworkScanWindow: React.FC<{ appConfig?: any; scanActive?: boolean; setScanActive?: (active: boolean) => void }> = ({ appConfig, scanActive, setScanActive }) => {
+  // --- State and handlers ---
+  const [isScanning, setIsScanning] = useState(scanActive ?? false);
   const [logs, setLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [subnet, setSubnet] = useState(() => localStorage.getItem('lastSubnet') || '10.20.148.0/16');
-  const logRef = useRef<HTMLDivElement>(null);
-
-  // Poll progress/logs from backend
   const [progress, setProgress] = useState<number>(0);
-  // Persist scan state and auto-reopen window if scan is running
+  const [showLogs, setShowLogs] = useState(false);
   useEffect(() => {
-    let interval: number | undefined;
-    let lastProgress = 0;
-    let lastTimestamp = Date.now();
-    let mounted = true;
+    (async () => {
+      // const authenticated = await isAuthenticated();
+      // Auth modal logic removed as unused
+    })();
+  }, []);
+  const [ip, setIp] = useState(() => {
+    const lastSubnet = localStorage.getItem('lastSubnet') || '10.20.148.0/16';
+    return lastSubnet.split('/')[0];
+  });
+  const [cidr, setCidr] = useState(() => {
+    const lastSubnet = localStorage.getItem('lastSubnet') || '10.20.148.0/16';
+    return lastSubnet.split('/')[1] || '16';
+  });
+  const [ipError, setIpError] = useState<string | null>(null);
+  const [cidrError, setCidrError] = useState<string | null>(null);
+  const accentColor = appConfig?.appearance?.accentColor || '#3b82f6';
+  const validateIp = (value: string): boolean => {
+    return /^((25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)$/.test(value.trim());
+  };
+  const validateCidr = (value: string): boolean => {
+    const num = Number(value);
+    return /^\d{1,2}$/.test(value) && num >= 1 && num <= 32;
+  };
+  const estimateScanTime = (cidrValue: string): string => {
+    if (!validateCidr(cidrValue)) return '';
+    const cidrNum = parseInt(cidrValue, 10);
+    const hosts = Math.max(2 ** (32 - cidrNum) - 2, 1);
+    const seconds = Math.ceil(hosts / 20);
+    if (seconds < 60) return '<1 min';
+    if (seconds < 3600) return `${Math.ceil(seconds / 60)} min`;
+    return `${Math.ceil(seconds / 3600)} hr`;
+  };
+  const [scanEstimate, setScanEstimate] = useState<string>(() => {
+    const lastSubnet = localStorage.getItem('lastSubnet') || '10.20.148.0/16';
+    const cidr = lastSubnet.split('/')[1] || '16';
+    return estimateScanTime(cidr);
+  });
+  const handleIpChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setIp(value);
+    if (!validateIp(value)) {
+      setIpError('Invalid IPv4 address');
+    } else {
+      setIpError(null);
+    }
+  };
+  const handleCidrChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setCidr(value);
+    if (!validateCidr(value)) {
+      setCidrError('CIDR must be between 1 and 32');
+      setScanEstimate('');
+    } else {
+      setCidrError(null);
+      setScanEstimate(estimateScanTime(value));
+    }
+  };
+  const logRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (typeof scanActive === 'boolean') {
+      setIsScanning(scanActive);
+      setShowLogs(scanActive); // Show logs if scan is active on mount/refresh
+    }
+  }, [scanActive]);
+  useEffect(() => {
+    // No-op: polling is handled by pollProgress
+    return () => {};
+  }, [isScanning]);
+  // Polling logic for scan progress
+  const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollProgress = async () => {
+    let polling = true;
     const poll = async () => {
       try {
         const res = await fetch('/api/network-scan/progress');
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.logs)) {
-            setLogs(data.logs);
-          } else if (data.output) {
-            setLogs(prev => [...prev, data.output]);
-          }
-          // Progress interpolation
-          if (typeof data.progress === 'number') {
-            setProgress(data.progress);
-            lastProgress = data.progress;
-            lastTimestamp = Date.now();
-          } else if (isScanning) {
-            // Interpolate progress between polling intervals
-            const now = Date.now();
-            const elapsed = now - lastTimestamp;
-            if (lastProgress < 100) {
-              const interpolated = Math.min(100, lastProgress + (elapsed / 10000) * (100 - lastProgress));
-              setProgress(Math.round(interpolated));
-            }
-          }
-          if (data.status === 'scanning') {
-            if (mounted) setIsScanning(true);
-          }
-          if (data.status === 'completed' || data.status === 'cancelled' || data.status === 'error') {
-            if (mounted) setIsScanning(false);
-            setProgress(100);
-          }
-        } else {
-          setError('Failed to fetch scan progress');
+        const data = await res.json();
+        if (data.logs) setLogs(data.logs);
+        if (typeof data.progress === 'number') setProgress(data.progress);
+        if (data.status === 'completed' || data.status === 'error' || data.status === 'cancelled') {
+          setIsScanning(false);
+          polling = false;
         }
       } catch (err) {
-        setError('Error fetching scan progress');
+        setError('Error fetching scan progress.');
+        setIsScanning(false);
+        polling = false;
+      }
+      if (polling) {
+        pollingRef.current = setTimeout(poll, 2000);
       }
     };
     poll();
-    interval = window.setInterval(poll, 1000);
-    return () => {
-      mounted = false;
-      if (interval !== undefined) {
-        clearInterval(interval);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    // Auto-scroll log window
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
+  };
+  // Handler to start scan
+  const handleStartScan = async () => {
+    if (!validateIp(ip) || !validateCidr(cidr)) {
+      setError('Please enter a valid IP and CIDR before scanning.');
+      return;
     }
-  }, [logs]);
-
-  const startScan = async () => {
-    setIsScanning(true);
-    setLogs([]);
     setError(null);
-    localStorage.setItem('lastSubnet', subnet);
+    setIsScanning(true);
+    if (setScanActive) setScanActive(true);
+    setLogs(["Scan started..."]);
+    setShowLogs(true);
     try {
-      const res = await fetch('/api/network-scan/start', {
+      const subnet = `${ip}/${cidr}`;
+      await fetch('/api/network-scan/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subnet })
+        body: JSON.stringify({ subnet }),
       });
-      if (!res.ok) {
-        setError('Failed to start scan');
-        setIsScanning(false);
-      }
     } catch (err) {
-      setError('Error starting scan');
+      setError('Failed to start scan.');
       setIsScanning(false);
+      setShowLogs(false);
+      return;
     }
+    // Start polling for progress
+    pollProgress();
   };
-
-  const cancelScan = async () => {
-    try {
-      await fetch('/api/network-scan/cancel', { method: 'POST' });
-    } catch (err) {
-      setError('Error cancelling scan');
-    }
-    setIsScanning(false);
-  };
-
-  return (
-    <div className="fixed inset-0 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-2xl p-8 w-full max-w-xl relative">
-        <button
-          className={`absolute top-4 right-4 text-gray-500 hover:text-gray-800 text-2xl font-bold ${isScanning ? 'opacity-50 cursor-not-allowed' : ''}`}
-          onClick={() => { if (!isScanning) window.history.back(); }}
-          aria-label="Close"
-          disabled={isScanning}
-        >
-          &times;
-        </button>
-        <h2 className="text-2xl font-bold mb-4">Network Scan & Auto Node Generation</h2>
-        <p className="mb-6 text-gray-700">Scan your local network to discover devices and populate nodes. This process uses nmap and may take a few minutes depending on network size.</p>
+  // ...existing code...
+  return ReactDOM.createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center z-[1000]"
+      style={{
+        background: 'rgba(0,0,0,0.45)',
+        zIndex: 1000,
+        left: 0,
+        top: 0,
+        width: '100vw',
+        height: '100vh',
+      }}
+    >
+      <div className="w-full max-w-2xl bg-white rounded-lg shadow-2xl p-8 relative" style={{ zIndex: 1001 }}>
+        <p>
+          Scan your local network to discover devices and populate nodes. This process uses nmap and may take a few minutes depending on network size.
+        </p>
         <div className="mb-6">
-          <label className="block text-sm font-semibold mb-2" htmlFor="subnet-input">Subnet to scan</label>
-          <input
-            id="subnet-input"
-            type="text"
-            className="border border-gray-300 rounded px-3 py-2 w-full text-sm"
-            value={subnet}
-            onChange={e => setSubnet(e.target.value)}
-            disabled={isScanning}
-            placeholder="Enter subnet (e.g. 10.20.148.0/16)"
-          />
+          <label className="block text-sm font-semibold mb-2">Subnet to scan</label>
+          <div className="flex items-center gap-2">
+            <input
+              id="ip-input"
+              type="text"
+              className={`border rounded px-3 py-2 text-sm w-2/3 ${
+                ipError ? 'border-red-400' : 'border-gray-300'
+              } ${isScanning ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
+              value={ip}
+              onChange={handleIpChange}
+              disabled={isScanning}
+              placeholder="IPv4 address (e.g. 10.20.148.0)"
+              style={{ '--accent-color': accentColor } as React.CSSProperties}
+            />
+            <span className="text-gray-500">/</span>
+            <input
+              id="cidr-input"
+              type="text"
+              className={`border rounded px-3 py-2 text-sm w-16 text-center ${
+                cidrError ? 'border-red-400' : 'border-gray-300'
+              } ${isScanning ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
+              value={cidr}
+              onChange={handleCidrChange}
+              disabled={isScanning}
+              placeholder="CIDR"
+              style={{ '--accent-color': accentColor } as React.CSSProperties}
+            />
+            <div className="flex-1 text-xs text-gray-500 text-right">
+              <span className="font-medium text-gray-700">Estimated scan time:</span>{' '}
+              {scanEstimate ? (
+                <span style={{ color: accentColor }}>{scanEstimate}</span>
+              ) : (
+                '—'
+              )}
+            </div>
+          </div>
+          <div className="flex gap-2 mt-1">
+            {ipError && <div className="text-xs text-red-600">{ipError}</div>}
+            {cidrError && <div className="text-xs text-red-600">{cidrError}</div>}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">
+            Enter a valid IPv4 address and CIDR size (e.g. 10.20.148.0 / 16). This determines the range of IP addresses to scan.
+          </div>
         </div>
-        <div className="mt-2 bg-gray-100 rounded p-2 h-56 overflow-y-auto text-xs font-mono border border-gray-200" ref={logRef}>
-          {logs.length === 0 && <span className="text-gray-300">No logs yet.</span>}
-          {logs.map((log, idx) => (
-            <div key={idx} className="text-gray-500">{log}</div>
-          ))}
-        </div>
+        {showLogs && (
+          <div
+            className="mt-2 bg-gray-100 rounded p-2 h-40 overflow-y-auto text-xs font-mono border border-gray-200"
+            ref={logRef}
+          >
+            {logs.length === 0 && (
+              <span className="text-gray-300">No logs yet.</span>
+            )}
+            {logs.map((log, idx) => (
+              <div key={idx} className="text-gray-500">
+                {log}
+              </div>
+            ))}
+          </div>
+        )}
         {error && <div className="mt-2 text-red-600">{error}</div>}
+
+        {isScanning && (
+          <div className="flex items-center gap-3" style={{ marginBottom: '1.5rem', marginTop: '1.5rem' }}>
+            <svg
+              className="animate-spin"
+              style={{
+                height: '2rem',
+                width: '2rem',
+                color: accentColor,
+              }}
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-0"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+                fill="none"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8v2a6 6 0 00-6 6H4z"
+              />
+            </svg>
+            <span className="font-semibold text-gray-800">Scan in progress</span>
+            <span className="text-xs text-gray-500 ml-2">
+              Step 1: discovering network devices
+            </span>
+          </div>
+        )}
         <div className="flex justify-end items-center mt-6 gap-2">
           {isScanning && (
-            <div className="flex-1 flex items-center mr-2">
-              <div className="w-full h-5 bg-gray-200 rounded-full overflow-hidden relative">
+            <>
+              <div className="flex-1 flex items-center mr-2">
                 <div
-                  className="h-full bg-blue-500 transition-all duration-500"
-                  style={{ width: `${progress}%` }}
-                />
-                <span className="absolute left-0 right-0 top-0 bottom-0 flex items-center justify-center text-xs font-semibold text-blue-900">
-                  {progress}%
-                </span>
+                  className="w-full h-10 rounded shadow bg-gray-200 overflow-hidden relative flex items-center"
+                  style={{ borderRadius: '0.5rem', position: 'relative' }}
+                >
+                  <div
+                    className="h-full transition-all duration-500"
+                    style={{
+                      width: `${progress}%`,
+                      borderRadius: '0.5rem',
+                      backgroundColor: accentColor,
+                    }}
+                  />
+                  <span className="absolute left-1/2 transform -translate-x-1/2 text-xs font-semibold text-gray-700">
+                    {progress}%
+                  </span>
+                </div>
               </div>
-            </div>
+              <button
+                className="px-6 py-2 rounded font-semibold text-white shadow bg-red-600 hover:bg-red-700 transition-all duration-200 focus:outline-none"
+                onClick={async () => {
+                  try {
+                    await fetch('/api/network-scan/cancel', { method: 'POST' });
+                    setIsScanning(false);
+                    setShowLogs(false);
+                    if (setScanActive) setScanActive(false);
+                  } catch (err) {
+                    setError('Failed to cancel scan.');
+                  }
+                }}
+              >
+                Cancel
+              </button>
+            </>
           )}
           {!isScanning && (
-            <button className="bg-blue-600 text-white px-4 py-2 rounded shadow" onClick={startScan}>
-              Start Scan
-            </button>
-          )}
-          {isScanning && (
-            <button className="bg-red-500 text-white px-4 py-2 rounded shadow" onClick={cancelScan}>
-              Cancel
-            </button>
+            <>
+              <button
+                className="px-6 py-2 rounded font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 shadow transition-all duration-200 focus:outline-none mr-2"
+                onClick={() => {
+                  setShowLogs(false);
+                  setLogs([]);
+                  setProgress(0);
+                  if (setScanActive) setScanActive(false);
+                  // Also close the scan window in parent
+                  if (typeof window !== 'undefined' && window.dispatchEvent) {
+                    window.dispatchEvent(new CustomEvent('closeScanWindow'));
+                  }
+                }}
+              >
+                Close
+              </button>
+              <button
+                className={`px-6 py-2 rounded font-semibold text-white shadow transition-all duration-200 focus:outline-none ${
+                  ipError || cidrError ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+                style={{ backgroundColor: ipError || cidrError ? undefined : accentColor }}
+                onClick={handleStartScan}
+                disabled={!!ipError || !!cidrError}
+              >
+                Start Scan
+              </button>
+            </>
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
-};
-
+}
 export default NetworkScanWindow;

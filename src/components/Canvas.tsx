@@ -7,7 +7,8 @@ import Settings from './Settings';
 import { NodeEditor } from './NodeEditor';
 import { useDeviceDetection } from '../hooks/useDeviceDetection';
 import MobileNodeList from './MobileNodeList';
-import EmptyNodesFallback, { createStartingNode } from './EmptyNodesFallback';
+import EmptyNodesFallback from './EmptyNodesFallback';
+import { createStartingNode } from './EmptyNodesFallback';
 import { authenticate, getAuthHeaders, setAuthModalAppConfig } from '../utils/auth';
 import { 
   iconImageCache, 
