@@ -4,12 +4,20 @@ import ReactDOM from 'react-dom';
 
 // ...existing state/utility declarations...
 // Polling logic for scan progress
-const NetworkScanWindow: React.FC<{ appConfig?: any; scanActive?: boolean; setScanActive?: (active: boolean) => void }> = ({ appConfig, scanActive, setScanActive }) => {
+interface NetworkScanWindowProps {
+  appConfig?: any;
+  scanActive?: boolean;
+  setScanActive?: (active: boolean) => void;
+  initialProgress?: number;
+  initialLogs?: string[];
+}
+
+const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanActive, setScanActive, initialProgress = 0, initialLogs = [] }) => {
   // --- State and handlers ---
   const [isScanning, setIsScanning] = useState(scanActive ?? false);
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState<string[]>(initialLogs);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<number>(0);
+  const [progress, setProgress] = useState<number>(initialProgress);
   const [showLogs, setShowLogs] = useState(false);
   useEffect(() => {
     (async () => {
