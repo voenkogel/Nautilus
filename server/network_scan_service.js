@@ -15,7 +15,7 @@ export class NetworkScanService {
     this._progress = { status: 'starting' };
     const cmd = 'unbuffer';
     const subnet = params.subnet || '10.20.148.0/16';
-    const args = ['nmap', '-sn', '--stats-every', '10s', '-PS22,80,443', subnet];
+    const args = ['nmap', '-sn', '-PE', '-T4', '--stats-every', '5s', subnet];
     let progressPercent = 0;
     this._logs.push(`[network-scan] Starting process: ${cmd} ${args.join(' ')}\n`);
     this._progress = { status: 'starting', output: `[network-scan] Starting process: ${cmd} ${args.join(' ')}` };
