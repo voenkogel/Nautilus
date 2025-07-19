@@ -259,7 +259,16 @@ export class NetworkScanService {
         this._startPortScan();
       } else {
         this._generateFinalReport();
-        this._progress = { status: 'completed', code, phase: 'ping', activeHosts: this._activeHosts };
+        this._progress = { 
+          status: 'completed', 
+          code, 
+          phase: 'ping', 
+          activeHosts: this._activeHosts,
+          totalExpectedHosts: this._totalExpectedHosts,
+          totalHostsScanned: this._totalHostsScanned,
+          currentChunk: this._currentChunk + 1,
+          totalChunks: this._totalChunks
+        };
         this._scanProcess = null;
       }
     });
@@ -443,7 +452,16 @@ export class NetworkScanService {
         this._startHttpProbe();
       } else {
         this._generateFinalReport();
-        this._progress = { status: 'completed', code, phase: 'port', activeHosts: this._activeHosts };
+        this._progress = { 
+          status: 'completed', 
+          code, 
+          phase: 'port', 
+          activeHosts: this._activeHosts,
+          totalExpectedHosts: this._totalExpectedHosts,
+          totalHostsScanned: this._totalHostsScanned,
+          currentChunk: this._currentChunk + 1,
+          totalChunks: this._totalChunks
+        };
         this._scanProcess = null;
       }
     });
@@ -480,7 +498,15 @@ export class NetworkScanService {
       // Still enforce minimum duration even if no probes needed
       await this._ensureMinimumStepDuration();
       this._generateFinalReport();
-      this._progress = { status: 'completed', phase: 'probe', activeHosts: this._activeHosts };
+      this._progress = { 
+        status: 'completed', 
+        phase: 'probe', 
+        activeHosts: this._activeHosts,
+        totalExpectedHosts: this._totalExpectedHosts,
+        totalHostsScanned: this._totalHostsScanned,
+        currentChunk: this._currentChunk + 1,
+        totalChunks: this._totalChunks
+      };
       return;
     }
 
@@ -537,7 +563,16 @@ export class NetworkScanService {
       // Ensure minimum step duration before completing
       await this._ensureMinimumStepDuration();
       this._generateFinalReport();
-      this._progress = { status: 'completed', phase: 'probe', activeHosts: this._activeHosts, progress: 100 };
+      this._progress = { 
+        status: 'completed', 
+        phase: 'probe', 
+        activeHosts: this._activeHosts, 
+        progress: 100,
+        totalExpectedHosts: this._totalExpectedHosts,
+        totalHostsScanned: this._totalHostsScanned,
+        currentChunk: this._currentChunk + 1,
+        totalChunks: this._totalChunks
+      };
     }
   }
 

@@ -135,6 +135,16 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
   const [totalHostsScanned, setTotalHostsScanned] = useState<number>(0);
   const [currentChunk, setCurrentChunk] = useState<number>(0);
   const [totalChunks, setTotalChunks] = useState<number>(0);
+
+  // Effect to handle auto-selection when scan completes
+  useEffect(() => {
+    if (scanCompleted && Object.keys(webGuis).length > 0) {
+      // Ensure we have a small delay for state stabilization
+      setTimeout(() => {
+        autoSelectItemsForFilter(filterMode);
+      }, 100);
+    }
+  }, [scanCompleted, webGuis, filterMode]);
   useEffect(() => {
     (async () => {
       // const authenticated = await isAuthenticated();
@@ -291,10 +301,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             setLogsCollapsed(true); // Auto-collapse details
             // Initialize with recommended filter selection
             setFilterMode('web-devices');
-            // Auto-select recommended items immediately when scan completes
-            setTimeout(() => {
-              autoSelectItemsForFilter('web-devices');
-            }, 100);
+            // Auto-selection will be handled by the useEffect when scan completes
           }
         }
       } catch (err) {
@@ -449,8 +456,9 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
 
   // Helper function to auto-select items for a given filter mode
   const autoSelectItemsForFilter = (mode: 'web-devices' | 'web' | 'devices' | 'all') => {
+    // Get the current filtered items based on the mode
     const allItems = generateListItems();
-    let filteredItems;
+    let filteredItems: typeof allItems = [];
     
     switch (mode) {
       case 'web-devices':
@@ -483,7 +491,14 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
         });
         break;
       case 'all':
-        filteredItems = allItems;
+        filteredItems = allItems.filter(item => {
+          if (item.type === 'device' || item.type === 'port') return true;
+          if (item.type === 'web') {
+            // For 'all' mode, include all web interfaces regardless of embedding
+            return true;
+          }
+          return false;
+        });
         break;
       default:
         filteredItems = allItems;
@@ -496,8 +511,10 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
 
   const handleFilterSelect = (mode: 'web-devices' | 'web' | 'devices' | 'all') => {
     setFilterMode(mode);
-    // Update selection based on the new filter
-    autoSelectItemsForFilter(mode);
+    // Use a small delay to ensure the filter mode state is updated
+    setTimeout(() => {
+      autoSelectItemsForFilter(mode);
+    }, 50);
   };
 
   // Helper function to create nodes from selected items
@@ -572,17 +589,20 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
         subtitle: '',
         ip: host,
         icon: 'server',
-        type: 'square',
+        type: 'square', // Will be updated based on embedded GUI status
         children: []
       };
       
-      // Set hasWebGui property based on whether this device has an embedded GUI
+      // Set hasWebGui property and card type based on whether this device has an embedded GUI
       if (embeddedGuiUrl) {
         deviceNode.hasWebGui = true;
-        deviceNode.url = embeddedGuiUrl;
+        deviceNode.type = 'square'; // Device-web combos get square cards
+        // DO NOT set url field for auto-generated nodes - only ip field
+        // url field is reserved for manually created/edited nodes
       } else {
-        // Explicitly set to false for devices without embedded GUIs to exclude from status checking
+        // Pure devices get square cards (keeping current behavior)
         deviceNode.hasWebGui = false;
+        deviceNode.type = 'square';
       }
       
       deviceMap.set(host, deviceNode);
@@ -601,7 +621,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             subtitle: '',
             ip: host,
             icon: 'network',
-            type: 'square',
+            type: 'angular', // Port cards without web GUI get angular cards
             hasWebGui: false // Port nodes should not have web GUI status checking
           };
 
@@ -619,7 +639,8 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
           
           // Skip creating web node if this URL is already embedded in the parent device
           const parentDevice = deviceMap.get(host);
-          if (parentDevice && parentDevice.url === webUrl) {
+          const embeddedGuiUrl = devicesWithEmbeddedGui.get(host);
+          if (parentDevice && parentDevice.hasWebGui && embeddedGuiUrl === webUrl) {
             // This web interface is already embedded in the parent device, skip creating separate node
             continue;
           }
@@ -636,10 +657,10 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             id: `web-${webUrl}-${generateUniqueId()}`,
             title: nodeTitle,
             subtitle: '',
-            ip: host,
-            url: webUrl,
+            ip: host, // Always use IP field for auto-generated nodes
+            // DO NOT set url field - it's reserved for manual nodes/proxies
             icon: 'globe',
-            type: 'square',
+            type: 'circular', // Web GUIs get circular cards
             hasWebGui: true // Web nodes should have web GUI status checking enabled
           };
 
@@ -660,7 +681,8 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
         const hostMatch = node.id.match(/^device-([^-]+(?:\.[^-]+)*)-[a-z0-9]+$/);
         if (hostMatch) {
           const host = hostMatch[1];
-          const wasExplicitlySelected = selectedItemIds.some(id => id.startsWith(`device-${host}-`));
+          // Check if there's a device selection for this host (simple format: device-{host})
+          const wasExplicitlySelected = selectedItemIds.some(id => id === `device-${host}`);
           const hasChildren = node.children && node.children.length > 0;
           return wasExplicitlySelected || hasChildren;
         }
@@ -678,7 +700,12 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
       const newNodes = createNodesFromSelection();
       
       if (newNodes.length === 0) {
-        setError('No items selected to import.');
+        setError('No valid nodes could be created from the current selection. Please check your selection and try again.');
+        return;
+      }
+      
+      if (newNodes.length === 0) {
+        setError('No items selected to import. Please select at least one item from the list.');
         return;
       }
 
@@ -743,6 +770,13 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
       setProgress(0);
       setCurrentPhase('idle');
       setLogsCollapsed(false);
+      
+      // Reset enhanced progress tracking state
+      setTotalExpectedHosts(0);
+      setTotalHostsScanned(0);
+      setCurrentChunk(0);
+      setTotalChunks(0);
+      
       if (setScanActive) setScanActive(false);
       if (typeof window !== 'undefined' && window.dispatchEvent) {
         window.dispatchEvent(new CustomEvent('closeScanWindow'));
@@ -771,6 +805,12 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
     if (setScanActive) setScanActive(true);
     setLogs(["Scan started..."]);
     setShowLogs(true);
+    
+    // Reset enhanced progress tracking state
+    setTotalExpectedHosts(0);
+    setTotalHostsScanned(0);
+    setCurrentChunk(0);
+    setTotalChunks(0);
     
     // Store the subnet for next time
     const subnet = `${ip}/${cidr}`;
@@ -935,6 +975,19 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
         {/* Post-Scan Results Interface */}
         {scanCompleted && (
           <div className="mb-4">
+            {/* Selection Summary */}
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="text-sm font-semibold text-blue-800 mb-1">
+                Scan Results Summary
+              </div>
+              <div className="text-xs text-blue-700">
+                Found: {activeHosts.length} device(s), {Object.values(openPorts).reduce((total, ports) => total + ports.length, 0)} open port(s), {Object.values(webGuis).reduce((total, guis) => total + guis.length, 0)} web service(s)
+              </div>
+              <div className="text-xs text-blue-700 mt-1">
+                Selected: <span className="font-semibold" style={{ color: accentColor }}>{selectedItems.size} item(s)</span> ready to import
+              </div>
+            </div>
+
             {/* Filter Dropdown */}
             <div className="mb-4">
               <div className="text-sm font-semibold text-gray-700 mb-2">Select items to import:</div>
@@ -1059,11 +1112,15 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
                 Cancel
               </button>
               <button
-                className="px-6 py-2 rounded font-semibold text-white shadow transition-all duration-200 focus:outline-none"
-                style={{ backgroundColor: accentColor }}
+                className={`px-6 py-2 rounded font-semibold text-white shadow transition-all duration-200 focus:outline-none ${
+                  selectedItems.size === 0 ? 'bg-gray-400 cursor-not-allowed' : ''
+                }`}
+                style={{ backgroundColor: selectedItems.size === 0 ? undefined : accentColor }}
                 onClick={handleConfirmSelection}
+                disabled={selectedItems.size === 0}
+                title={selectedItems.size === 0 ? 'Please select at least one item to import' : `Import ${selectedItems.size} selected item(s)`}
               >
-                Confirm
+                Confirm ({selectedItems.size})
               </button>
             </>
           )}
@@ -1139,6 +1196,13 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
                     setCurrentPhase('idle');
                     setLogsCollapsed(false);
                     setShowCancelConfirm(false);
+                    
+                    // Reset enhanced progress tracking state
+                    setTotalExpectedHosts(0);
+                    setTotalHostsScanned(0);
+                    setCurrentChunk(0);
+                    setTotalChunks(0);
+                    
                     if (setScanActive) setScanActive(false);
                     if (typeof window !== 'undefined' && window.dispatchEvent) {
                       window.dispatchEvent(new CustomEvent('closeScanWindow'));

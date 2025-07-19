@@ -107,9 +107,16 @@ const defaultConfig = {
 // 2. Load configuration from config.json, if it exists
 let appConfig;
 try {
-  const configPath = '/data/config.json';
+  // Use different config paths for Docker vs local development
+  const configPath = process.env.NODE_ENV === 'production' ? '/data/config.json' : './config.json';
+  console.log(`🔧 NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
+  console.log(`🔧 Config path: ${configPath}`);
+  console.log(`🔧 Working directory: ${process.cwd()}`);
+  
   const configContent = readFileSync(configPath, 'utf8');
   const savedConfig = JSON.parse(configContent);
+  
+  console.log(`🔧 Loaded config with ${savedConfig.tree?.nodes?.length || 0} nodes`);
   
   // Deep merge saved config over default config
   appConfig = {
@@ -262,18 +269,22 @@ function findNodeByIdentifier(targetIdentifier) {
 // Function to check a single node's health with automatic HTTP/HTTPS fallback
 async function checkNodeHealth(identifier) {
   const normalizedIdentifier = normalizeNodeIdentifier(identifier);
-  console.log(`🔍 Checking health for: ${normalizedIdentifier}`);
   
   // Get the node data to access both IP and URL
   const nodeData = findNodeByIdentifier(normalizedIdentifier);
   
-  // Determine base endpoint (without protocol if not specified)
+  // Determine base endpoint - prefer URL over IP, but preserve port info from identifier
   let baseEndpoint;
   if (nodeData) {
     if (nodeData.url) {
       baseEndpoint = nodeData.url;
     } else if (nodeData.ip) {
-      baseEndpoint = nodeData.ip;
+      // If the original identifier has a port, use it; otherwise use just the IP
+      if (normalizedIdentifier.includes(':') && !nodeData.ip.includes(':')) {
+        baseEndpoint = normalizedIdentifier; // Use the full identifier with port
+      } else {
+        baseEndpoint = nodeData.ip;
+      }
     } else {
       baseEndpoint = identifier;
     }
@@ -286,15 +297,21 @@ async function checkNodeHealth(identifier) {
     return await attemptHealthCheck(baseEndpoint, normalizedIdentifier, nodeData);
   }
   
-  // Try HTTPS first, then HTTP as fallback
-  console.log(`🌐 Testing protocols for: ${baseEndpoint}`);
+  // Always try HTTPS first, then HTTP fallback - ignore port assumptions
   
   // Try HTTPS first
   let result = await attemptHealthCheck(`https://${baseEndpoint}`, normalizedIdentifier, nodeData);
   
-  // If HTTPS failed with connection refused, try HTTP
-  if (result.status === 'offline' && result.error && result.error.includes('Connection refused')) {
-    console.log(`🔄 HTTPS failed, trying HTTP for: ${baseEndpoint}`);
+  // If HTTPS failed with connection errors, try HTTP
+  if (result.status === 'offline' && result.error && 
+      (result.error.includes('Connection refused') || 
+       result.error.includes('Connection timeout') ||
+       result.error.includes('ECONNREFUSED') ||
+       result.error.includes('ETIMEDOUT') ||
+       result.error.includes('EPROTO') ||
+       result.error.includes('SSL routines') ||
+       result.error.includes('wrong version number') ||
+       result.error.includes('certificate'))) {
     const httpResult = await attemptHealthCheck(`http://${baseEndpoint}`, normalizedIdentifier, nodeData);
     
     // Use HTTP result if it's successful, otherwise keep the HTTPS result
@@ -315,12 +332,9 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
   const attemptStart = Date.now();
   
   try {
-    console.log(`🚀 Starting fetch for ${endpoint}`);
-    
     // Use a more aggressive timeout approach with explicit promise handling
     const timeoutPromise = new Promise((_, reject) => {
       timeoutId = setTimeout(() => {
-        console.log(`⏰ Timeout reached for ${endpoint}`);
         reject(new Error('Request timeout (5s)'));
       }, 5000);
     });
@@ -338,8 +352,6 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
     clearTimeout(timeoutId);
     const responseTime = Date.now() - attemptStart;
     
-    console.log(`✅ ${endpoint} responded with status ${response.status} (${responseTime}ms)`);
-    
     // Consider 2xx, 3xx, and some 4xx responses as "online"
     const isOnline = response.status < 500;
     
@@ -355,8 +367,6 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
   } catch (error) {
     if (timeoutId) clearTimeout(timeoutId);
     const responseTime = Date.now() - attemptStart;
-    
-    console.log(`❌ ${endpoint} failed: ${error.message} (${responseTime}ms)`);
     
     let errorMessage = 'Unknown error';
     if (error.message === 'Request timeout (5s)') {
@@ -382,9 +392,6 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
     };
     
   }
-  
-  // Common status processing for both success and error cases
-  console.log(`📊 Processing result for ${normalizedIdentifier}: ${result.status}`);
   
   // Check if the status has changed (for webhook notifications)
   const previousStatus = nodeStatuses.get(normalizedIdentifier);
@@ -433,15 +440,17 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
 
 // Function to check all nodes
 async function checkAllNodes() {
-  console.log(`🔍 Checking health of ${nodeIdentifiers.length} nodes...`);
-  
   const promises = nodeIdentifiers.map(async (identifier) => {
     const result = await checkNodeHealth(identifier);
     const normalizedIdentifier = normalizeNodeIdentifier(identifier);
     
-    // Log the result with emoji
-    const emoji = result.status === 'online' ? '✅' : '❌';
-    console.log(`${emoji} ${normalizedIdentifier}: ${result.status}${result.responseTime ? ` (${result.responseTime}ms)` : ''}`);
+    // Only log offline nodes with details
+    if (result.status === 'offline') {
+      const nodeData = findNodeByIdentifier(normalizedIdentifier);
+      const displayName = nodeData?.title || normalizedIdentifier;
+      const errorDetail = result.error ? ` (${result.error})` : '';
+      console.log(`❌ ${displayName} (${normalizedIdentifier}): offline${errorDetail}`);
+    }
     
     return result;
   });
@@ -457,16 +466,6 @@ async function checkAllNodes() {
   // Reset the initial health check flag after the first cycle to enable notifications
   if (initialHealthCheck) {
     initialHealthCheck = false;
-    console.log('🔔 Status notifications enabled for future changes');
-  }
-  
-  // When there are offline nodes, log them
-  if (offlineCount > 0) {
-    const offlineNodes = statuses
-      .filter(([_, status]) => status.status === 'offline')
-      .map(([id, _]) => id);
-    
-    console.log(`❌ ${offlineCount} offline nodes: ${offlineNodes.join(', ')}`);
   }
 }
 
@@ -590,7 +589,7 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     appConfig = deepMerge(appConfig, newConfig);
     
     // Write the new configuration to the file
-    const configPath = '/data/config.json';
+    const configPath = process.env.NODE_ENV === 'production' ? '/data/config.json' : './config.json';
     writeFileSync(configPath, JSON.stringify(appConfig, null, 2), 'utf8');
     
     // Reinitialize node monitoring with new config and update nodeIdentifiers

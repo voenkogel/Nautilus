@@ -19,6 +19,14 @@
   "tree": {
     "nodes": [
       {
+        "id": "test_sonarr_node",
+        "title": "Test Sonarr",
+        "subtitle": "Test node with port",
+        "ip": "10.10.65.60:8989",
+        "type": "circular",
+        "children": []
+      },
+      {
         "id": "node_1752172583793",
         "title": "radarr",
         "subtitle": "Infrastructure dashboard",
