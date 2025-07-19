@@ -9,6 +9,7 @@ import { useDeviceDetection } from '../hooks/useDeviceDetection';
 import MobileNodeList from './MobileNodeList';
 import EmptyNodesFallback from './EmptyNodesFallback';
 import { createStartingNode } from './EmptyNodesFallback';
+import NetworkScanWindow from './NetworkScanWindow';
 import { authenticate, getAuthHeaders, setAuthModalAppConfig } from '../utils/auth';
 import { 
   iconImageCache, 
@@ -105,6 +106,7 @@ const Canvas: React.FC = () => {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hoveredEditButtonNodeId, setHoveredEditButtonNodeId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isScanWindowOpen, setIsScanWindowOpen] = useState(false);
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(undefined);
   const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
   const [currentConfig, setCurrentConfig] = useState<AppConfig>(initialAppConfig);
@@ -188,6 +190,59 @@ const Canvas: React.FC = () => {
     };
 
     fetchCurrentConfig();
+  }, []);
+
+  // Listen for config updates from scan window
+  useEffect(() => {
+    const handleConfigUpdate = async () => {
+      try {
+        const response = await fetch('/api/config');
+        if (response.ok) {
+          const serverConfig = await response.json();
+          
+          // Ensure we always have a complete config with proper defaults
+          const completeConfig = {
+            ...initialAppConfig,
+            ...serverConfig,
+            server: { ...initialAppConfig.server, ...serverConfig.server },
+            client: { ...initialAppConfig.client, ...serverConfig.client },
+            appearance: { ...initialAppConfig.appearance, ...serverConfig.appearance },
+            tree: serverConfig.tree || initialAppConfig.tree
+          };
+          
+          setCurrentConfig(completeConfig);
+          // Set app config for auth modal
+          setAuthModalAppConfig(completeConfig);
+        }
+      } catch (error) {
+        console.warn('Failed to refresh config:', error);
+      }
+    };
+
+    const handleCanvasRefresh = () => {
+      // Force a re-render by triggering a config refresh
+      setCurrentConfig(prev => ({ ...prev }));
+    };
+
+    const handleOpenScanWindow = () => {
+      setIsScanWindowOpen(true);
+    };
+
+    const handleCloseScanWindow = () => {
+      setIsScanWindowOpen(false);
+    };
+
+    window.addEventListener('configUpdated', handleConfigUpdate);
+    window.addEventListener('refreshCanvas', handleCanvasRefresh);
+    window.addEventListener('openScanWindow', handleOpenScanWindow);
+    window.addEventListener('closeScanWindow', handleCloseScanWindow);
+
+    return () => {
+      window.removeEventListener('configUpdated', handleConfigUpdate);
+      window.removeEventListener('refreshCanvas', handleCanvasRefresh);
+      window.removeEventListener('openScanWindow', handleOpenScanWindow);
+      window.removeEventListener('closeScanWindow', handleCloseScanWindow);
+    };
   }, []);
 
   // Preload all icons used in the config on component mount
@@ -449,6 +504,9 @@ const Canvas: React.FC = () => {
       };
 
       await handleSaveConfig(newConfig);
+      
+      // Open the edit window for the newly created node
+      setEditingNode(startingNode);
     } catch (error) {
       console.error('Error creating starting node:', error);
       // Error will be shown in the UI by handleSaveConfig
@@ -849,7 +907,7 @@ const Canvas: React.FC = () => {
     // Get status using the original identifier to match the API response format
     const nodeStatus = originalIdentifier 
       ? getNodeStatus(originalIdentifier) 
-      : { status: 'offline' as const, lastChecked: new Date().toISOString(), statusChangedAt: new Date().toISOString(), progress: 0 };
+      : { status: 'checking' as const, lastChecked: new Date().toISOString(), statusChangedAt: new Date().toISOString(), progress: 0 };
     
     // Check if node has web GUI disabled
     const hasWebGuiDisabled = node.hasWebGui === false;
@@ -1731,6 +1789,15 @@ const Canvas: React.FC = () => {
         onSave={handleSaveConfig}
         focusNodeId={focusNodeId}
       />
+
+      {/* Network Scan Window */}
+      {isScanWindowOpen && (
+        <NetworkScanWindow
+          appConfig={currentConfig}
+          scanActive={false}
+          setScanActive={setIsScanWindowOpen}
+        />
+      )}
 
       {/* Node Editor Modal */}
       {editingNode && (

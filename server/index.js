@@ -153,18 +153,26 @@ function normalizeNodeIdentifier(identifier) {
 }
 
 // Function to extract all node identifiers (IP or URL) from the tree recursively
+// Only includes nodes that have web GUIs enabled (hasWebGui !== false)
 function extractAllNodeIdentifiers(nodes = appConfig.tree.nodes) {
   const identifiers = [];
   
   function traverse(nodeList) {
     for (const node of nodeList) {
-      // Use IP if available, otherwise use URL, otherwise skip
-      const identifier = node.ip || node.url;
-      if (identifier) {
-        // Normalize the identifier to ensure consistent format
-        const normalizedIdentifier = normalizeNodeIdentifier(identifier);
-        identifiers.push(normalizedIdentifier);
+      // Only monitor nodes that have web GUIs enabled (hasWebGui !== false)
+      // If hasWebGui is undefined, default to true for backward compatibility
+      const shouldMonitor = node.hasWebGui !== false;
+      
+      if (shouldMonitor) {
+        // Use IP if available, otherwise use URL, otherwise skip
+        const identifier = node.ip || node.url;
+        if (identifier) {
+          // Normalize the identifier to ensure consistent format
+          const normalizedIdentifier = normalizeNodeIdentifier(identifier);
+          identifiers.push(normalizedIdentifier);
+        }
       }
+      
       if (node.children) {
         traverse(node.children);
       }
@@ -191,11 +199,11 @@ function initializeNodeStatuses(preserveExisting = false) {
         // Preserve existing status
         nodeStatuses.set(identifier, existingStatuses.get(identifier));
       } else {
-        // Initialize new node as offline
+        // Initialize new node as checking (loading state)
         nodeStatuses.set(identifier, { 
-          status: 'offline', 
+          status: 'checking', 
           lastChecked: new Date(),
-          error: 'Not yet checked'
+          error: 'Initial check pending'
         });
       }
     });
@@ -203,13 +211,13 @@ function initializeNodeStatuses(preserveExisting = false) {
     // Clear existing statuses (initial startup behavior)
     nodeStatuses.clear();
     
-    // Initialize all nodes as offline with normalized keys
+    // Initialize all nodes as checking with normalized keys
     nodeIdentifiers.forEach(identifier => {
       // The identifier is already normalized by extractAllNodeIdentifiers
       nodeStatuses.set(identifier, { 
-        status: 'offline', 
+        status: 'checking', 
         lastChecked: new Date(),
-        error: 'Not yet checked'
+        error: 'Initial check pending'
       });
     });
   }
@@ -251,55 +259,91 @@ function findNodeByIdentifier(targetIdentifier) {
   return searchNodes(appConfig.tree.nodes);
 }
 
-// Function to check a single node's health with simple single endpoint approach
+// Function to check a single node's health with automatic HTTP/HTTPS fallback
 async function checkNodeHealth(identifier) {
-  const startTime = Date.now();
-  
-  // Normalize the identifier for consistent lookup
   const normalizedIdentifier = normalizeNodeIdentifier(identifier);
+  console.log(`🔍 Checking health for: ${normalizedIdentifier}`);
   
   // Get the node data to access both IP and URL
   const nodeData = findNodeByIdentifier(normalizedIdentifier);
   
-  // Determine endpoint: if identifier is IP, use URL if available for prettier URLs, otherwise use IP
-  let endpoint;
+  // Determine base endpoint (without protocol if not specified)
+  let baseEndpoint;
   if (nodeData) {
     if (nodeData.url) {
-      endpoint = nodeData.url.includes('://') ? nodeData.url : `https://${nodeData.url}`;
+      baseEndpoint = nodeData.url;
     } else if (nodeData.ip) {
-      endpoint = nodeData.ip.includes('://') ? nodeData.ip : `https://${nodeData.ip}`;
+      baseEndpoint = nodeData.ip;
     } else {
-      endpoint = identifier.includes('://') ? identifier : `https://${identifier}`;
+      baseEndpoint = identifier;
     }
   } else {
-    endpoint = identifier.includes('://') ? identifier : `https://${identifier}`;
+    baseEndpoint = identifier;
   }
   
+  // If protocol is already specified, use it directly
+  if (baseEndpoint.includes('://')) {
+    return await attemptHealthCheck(baseEndpoint, normalizedIdentifier, nodeData);
+  }
+  
+  // Try HTTPS first, then HTTP as fallback
+  console.log(`🌐 Testing protocols for: ${baseEndpoint}`);
+  
+  // Try HTTPS first
+  let result = await attemptHealthCheck(`https://${baseEndpoint}`, normalizedIdentifier, nodeData);
+  
+  // If HTTPS failed with connection refused, try HTTP
+  if (result.status === 'offline' && result.error && result.error.includes('Connection refused')) {
+    console.log(`🔄 HTTPS failed, trying HTTP for: ${baseEndpoint}`);
+    const httpResult = await attemptHealthCheck(`http://${baseEndpoint}`, normalizedIdentifier, nodeData);
+    
+    // Use HTTP result if it's successful, otherwise keep the HTTPS result
+    if (httpResult.status === 'online') {
+      result = httpResult;
+    }
+  }
+  
+  return result;
+}
+
+// Helper function to attempt health check for a specific endpoint
+async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
 
   
+  let result;
+  let timeoutId;
+  const attemptStart = Date.now();
+  
   try {
-    const attemptStart = Date.now();
+    console.log(`🚀 Starting fetch for ${endpoint}`);
     
-    // Create AbortController for timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    // Use a more aggressive timeout approach with explicit promise handling
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        console.log(`⏰ Timeout reached for ${endpoint}`);
+        reject(new Error('Request timeout (5s)'));
+      }, 5000);
+    });
     
-    const response = await fetch(endpoint, {
+    const fetchPromise = fetch(endpoint, {
       method: 'GET',
       headers: {
         'User-Agent': 'Nautilus-Monitor/1.0'
       },
-      agent: endpoint.startsWith('https://') ? httpsAgent : undefined,
-      signal: controller.signal
+      agent: endpoint.startsWith('https://') ? httpsAgent : undefined
     });
+    
+    const response = await Promise.race([fetchPromise, timeoutPromise]);
     
     clearTimeout(timeoutId);
     const responseTime = Date.now() - attemptStart;
     
+    console.log(`✅ ${endpoint} responded with status ${response.status} (${responseTime}ms)`);
+    
     // Consider 2xx, 3xx, and some 4xx responses as "online"
     const isOnline = response.status < 500;
     
-    const result = {
+    result = {
       status: isOnline ? 'online' : 'offline',
       lastChecked: new Date(),
       responseTime: responseTime,
@@ -308,41 +352,14 @@ async function checkNodeHealth(identifier) {
       error: isOnline ? undefined : `HTTP ${response.status}`
     };
     
-    // Check if the status has changed (for webhook notifications)
-    const previousStatus = nodeStatuses.get(normalizedIdentifier);
-    const statusChanged = !previousStatus || previousStatus.status !== result.status;
-    
-    // Store using normalized identifier for consistent lookups
-    nodeStatuses.set(normalizedIdentifier, result);
-    
-    // Suppress notifications for the initial health check cycle after startup
-    if (!initialHealthCheck && statusChanged && appConfig.webhooks?.statusNotifications) {
-      // Get the node name for a more descriptive notification
-      const nodeName = nodeData?.title || normalizedIdentifier;
-      if (isOnline) {
-        // Node came online
-        await sendStatusWebhook(
-          appConfig.webhooks.statusNotifications, 
-          nodeName, 
-          'online'
-        );
-      } else {
-        // Node went offline
-        await sendStatusWebhook(
-          appConfig.webhooks.statusNotifications, 
-          nodeName, 
-          'offline'
-        );
-      }
-    }
-// At the end of the initial health check cycle, set the flag to false
-// If you have a loop or batch health check, set initialHealthCheck = false after the first run
-    
   } catch (error) {
+    if (timeoutId) clearTimeout(timeoutId);
     const responseTime = Date.now() - attemptStart;
     
+    console.log(`❌ ${endpoint} failed: ${error.message} (${responseTime}ms)`);
+    
     let errorMessage = 'Unknown error';
-    if (error.name === 'AbortError') {
+    if (error.message === 'Request timeout (5s)') {
       errorMessage = 'Request timeout (5s)';
     } else if (error.code === 'ENOTFOUND') {
       errorMessage = 'Host not found (DNS failed)';
@@ -356,7 +373,7 @@ async function checkNodeHealth(identifier) {
       errorMessage = error.message;
     }
     
-    const result = {
+    result = {
       status: 'offline',
       lastChecked: new Date(),
       responseTime: responseTime,
@@ -364,18 +381,38 @@ async function checkNodeHealth(identifier) {
       error: errorMessage
     };
     
-    // Check if the status has changed (for webhook notifications)
-    const previousStatus = nodeStatuses.get(normalizedIdentifier);
-    const statusChanged = !previousStatus || previousStatus.status !== result.status;
-    
-    // Store using normalized identifier for consistent lookups
-    nodeStatuses.set(normalizedIdentifier, result);
-    
-    // Send webhook notification if status changed from online to offline and webhooks are configured
-    if (statusChanged && previousStatus?.status === 'online' && appConfig.webhooks?.statusNotifications) {
-      // Get the node name for a more descriptive notification
-      const nodeName = nodeData?.title || normalizedIdentifier;
-      
+  }
+  
+  // Common status processing for both success and error cases
+  console.log(`📊 Processing result for ${normalizedIdentifier}: ${result.status}`);
+  
+  // Check if the status has changed (for webhook notifications)
+  const previousStatus = nodeStatuses.get(normalizedIdentifier);
+  const statusChanged = !previousStatus || previousStatus.status !== result.status;
+  
+  // Only send notifications for transitions between 'online' and 'offline' states
+  // Exclude transitions from 'checking' to prevent initial startup notifications
+  const shouldNotify = statusChanged && 
+                      previousStatus && 
+                      previousStatus.status !== 'checking' && 
+                      (result.status === 'online' || result.status === 'offline') &&
+                      (previousStatus.status === 'online' || previousStatus.status === 'offline');
+  
+  // Store using normalized identifier for consistent lookups
+  nodeStatuses.set(normalizedIdentifier, result);
+  
+  // Send notifications only for meaningful status transitions
+  if (!initialHealthCheck && shouldNotify && appConfig.webhooks?.statusNotifications) {
+    // Get the node name for a more descriptive notification
+    const nodeName = nodeData?.title || normalizedIdentifier;
+    if (result.status === 'online') {
+      // Node came online
+      await sendStatusWebhook(
+        appConfig.webhooks.statusNotifications, 
+        nodeName, 
+        'online'
+      );
+    } else {
       // Node went offline
       await sendStatusWebhook(
         appConfig.webhooks.statusNotifications, 
@@ -383,8 +420,15 @@ async function checkNodeHealth(identifier) {
         'offline'
       );
     }
-
   }
+  
+  // Reset the initial health check flag after the first cycle to enable notifications
+  if (initialHealthCheck) {
+    initialHealthCheck = false;
+    console.log('🔔 Status notifications enabled for future changes');
+  }
+  
+  return result;
 }
 
 // Function to check all nodes
@@ -409,6 +453,12 @@ async function checkAllNodes() {
   const offlineCount = statuses.filter(([_, status]) => status.status === 'offline').length;
   
   console.log(`✨ Health check complete: ${onlineCount}/${nodeIdentifiers.length} nodes online`);
+  
+  // Reset the initial health check flag after the first cycle to enable notifications
+  if (initialHealthCheck) {
+    initialHealthCheck = false;
+    console.log('🔔 Status notifications enabled for future changes');
+  }
   
   // When there are offline nodes, log them
   if (offlineCount > 0) {

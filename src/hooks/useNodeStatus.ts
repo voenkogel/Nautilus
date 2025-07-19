@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { AppConfig, TreeNode } from '../types/config';
+import type { AppConfig } from '../types/config';
+import { extractMonitoredNodeIdentifiers } from '../utils/nodeUtils';
 
 export interface NodeStatus {
   status: 'online' | 'offline' | 'checking';
@@ -14,29 +15,6 @@ export interface StatusResponse {
   statuses: Record<string, NodeStatus>;
 }
 
-// Helper function to extract all node identifiers (IP or URL) from the tree
-const extractAllNodeIdentifiers = (nodes: TreeNode[]): string[] => {
-  const identifiers: string[] = [];
-  
-  const traverse = (nodeList: TreeNode[]) => {
-    for (const node of nodeList) {
-      // Only include nodes that have a web GUI for status checking (or where the flag is not set)
-      if (node.hasWebGui !== false) {
-        const identifier = node.ip || node.url;
-        if (identifier) {
-          identifiers.push(identifier);
-        }
-      }
-      if (node.children) {
-        traverse(node.children);
-      }
-    }
-  };
-  
-  traverse(nodes);
-  return identifiers;
-};
-
 export const useNodeStatus = (appConfig: AppConfig) => {
   const [statuses, setStatuses] = useState<Record<string, NodeStatus>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -48,7 +26,7 @@ export const useNodeStatus = (appConfig: AppConfig) => {
   const fetchStatuses = useCallback(async () => {
     if (!appConfig || !appConfig.tree.nodes) return;
 
-    const nodeIdentifiers = extractAllNodeIdentifiers(appConfig.tree.nodes);
+    const nodeIdentifiers = extractMonitoredNodeIdentifiers(appConfig.tree.nodes);
     if (nodeIdentifiers.length === 0) {
       setStatuses({});
       setIsConnected(true);
@@ -98,7 +76,7 @@ export const useNodeStatus = (appConfig: AppConfig) => {
         const offlineStatuses: Record<string, NodeStatus> = {};
         const now = new Date().toISOString();
         
-        nodeIdentifiers.forEach(id => {
+        nodeIdentifiers.forEach((id: string) => {
           const prevStatus = prevStatuses[id];
           
           offlineStatuses[id] = {

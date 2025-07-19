@@ -1,27 +1,7 @@
 import React, { useState } from 'react';
 import { Settings as SettingsIcon, ChevronDown, ChevronRight } from 'lucide-react';
-import type { AppConfig, TreeNode, NodeStatus } from '../types/config';
-
-// Helper function to extract all node identifiers (IP or URL) from the tree
-const extractAllNodeIdentifiers = (nodes: TreeNode[]): string[] => {
-  const identifiers: string[] = [];
-  
-  const traverse = (nodeList: TreeNode[]) => {
-    for (const node of nodeList) {
-      // Use IP if available, otherwise use URL (same logic as server and Canvas)
-      const identifier = node.ip || node.url;
-      if (identifier) {
-        identifiers.push(identifier);
-      }
-      if (node.children) {
-        traverse(node.children);
-      }
-    }
-  };
-  
-  traverse(nodes);
-  return identifiers;
-};
+import type { AppConfig, NodeStatus } from '../types/config';
+import { extractMonitoredNodeIdentifiers } from '../utils/nodeUtils';
 
 interface StatusCardProps {
   onOpenSettings: () => void;
@@ -50,11 +30,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  // Get all node identifiers (IP or URL) from the centralized config passed as a prop
-  const allNodeIdentifiers = extractAllNodeIdentifiers(appConfig.tree.nodes);
-  
-  // Only count nodes that have identifiers (exclude grey/loading nodes)
-  const monitoredNodes = allNodeIdentifiers.filter(identifier => identifier && identifier.trim() !== '');
+  // Get all monitored node identifiers (only nodes with web GUIs enabled and IP/URL)
+  const monitoredNodes = extractMonitoredNodeIdentifiers(appConfig.tree.nodes);
   const totalNodes = monitoredNodes.length;
   
   // Count healthy nodes (only among monitored nodes)
