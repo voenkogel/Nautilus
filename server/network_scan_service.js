@@ -45,6 +45,64 @@ export class NetworkScanService {
     5666, 5665, 9191
   ];
 
+  // SECURITY: Input validation for subnet parameter
+  _validateSubnet(subnet) {
+    if (!subnet || typeof subnet !== 'string') {
+      return false;
+    }
+    
+    // Allow only valid CIDR notation: IP/CIDR
+    const cidrRegex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/;
+    const match = subnet.match(cidrRegex);
+    
+    if (!match) {
+      return false;
+    }
+    
+    // Validate IP octets (0-255)
+    const [, octet1, octet2, octet3, octet4, cidr] = match;
+    const octets = [octet1, octet2, octet3, octet4].map(Number);
+    const cidrNum = Number(cidr);
+    
+    // Check IP octet ranges
+    if (octets.some(octet => octet < 0 || octet > 255)) {
+      return false;
+    }
+    
+    // Check CIDR range
+    if (cidrNum < 8 || cidrNum > 32) {
+      return false;
+    }
+    
+    // Block scanning public IP ranges for security
+    const ip = `${octet1}.${octet2}.${octet3}.${octet4}`;
+    if (!this._isPrivateIP(ip)) {
+      return false;
+    }
+    
+    return true;
+  }
+  
+  // Check if IP is in private ranges (RFC 1918)
+  _isPrivateIP(ip) {
+    const octets = ip.split('.').map(Number);
+    const [a, b] = octets;
+    
+    // 10.0.0.0/8
+    if (a === 10) return true;
+    
+    // 172.16.0.0/12
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    
+    // 192.168.0.0/16
+    if (a === 192 && b === 168) return true;
+    
+    // Allow localhost range
+    if (a === 127) return true;
+    
+    return false;
+  }
+
 
   // Helper method to calculate total expected hosts from subnet
   _calculateExpectedHosts(subnet) {
@@ -105,6 +163,15 @@ export class NetworkScanService {
   _startPingScan(params = {}) {
     const cmd = 'unbuffer';
     const subnet = params.subnet || '10.20.148.0/16';
+    
+    // SECURITY: Validate subnet input to prevent command injection
+    if (!this._validateSubnet(subnet)) {
+      const errorMsg = `[network-scan] Invalid subnet format: ${subnet}`;
+      this._logs.push(errorMsg + '\n');
+      this._progress = { status: 'error', error: errorMsg };
+      return;
+    }
+    
     const args = ['nmap', '-sn', '-PE', '-T4', '--stats-every', '3s', subnet];
     let progressPercent = 0;
     this._logs.push(`[network-scan] Step 1: Discovering active hosts - ${cmd} ${args.join(' ')}\n`);

@@ -76,12 +76,16 @@ NAUTILUS_HOST=localhost
 - `GET /api/config` - Read configuration
 - `GET /api/status` - Node status monitoring
 - `GET /api/status/:id` - Individual node status
+- `GET /health` - Basic health check
 
 #### Protected (Authentication Required)
-- `PUT /api/config` - Update configuration
+- `POST /api/config` - Update configuration
 - `POST /api/auth/login` - Authenticate user
 - `POST /api/auth/logout` - End session
 - `GET /api/auth/validate` - Check session validity
+- `POST /api/network-scan/start` - Start network scan
+- `GET /api/network-scan/progress` - Get scan progress
+- `POST /api/network-scan/cancel` - Cancel network scan
 
 ## 🔧 Development vs Production
 
@@ -105,7 +109,14 @@ NAUTILUS_HOST=localhost
 - ✅ Secure session token generation (crypto.randomBytes)
 - ✅ Token-based API authentication
 - ✅ Automatic session cleanup (24-hour expiry)
-- ✅ Brute force protection (1-second delay on wrong password)
+- ✅ Rate limiting protection (5 attempts per 15 minutes)
+- ✅ IP-based brute force protection
+
+### Network Security
+- ✅ Input validation for network scans (CIDR validation)
+- ✅ Private IP range restrictions (RFC 1918)
+- ✅ Command injection protection
+- ✅ Network scan authentication required
 
 ### Client-Side Security
 - ✅ No passwords stored in browser
@@ -114,11 +125,20 @@ NAUTILUS_HOST=localhost
 - ✅ Graceful authentication failures
 - ✅ Manual logout functionality
 
+### HTTP Security Headers
+- ✅ X-Content-Type-Options: nosniff
+- ✅ X-Frame-Options: DENY
+- ✅ X-XSS-Protection: 1; mode=block
+- ✅ Content-Security-Policy configured
+- ✅ Server information hiding
+
 ### Input Validation
 - ✅ Configuration structure validation
 - ✅ Required field validation
 - ✅ Type checking for critical fields
 - ✅ Error handling and user feedback
+- ✅ Subnet format validation
+- ✅ Private IP range enforcement
 
 ## � Webhook Integration
 

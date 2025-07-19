@@ -801,21 +801,32 @@ const Canvas: React.FC = () => {
 
   // Function to open node URL with debouncing to prevent double-opens
   const openNodeUrl = useCallback((node: PositionedNode) => {
+    let targetUrl = null;
+    
+    // Check for explicit URL first
     if (node.url) {
-      const url = node.url.includes('://') ? node.url : `https://${node.url}`;
+      targetUrl = node.url.includes('://') ? node.url : `https://${node.url}`;
+    }
+    // For nodes with hasWebGui and an IP, create URL from IP
+    else if (node.hasWebGui && node.ip) {
+      // Try HTTPS first, fallback will be handled by the browser
+      targetUrl = `https://${node.ip}`;
+    }
+    
+    if (targetUrl) {
       const now = Date.now();
       const lastOpenKey = `lastOpen_${node.id}`;
       const lastOpenTime = (window as any)[lastOpenKey] || 0;
       if (now - lastOpenTime > 1000) { // 1 second debounce
         (window as any)[lastOpenKey] = now;
         if (currentConfig.general?.openNodesAsOverlay !== false) {
-          setIframeOverlay({ url, title: node.title || appTitle });
+          setIframeOverlay({ url: targetUrl, title: node.title || appTitle });
         } else {
-          window.open(url, '_blank', 'noopener,noreferrer');
+          window.open(targetUrl, '_blank', 'noopener,noreferrer');
         }
       }
     }
-    // If no URL, do nothing (node is not clickable)
+    // If no URL or IP with web GUI, do nothing (node is not clickable)
   }, [currentConfig, appTitle]);
 
   // ...existing code...
@@ -1585,12 +1596,23 @@ const Canvas: React.FC = () => {
 
   // Handle node click in mobile view
   const handleMobileNodeClick = useCallback((node: TreeNode) => {
+    let targetUrl = null;
+    
+    // Check for explicit URL first
     if (node.url) {
-      const url = node.url.includes('://') ? node.url : `https://${node.url}`;
-      // Show iframe overlay instead of opening externally
-      setIframeOverlay({ url, title: node.title || appTitle });
+      targetUrl = node.url.includes('://') ? node.url : `https://${node.url}`;
     }
-  }, []);
+    // For nodes with hasWebGui and an IP, create URL from IP
+    else if (node.hasWebGui && node.ip) {
+      // Try HTTPS first, fallback will be handled by the browser
+      targetUrl = `https://${node.ip}`;
+    }
+    
+    if (targetUrl) {
+      // Show iframe overlay instead of opening externally
+      setIframeOverlay({ url: targetUrl, title: node.title || appTitle });
+    }
+  }, [appTitle]);
 
   // Effect to test API connectivity when the component mounts
   useEffect(() => {

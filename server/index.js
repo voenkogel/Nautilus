@@ -27,9 +27,46 @@ const ADMIN_PASSWORD = process.env.NAUTILUS_ADMIN_PASSWORD || '1234';
 // Session storage for authenticated sessions (in production, use Redis or database)
 const authenticatedSessions = new Map();
 
+// Rate limiting for authentication attempts
+const authAttempts = new Map();
+const MAX_AUTH_ATTEMPTS = 5;
+const AUTH_LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes
+
 // Generate secure session token
 const generateSessionToken = () => {
   return crypto.randomBytes(32).toString('hex');
+};
+
+// Check if IP is rate limited
+const isRateLimited = (ip) => {
+  const attempts = authAttempts.get(ip);
+  if (!attempts) return false;
+  
+  if (attempts.count >= MAX_AUTH_ATTEMPTS) {
+    const timeSinceLastAttempt = Date.now() - attempts.lastAttempt;
+    if (timeSinceLastAttempt < AUTH_LOCKOUT_TIME) {
+      return true;
+    } else {
+      // Reset attempts after lockout period
+      authAttempts.delete(ip);
+      return false;
+    }
+  }
+  
+  return false;
+};
+
+// Record failed authentication attempt
+const recordFailedAuth = (ip) => {
+  const attempts = authAttempts.get(ip) || { count: 0, lastAttempt: 0 };
+  attempts.count++;
+  attempts.lastAttempt = Date.now();
+  authAttempts.set(ip, attempts);
+};
+
+// Clear successful authentication attempts
+const clearAuthAttempts = (ip) => {
+  authAttempts.delete(ip);
 };
 
 // Middleware to authenticate requests
@@ -139,6 +176,32 @@ app.use(cors({
   origin: appConfig.server.corsOrigins,
   credentials: true
 }));
+
+// Security headers
+app.use((req, res, next) => {
+  // Prevent XSS attacks
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  
+  // Content Security Policy
+  res.setHeader('Content-Security-Policy', 
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "img-src 'self' data:; " +
+    "connect-src 'self'; " +
+    "font-src 'self'; " +
+    "object-src 'none'; " +
+    "media-src 'self'; " +
+    "frame-src 'none';"
+  );
+  
+  // Remove server info
+  res.removeHeader('X-Powered-By');
+  
+  next();
+});
 
 // Increase JSON payload limit for image uploads (base64 encoded images can be large)
 app.use(express.json({ limit: '50mb' }));
@@ -499,8 +562,18 @@ app.get('/api/status', (req, res) => {
 // API endpoint for authentication
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body;
+  const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+  
+  // Check rate limiting
+  if (isRateLimited(clientIP)) {
+    return res.status(429).json({
+      error: 'Too Many Requests',
+      message: 'Too many failed authentication attempts. Please try again later.'
+    });
+  }
   
   if (!username || !password) {
+    recordFailedAuth(clientIP);
     return res.status(400).json({ 
       error: 'Bad Request', 
       message: 'Username and password are required' 
@@ -508,6 +581,7 @@ app.post('/api/auth/login', (req, res) => {
   }
   
   if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    recordFailedAuth(clientIP);
     // Add a small delay to prevent brute force attacks
     setTimeout(() => {
       res.status(401).json({ 
@@ -517,6 +591,9 @@ app.post('/api/auth/login', (req, res) => {
     }, 1000);
     return;
   }
+  
+  // Successful authentication
+  clearAuthAttempts(clientIP);
   
   // Generate session token
   const token = generateSessionToken();
@@ -580,9 +657,91 @@ function deepMerge(target, source) {
   return result;
 }
 
+// Helper function to validate configuration structure
+function validateConfig(config) {
+  if (!config || typeof config !== 'object') {
+    return { valid: false, error: 'Configuration must be an object' };
+  }
+  
+  // Check for required top-level properties
+  const requiredFields = ['appearance', 'tree'];
+  for (const field of requiredFields) {
+    if (!config[field] || typeof config[field] !== 'object') {
+      return { valid: false, error: `Missing or invalid ${field} configuration` };
+    }
+  }
+  
+  // Validate tree structure
+  if (!Array.isArray(config.tree.nodes)) {
+    return { valid: false, error: 'tree.nodes must be an array' };
+  }
+  
+  // Recursive function to validate nodes and their children
+  function validateNode(node, path = '') {
+    if (!node.id || typeof node.id !== 'string') {
+      return { valid: false, error: `Node at ${path || 'root'} missing valid id` };
+    }
+    if (!node.title || typeof node.title !== 'string') {
+      return { valid: false, error: `Node at ${path || 'root'} missing valid title` };
+    }
+    if (node.ip && typeof node.ip !== 'string') {
+      return { valid: false, error: `Node at ${path || 'root'} ip must be a string` };
+    }
+    if (node.url && typeof node.url !== 'string') {
+      return { valid: false, error: `Node at ${path || 'root'} url must be a string` };
+    }
+    if (node.subtitle && typeof node.subtitle !== 'string') {
+      return { valid: false, error: `Node at ${path || 'root'} subtitle must be a string` };
+    }
+    if (node.icon && typeof node.icon !== 'string') {
+      return { valid: false, error: `Node at ${path || 'root'} icon must be a string` };
+    }
+    if (node.type && typeof node.type !== 'string') {
+      return { valid: false, error: `Node at ${path || 'root'} type must be a string` };
+    }
+    
+    // Validate children if they exist
+    if (node.children) {
+      if (!Array.isArray(node.children)) {
+        return { valid: false, error: `Node at ${path || 'root'} children must be an array` };
+      }
+      
+      for (let i = 0; i < node.children.length; i++) {
+        const childPath = path ? `${path}.children[${i}]` : `children[${i}]`;
+        const childValidation = validateNode(node.children[i], childPath);
+        if (!childValidation.valid) {
+          return childValidation;
+        }
+      }
+    }
+    
+    return { valid: true };
+  }
+  
+  // Validate each top-level node
+  for (let i = 0; i < config.tree.nodes.length; i++) {
+    const validation = validateNode(config.tree.nodes[i], `nodes[${i}]`);
+    if (!validation.valid) {
+      return validation;
+    }
+  }
+  
+  return { valid: true };
+}
+
 // Endpoint to update the configuration
 app.post('/api/config', authenticateRequest, (req, res) => {
   const newConfig = req.body;
+  
+  // Validate configuration structure
+  const validation = validateConfig(newConfig);
+  if (!validation.valid) {
+    console.error('Configuration validation failed:', validation.error);
+    return res.status(400).json({
+      success: false,
+      message: `Invalid configuration: ${validation.error}`
+    });
+  }
   
   try {
     // Deep merge new config with existing config
@@ -595,12 +754,14 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     // Reinitialize node monitoring with new config and update nodeIdentifiers
     nodeIdentifiers = initializeNodeStatuses(true);
     
+    console.log('✅ Configuration updated successfully');
     res.json({ 
       success: true, 
       message: 'Configuration updated successfully' 
     });
   } catch (error) {
-    console.error('Error updating configuration:', error);
+    console.error('❌ Error updating configuration:', error);
+    console.error('Config data:', JSON.stringify(newConfig, null, 2));
     res.status(500).json({ 
       success: false, 
       message: 'Failed to update configuration' 
@@ -627,23 +788,16 @@ app.get('/api/status/:ip', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    config: {
-      server: {
-        port: appConfig.server.port,
-        healthCheckInterval: appConfig.server.healthCheckInterval
-      },
-      monitoredNodes: nodeIdentifiers.length
-    }
+    timestamp: new Date().toISOString()
+    // Removed sensitive configuration details for security
   });
 });
 
 // Start server
-// --- Network Scan API ---
+// --- Network Scan API (Protected) ---
 const networkScanService = new NetworkScanService();
 
-app.post('/api/network-scan/start', (req, res) => {
+app.post('/api/network-scan/start', authenticateRequest, (req, res) => {
   try {
     const subnet = req.body && req.body.subnet ? req.body.subnet : '10.20.148.0/16';
     networkScanService.start_scan({ subnet });
@@ -653,11 +807,11 @@ app.post('/api/network-scan/start', (req, res) => {
   }
 });
 
-app.get('/api/network-scan/progress', (req, res) => {
+app.get('/api/network-scan/progress', authenticateRequest, (req, res) => {
   res.json(networkScanService.get_progress());
 });
 
-app.post('/api/network-scan/cancel', (req, res) => {
+app.post('/api/network-scan/cancel', authenticateRequest, (req, res) => {
   networkScanService.cancel_scan();
   res.json({ success: true });
 });
