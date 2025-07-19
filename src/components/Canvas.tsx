@@ -107,6 +107,7 @@ const Canvas: React.FC = () => {
   const [hoveredEditButtonNodeId, setHoveredEditButtonNodeId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isScanWindowOpen, setIsScanWindowOpen] = useState(false);
+  const [scanActive, setScanActive] = useState(false);
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(undefined);
   const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
   const [currentConfig, setCurrentConfig] = useState<AppConfig>(initialAppConfig);
@@ -189,7 +190,28 @@ const Canvas: React.FC = () => {
       }
     };
 
+    const checkScanStatus = async () => {
+      try {
+        const response = await fetch('/api/network-scan/progress', {
+          headers: getAuthHeaders()
+        });
+        if (response.ok) {
+          const scanData = await response.json();
+          // If there's an active scan, open the scan window
+          if (scanData.status === 'scanning') {
+            console.log('Detected active scan on page load, reopening scan window');
+            setIsScanWindowOpen(true);
+            setScanActive(true);
+          }
+        }
+      } catch (error) {
+        // Scan status check is optional, don't log errors
+        console.debug('No active scan detected on page load:', error);
+      }
+    };
+
     fetchCurrentConfig();
+    checkScanStatus();
   }, []);
 
   // Listen for config updates from scan window
@@ -226,10 +248,12 @@ const Canvas: React.FC = () => {
 
     const handleOpenScanWindow = () => {
       setIsScanWindowOpen(true);
+      setScanActive(false); // Reset scan active state for new scan
     };
 
     const handleCloseScanWindow = () => {
       setIsScanWindowOpen(false);
+      setScanActive(false);
     };
 
     window.addEventListener('configUpdated', handleConfigUpdate);
@@ -1816,8 +1840,13 @@ const Canvas: React.FC = () => {
       {isScanWindowOpen && (
         <NetworkScanWindow
           appConfig={currentConfig}
-          scanActive={false}
-          setScanActive={setIsScanWindowOpen}
+          scanActive={scanActive}
+          setScanActive={(active) => {
+            setScanActive(active);
+            if (!active) {
+              setIsScanWindowOpen(false);
+            }
+          }}
         />
       )}
 

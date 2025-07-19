@@ -30,10 +30,6 @@ FROM node:18-alpine
 # Install nmap and expect (for unbuffer) for network scanning in production
 RUN apk add --no-cache nmap expect
 
-# Create non-root user for security
-RUN addgroup -g 1001 -S nautilus && \
-    adduser -S nautilus -u 1001 -G nautilus
-
 # Set the working directory for the server
 WORKDIR /app
 
@@ -65,14 +61,8 @@ RUN chmod +x entrypoint.sh
 # This places the optimized React app into a 'public' directory that the server will use
 COPY --from=builder /app/dist ./server/public
 
-# Create /data directory and set ownership
-RUN mkdir -p /data && chown -R nautilus:nautilus /data
-
-# Change ownership to non-root user
-RUN chown -R nautilus:nautilus /app
-
-# Switch to non-root user
-USER nautilus
+# Create /data directory for config persistence
+RUN mkdir -p /data
 
 # Expose the port the server will run on
 EXPOSE ${NAUTILUS_SERVER_PORT}

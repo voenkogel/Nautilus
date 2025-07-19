@@ -71,9 +71,12 @@ const clearAuthAttempts = (ip) => {
 
 // Middleware to authenticate requests
 const authenticateRequest = (req, res, next) => {
+  console.log(`🔐 [AUTH] Authenticating request to ${req.method} ${req.path}`);
+  
   const authHeader = req.headers.authorization;
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.log(`❌ [AUTH] Missing or invalid authorization header: ${authHeader}`);
     return res.status(401).json({ 
       error: 'Unauthorized', 
       message: 'Missing or invalid authorization header' 
@@ -81,14 +84,18 @@ const authenticateRequest = (req, res, next) => {
   }
   
   const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+  console.log(`🔑 [AUTH] Checking token: ${token.substring(0, 8)}...`);
   
   if (!authenticatedSessions.has(token)) {
+    console.log(`❌ [AUTH] Invalid or expired session token`);
+    console.log(`🔑 [AUTH] Active sessions: ${authenticatedSessions.size}`);
     return res.status(401).json({ 
       error: 'Unauthorized', 
       message: 'Invalid or expired session token' 
     });
   }
   
+  console.log(`✅ [AUTH] Authentication successful`);
   // Update session timestamp
   authenticatedSessions.set(token, Date.now());
   next();
@@ -800,9 +807,14 @@ const networkScanService = new NetworkScanService();
 app.post('/api/network-scan/start', authenticateRequest, (req, res) => {
   try {
     const subnet = req.body && req.body.subnet ? req.body.subnet : '10.20.148.0/16';
+    console.log(`🔍 [NETWORK-SCAN] Starting scan for subnet: ${subnet}`);
+    
     networkScanService.start_scan({ subnet });
+    
+    console.log(`✅ [NETWORK-SCAN] Scan started successfully for subnet: ${subnet}`);
     res.json({ success: true });
   } catch (err) {
+    console.error(`❌ [NETWORK-SCAN] Failed to start scan:`, err);
     res.status(400).json({ success: false, error: err.message });
   }
 });

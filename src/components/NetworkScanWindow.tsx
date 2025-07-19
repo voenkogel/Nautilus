@@ -213,7 +213,9 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
       if (scanActive) {
         const fetchCurrentState = async () => {
           try {
-            const res = await fetch('/api/network-scan/progress');
+            const res = await fetch('/api/network-scan/progress', {
+              headers: getAuthHeaders()
+            });
             const data = await res.json();
             if (data.logs) setLogs(data.logs);
             if (typeof data.progress === 'number') setProgress(data.progress);
@@ -263,7 +265,9 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
     
     const poll = async () => {
       try {
-        const res = await fetch('/api/network-scan/progress');
+        const res = await fetch('/api/network-scan/progress', {
+          headers: getAuthHeaders()
+        });
         const data = await res.json();
         if (data.logs) setLogs(data.logs);
         if (typeof data.progress === 'number') setProgress(data.progress);
@@ -619,7 +623,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             id: `port-${host}-${port}-${generateUniqueId()}`,
             title: `Open Port (${host}:${port})`,
             subtitle: '',
-            ip: host,
+            ip: `${host}:${port}`, // Include port in IP field for health checking
             icon: 'network',
             type: 'angular', // Port cards without web GUI get angular cards
             hasWebGui: false // Port nodes should not have web GUI status checking
@@ -657,7 +661,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             id: `web-${webUrl}-${generateUniqueId()}`,
             title: nodeTitle,
             subtitle: '',
-            ip: host, // Always use IP field for auto-generated nodes
+            ip: `${host}:${port}`, // Include port in IP field for health checking
             // DO NOT set url field - it's reserved for manual nodes/proxies
             icon: 'globe',
             type: 'circular', // Web GUIs get circular cards
@@ -819,7 +823,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
     try {
       await fetch('/api/network-scan/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ subnet }),
       });
     } catch (err) {
@@ -1091,7 +1095,10 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
               className="px-6 py-2 rounded font-semibold text-white shadow bg-red-600 hover:bg-red-700 transition-all duration-200 focus:outline-none"
               onClick={async () => {
                 try {
-                  await fetch('/api/network-scan/cancel', { method: 'POST' });
+                  await fetch('/api/network-scan/cancel', { 
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                  });
                   setIsScanning(false);
                   setShowLogs(false);
                   if (setScanActive) setScanActive(false);

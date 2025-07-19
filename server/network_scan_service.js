@@ -131,6 +131,9 @@ export class NetworkScanService {
 
   start_scan(params = {}) {
     if (this._scanProcess) throw new Error('Scan already running');
+    
+    console.log(`🚀 [NETWORK-SCAN-SERVICE] Starting scan with params:`, params);
+    
     this._cancelled = false;
     this._logs = [];
     this._activeHosts = [];
@@ -146,7 +149,10 @@ export class NetworkScanService {
     this._totalHostsScanned = 0;
     this._currentChunk = 0;
     
+    console.log(`📊 [NETWORK-SCAN-SERVICE] Expected hosts for ${subnet}: ${this._totalExpectedHosts}`);
+    
     // Start with ping scan
+    console.log(`🏓 [NETWORK-SCAN-SERVICE] Starting ping scan phase...`);
     this._startPingScan(params);
   }
 
@@ -161,39 +167,80 @@ export class NetworkScanService {
   }
 
   _startPingScan(params = {}) {
+    console.log(`🏓 [_startPingScan] Starting ping scan with params:`, params);
+    
     const cmd = 'unbuffer';
     const subnet = params.subnet || '10.20.148.0/16';
+    
+    console.log(`🏓 [_startPingScan] Using command: ${cmd}, subnet: ${subnet}`);
     
     // SECURITY: Validate subnet input to prevent command injection
     if (!this._validateSubnet(subnet)) {
       const errorMsg = `[network-scan] Invalid subnet format: ${subnet}`;
+      console.error(`❌ [_startPingScan] ${errorMsg}`);
       this._logs.push(errorMsg + '\n');
       this._progress = { status: 'error', error: errorMsg };
       return;
     }
     
+    console.log(`✅ [_startPingScan] Subnet validation passed for: ${subnet}`);
+    
+    // Use ICMP Echo ping (-PE) for fast and reliable host discovery
+    // This requires root privileges but works much better than TCP ping
     const args = ['nmap', '-sn', '-PE', '-T4', '--stats-every', '3s', subnet];
     let progressPercent = 0;
+    
+    console.log(`🔧 [_startPingScan] About to execute: ${cmd} ${args.join(' ')}`);
+    
     this._logs.push(`[network-scan] Step 1: Discovering active hosts - ${cmd} ${args.join(' ')}\n`);
     this._progress = { status: 'scanning', phase: 'ping', output: `[network-scan] Step 1: Discovering active hosts - ${cmd} ${args.join(' ')}` };
     let buffer = '';
     try {
+      console.log(`⚡ [_startPingScan] Spawning process...`);
       this._scanProcess = spawn(cmd, args);
+      console.log(`✅ [_startPingScan] Process spawned successfully, PID: ${this._scanProcess.pid}`);
     } catch (err) {
       const errorMsg = `[network-scan] Failed to start ping scan: ${err.message}`;
+      console.error(`❌ [_startPingScan] ${errorMsg}`);
       this._logs.push(errorMsg + '\n');
       this._progress = { status: 'error', error: errorMsg };
       try { process.stderr.write(errorMsg + '\n'); } catch (e) { console.error(errorMsg); }
       return;
     }
+    
+    console.log(`🎉 [_startPingScan] Scan process started successfully`);
     this._logs.push('[network-scan] Step 1 started successfully\n');
     this._progress = { status: 'scanning', phase: 'ping', output: '[network-scan] Step 1 started successfully' };
+    
+    // Add timeout to prevent hanging (30 minutes max)
+    const scanTimeout = setTimeout(() => {
+      if (this._scanProcess && !this._cancelled) {
+        const timeoutMsg = '[network-scan] Scan timed out after 30 minutes, terminating...';
+        this._logs.push(timeoutMsg + '\n');
+        try { process.stdout.write(timeoutMsg + '\n'); } catch (e) { console.log(timeoutMsg); }
+        
+        this._scanProcess.kill('SIGTERM');
+        setTimeout(() => {
+          if (this._scanProcess) {
+            this._scanProcess.kill('SIGKILL');
+          }
+        }, 5000);
+        
+        this._progress = { status: 'error', error: 'Scan timed out after 30 minutes' };
+        this._scanProcess = null;
+      }
+    }, 30 * 60 * 1000); // 30 minutes
+    
     const handleOutput = (data) => {
+      console.log(`📥 [handleOutput] Received data: ${data.toString().trim()}`);
+      
       buffer += data.toString();
       let lines = buffer.split(/\r?\n/);
       buffer = lines.pop();
       for (const line of lines) {
         if (line.trim() !== '') {
+          console.log(`📝 [handleOutput] Processing line: ${line.trim()}`);
+          
           // Parse nmap stats line for progress
           let percent = null;
           let overallPercent = null;
@@ -287,9 +334,18 @@ export class NetworkScanService {
         }
       }
     };
-    this._scanProcess.stdout.on('data', handleOutput);
-    this._scanProcess.stderr.on('data', handleOutput);
+    
+    console.log(`🔗 [_startPingScan] Setting up event handlers...`);
+    this._scanProcess.stdout.on('data', (data) => {
+      console.log(`📤 [stdout] Received: ${data.toString().length} bytes`);
+      handleOutput(data);
+    });
+    this._scanProcess.stderr.on('data', (data) => {
+      console.log(`📤 [stderr] Received: ${data.toString().length} bytes`);
+      handleOutput(data);
+    });
     this._scanProcess.on('close', async (code) => {
+      console.log(`🏁 [_startPingScan] Process closed with code: ${code}`);
       if (buffer && buffer.trim() !== '') {
         this._logs.push(buffer + '\n');
         this._progress = { status: 'scanning', phase: 'ping', output: buffer };
@@ -299,6 +355,11 @@ export class NetworkScanService {
         const noOutputMsg = '[network-scan] No output received from ping scan. Check installation and permissions.';
         this._logs.push(noOutputMsg + '\n');
         try { process.stdout.write(noOutputMsg + '\n'); } catch (e) { console.log(noOutputMsg); }
+      }
+      
+      // Clear timeout
+      if (scanTimeout) {
+        clearTimeout(scanTimeout);
       }
       
       // Ensure minimum step duration before proceeding
@@ -340,6 +401,11 @@ export class NetworkScanService {
       }
     });
     this._scanProcess.on('error', (err) => {
+      // Clear timeout
+      if (scanTimeout) {
+        clearTimeout(scanTimeout);
+      }
+      
       this._progress = { status: 'error', error: err.message };
       this._scanProcess = null;
     });
