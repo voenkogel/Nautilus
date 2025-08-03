@@ -1,25 +1,19 @@
 import type { TreeNode } from '../types/config';
 
 /**
- * Extracts all node identifiers (IP or URL) from the tree that should be monitored for status.
- * Only includes nodes that have web GUIs enabled (hasWebGui !== false) and have an IP or URL.
- * This ensures consistent counting across server, status card, and other components.
+ * Extracts all node identifiers for health check monitoring.
+ * NEW ARCHITECTURE: Only includes nodes with healthCheckPort specified.
+ * Nodes without healthCheckPort are excluded from health monitoring.
  */
 export const extractMonitoredNodeIdentifiers = (nodes: TreeNode[]): string[] => {
   const identifiers: string[] = [];
   
   const traverse = (nodeList: TreeNode[]) => {
     for (const node of nodeList) {
-      // Only include nodes that have web GUIs enabled (hasWebGui !== false)
-      // If hasWebGui is undefined, default to true for backward compatibility
-      const shouldMonitor = node.hasWebGui !== false;
-      
-      if (shouldMonitor) {
-        // Use IP if available, otherwise use URL
-        const identifier = node.ip || node.url;
-        if (identifier) {
-          identifiers.push(identifier);
-        }
+      // Only monitor nodes with healthCheckPort and ip specified
+      if (node.healthCheckPort && node.ip) {
+        const identifier = `${node.ip}:${node.healthCheckPort}`;
+        identifiers.push(identifier);
       }
       
       if (node.children) {

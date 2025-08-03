@@ -71,12 +71,12 @@ const clearAuthAttempts = (ip) => {
 
 // Middleware to authenticate requests
 const authenticateRequest = (req, res, next) => {
-  console.log(`🔐 [AUTH] Authenticating request to ${req.method} ${req.path}`);
+  const clientIp = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
   
   const authHeader = req.headers.authorization;
   
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    console.log(`❌ [AUTH] Missing or invalid authorization header: ${authHeader}`);
+    console.log(`❌ [AUTH] Unauthenticated request from ${clientIp} to ${req.method} ${req.path} (missing/invalid auth header)`);
     return res.status(401).json({ 
       error: 'Unauthorized', 
       message: 'Missing or invalid authorization header' 
@@ -84,18 +84,15 @@ const authenticateRequest = (req, res, next) => {
   }
   
   const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-  console.log(`🔑 [AUTH] Checking token: ${token.substring(0, 8)}...`);
   
   if (!authenticatedSessions.has(token)) {
-    console.log(`❌ [AUTH] Invalid or expired session token`);
-    console.log(`🔑 [AUTH] Active sessions: ${authenticatedSessions.size}`);
+    console.log(`❌ [AUTH] Invalid session token from ${clientIp} to ${req.method} ${req.path} (token: ${token.substring(0, 8)}...)`);
     return res.status(401).json({ 
       error: 'Unauthorized', 
       message: 'Invalid or expired session token' 
     });
   }
   
-  console.log(`✅ [AUTH] Authentication successful`);
   // Update session timestamp
   authenticatedSessions.set(token, Date.now());
   next();
@@ -184,6 +181,19 @@ app.use(cors({
   credentials: true
 }));
 
+// Log client connections (non-static requests only)
+app.use((req, res, next) => {
+  const clientIp = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
+  const userAgent = req.headers['user-agent'] || 'unknown';
+  
+  // Only log API requests, not static file requests
+  if (req.path.startsWith('/api/')) {
+    console.log(`🌐 [CLIENT] ${clientIp} → ${req.method} ${req.path} (${userAgent.substring(0, 50)}...)`);
+  }
+  
+  next();
+});
+
 // Security headers
 app.use((req, res, next) => {
   // Prevent XSS attacks
@@ -229,25 +239,23 @@ function normalizeNodeIdentifier(identifier) {
   return normalized;
 }
 
-// Function to extract all node identifiers (IP or URL) from the tree recursively
-// Only includes nodes that have web GUIs enabled (hasWebGui !== false)
+// Function to extract all node identifiers for health check monitoring
+// NEW ARCHITECTURE: Only includes nodes with healthCheckPort specified
 function extractAllNodeIdentifiers(nodes = appConfig.tree.nodes) {
   const identifiers = [];
   
   function traverse(nodeList) {
     for (const node of nodeList) {
-      // Only monitor nodes that have web GUIs enabled (hasWebGui !== false)
-      // If hasWebGui is undefined, default to true for backward compatibility
-      const shouldMonitor = node.hasWebGui !== false;
-      
-      if (shouldMonitor) {
-        // Use IP if available, otherwise use URL, otherwise skip
-        const identifier = node.ip || node.url;
-        if (identifier) {
-          // Normalize the identifier to ensure consistent format
-          const normalizedIdentifier = normalizeNodeIdentifier(identifier);
-          identifiers.push(normalizedIdentifier);
-        }
+      // Only monitor nodes with healthCheckPort and ip specified
+      if (node.healthCheckPort && node.ip) {
+        const identifier = `${node.ip}:${node.healthCheckPort}`;
+        console.log(`📍 [MONITOR] Node "${node.title || node.id}": ip="${node.ip}", healthCheckPort="${node.healthCheckPort}" → monitoring "${identifier}"`);
+        
+        // Normalize the identifier to ensure consistent format
+        const normalizedIdentifier = normalizeNodeIdentifier(identifier);
+        identifiers.push(normalizedIdentifier);
+      } else {
+        console.log(`⏭️  [SKIP] Node "${node.title || node.id}": missing healthCheckPort or ip, excluded from monitoring`);
       }
       
       if (node.children) {
@@ -279,7 +287,8 @@ function initializeNodeStatuses(preserveExisting = false) {
         // Initialize new node as checking (loading state)
         nodeStatuses.set(identifier, { 
           status: 'checking', 
-          lastChecked: new Date(),
+          lastChecked: new Date().toISOString(),
+          statusChangedAt: new Date().toISOString(),
           error: 'Initial check pending'
         });
       }
@@ -293,7 +302,8 @@ function initializeNodeStatuses(preserveExisting = false) {
       // The identifier is already normalized by extractAllNodeIdentifiers
       nodeStatuses.set(identifier, { 
         status: 'checking', 
-        lastChecked: new Date(),
+        lastChecked: new Date().toISOString(),
+        statusChangedAt: new Date().toISOString(),
         error: 'Initial check pending'
       });
     });
@@ -311,15 +321,16 @@ const httpsAgent = new https.Agent({
   rejectUnauthorized: false // Accept self-signed certificates
 });
 
-// Helper function to find node data by identifier (IP or URL)
+// Helper function to find node data by identifier (IP:port format)
 function findNodeByIdentifier(targetIdentifier) {
   // Normalize the target identifier for consistent matching
   const normalizedTarget = normalizeNodeIdentifier(targetIdentifier);
   
   function searchNodes(nodes) {
     for (const node of nodes) {
-      const nodeIdentifier = node.ip || node.url;
-      if (nodeIdentifier) {
+      // NEW ARCHITECTURE: Generate identifier from ip:healthCheckPort
+      if (node.healthCheckPort && node.ip) {
+        const nodeIdentifier = `${node.ip}:${node.healthCheckPort}`;
         const normalizedNodeId = normalizeNodeIdentifier(nodeIdentifier);
         if (normalizedNodeId === normalizedTarget) {
           return node;
@@ -340,26 +351,26 @@ function findNodeByIdentifier(targetIdentifier) {
 async function checkNodeHealth(identifier) {
   const normalizedIdentifier = normalizeNodeIdentifier(identifier);
   
-  // Get the node data to access both IP and URL
+  console.log(`🔍 [HEALTH_CHECK] Checking "${identifier}" → normalized: "${normalizedIdentifier}"`);
+  
+  // Get the node data to access IP, URL, and healthCheckPort
   const nodeData = findNodeByIdentifier(normalizedIdentifier);
   
-  // Determine base endpoint - prefer URL over IP, but preserve port info from identifier
+  // Only nodes with healthCheckPort should reach this function
   let baseEndpoint;
-  if (nodeData) {
-    if (nodeData.url) {
-      baseEndpoint = nodeData.url;
-    } else if (nodeData.ip) {
-      // If the original identifier has a port, use it; otherwise use just the IP
-      if (normalizedIdentifier.includes(':') && !nodeData.ip.includes(':')) {
-        baseEndpoint = normalizedIdentifier; // Use the full identifier with port
-      } else {
-        baseEndpoint = nodeData.ip;
-      }
-    } else {
-      baseEndpoint = identifier;
-    }
+  
+  if (nodeData && nodeData.healthCheckPort && nodeData.ip) {
+    baseEndpoint = `${nodeData.ip}:${nodeData.healthCheckPort}`;
+    console.log(`🎯 [ENDPOINT] Node "${nodeData.title || nodeData.id}": healthCheck="${baseEndpoint}"`);
   } else {
-    baseEndpoint = identifier;
+    console.log(`⚠️  [ENDPOINT] Invalid node data for "${normalizedIdentifier}" - missing healthCheckPort or ip`);
+    // Return offline for invalid nodes
+    return {
+      status: 'offline',
+      lastChecked: new Date().toISOString(),
+      responseTime: 0,
+      error: 'Invalid node configuration - missing healthCheckPort or ip'
+    };
   }
   
   // If protocol is already specified, use it directly
@@ -367,7 +378,7 @@ async function checkNodeHealth(identifier) {
     return await attemptHealthCheck(baseEndpoint, normalizedIdentifier, nodeData);
   }
   
-  // Always try HTTPS first, then HTTP fallback - ignore port assumptions
+  // Always try HTTPS first, then HTTP fallback
   
   // Try HTTPS first
   let result = await attemptHealthCheck(`https://${baseEndpoint}`, normalizedIdentifier, nodeData);
@@ -384,7 +395,7 @@ async function checkNodeHealth(identifier) {
        result.error.includes('certificate'))) {
     const httpResult = await attemptHealthCheck(`http://${baseEndpoint}`, normalizedIdentifier, nodeData);
     
-    // Use HTTP result if it's successful, otherwise keep the HTTPS result
+    // Use HTTP result if it's successful
     if (httpResult.status === 'online') {
       result = httpResult;
     }
@@ -395,7 +406,8 @@ async function checkNodeHealth(identifier) {
 
 // Helper function to attempt health check for a specific endpoint
 async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
-
+  const nodeName = nodeData?.title || nodeData?.id || normalizedIdentifier;
+  console.log(`🚀 [ATTEMPT] Trying ${endpoint} for node "${nodeName}"`);
   
   let result;
   let timeoutId;
@@ -427,7 +439,7 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
     
     result = {
       status: isOnline ? 'online' : 'offline',
-      lastChecked: new Date(),
+      lastChecked: new Date().toISOString(),
       responseTime: responseTime,
       statusCode: response.status,
       endpoint: endpoint,
@@ -455,7 +467,7 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
     
     result = {
       status: 'offline',
-      lastChecked: new Date(),
+      lastChecked: new Date().toISOString(),
       responseTime: responseTime,
       endpoint: endpoint,
       error: errorMessage
@@ -466,6 +478,15 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
   // Check if the status has changed (for webhook notifications)
   const previousStatus = nodeStatuses.get(normalizedIdentifier);
   const statusChanged = !previousStatus || previousStatus.status !== result.status;
+  
+  // Preserve statusChangedAt timestamp if status hasn't changed, otherwise set to now
+  if (previousStatus && !statusChanged) {
+    // Status hasn't changed, preserve the original statusChangedAt timestamp
+    result.statusChangedAt = previousStatus.statusChangedAt;
+  } else {
+    // Status has changed (or this is first check), set statusChangedAt to now
+    result.statusChangedAt = new Date().toISOString();
+  }
   
   // Only send notifications for transitions between 'online' and 'offline' states
   // Exclude transitions from 'checking' to prevent initial startup notifications
@@ -499,10 +520,11 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
     }
   }
   
-  // Reset the initial health check flag after the first cycle to enable notifications
-  if (initialHealthCheck) {
-    initialHealthCheck = false;
-    console.log('🔔 Status notifications enabled for future changes');
+  // Log the result of this attempt
+  if (result.status === 'online') {
+    console.log(`✅ [SUCCESS] ${endpoint} → ${result.statusCode} (${result.responseTime}ms)`);
+  } else {
+    console.log(`❌ [FAILED] ${endpoint} → ${result.error} (${result.responseTime}ms)`);
   }
   
   return result;
@@ -533,9 +555,10 @@ async function checkAllNodes() {
   
   console.log(`✨ Health check complete: ${onlineCount}/${nodeIdentifiers.length} nodes online`);
   
-  // Reset the initial health check flag after the first cycle to enable notifications
+  // Reset the initial health check flag after the first complete cycle to enable notifications
   if (initialHealthCheck) {
     initialHealthCheck = false;
+    console.log('🔔 Initial health check complete - status notifications enabled for future changes');
   }
 }
 
@@ -821,6 +844,17 @@ app.post('/api/network-scan/start', authenticateRequest, (req, res) => {
 
 app.get('/api/network-scan/progress', authenticateRequest, (req, res) => {
   res.json(networkScanService.get_progress());
+});
+
+// Public endpoint to check if scan is active (no auth required)
+app.get('/api/network-scan/status', (req, res) => {
+  const progress = networkScanService.get_progress();
+  const isActive = progress.status === 'starting' || progress.status === 'scanning';
+  res.json({ 
+    active: isActive,
+    status: progress.status,
+    timestamp: progress.timestamp 
+  });
 });
 
 app.post('/api/network-scan/cancel', authenticateRequest, (req, res) => {

@@ -43,18 +43,15 @@ export const useNodeStatus = (appConfig: AppConfig) => {
       
       if (data && data.statuses) {
         // Compare with previous statuses to detect changes and preserve statusChangedAt
-        setStatuses(prevStatuses => {
+        setStatuses(() => {
           const newStatuses: Record<string, NodeStatus> = {};
-          const now = new Date().toISOString();
           
           Object.entries(data.statuses).forEach(([nodeId, newStatus]) => {
-            const prevStatus = prevStatuses[nodeId];
-            
+            // Always use server-provided statusChangedAt when available
+            // Server timestamps are authoritative for status duration tracking
             newStatuses[nodeId] = {
               ...newStatus,
-              statusChangedAt: (prevStatus && prevStatus.status === newStatus.status) 
-                ? prevStatus.statusChangedAt || now  // Keep existing timestamp if status unchanged
-                : now  // Update timestamp if status changed or no previous status
+              statusChangedAt: newStatus.statusChangedAt || new Date().toISOString()
             };
           });
           
@@ -192,9 +189,17 @@ export const useNodeStatus = (appConfig: AppConfig) => {
   }, [appConfig, fetchStatuses]);
 
   const getNodeStatus = useCallback((identifier: string): NodeStatus => {
-    return statuses[identifier] || {
+    const status = statuses[identifier];
+    if (status) {
+      return status;
+    }
+    
+    // Fallback for nodes not found in status map
+    const now = new Date().toISOString();
+    return {
       status: 'checking',
-      lastChecked: new Date().toISOString(),
+      lastChecked: now,
+      statusChangedAt: now,
     };
   }, [statuses]);
 

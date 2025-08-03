@@ -44,7 +44,7 @@ const removeToken = (): void => {
   }
 };
 
-// Set the app config for the auth modal
+// Set the app config for the auth modal (optional - auth modal will auto-fetch if not set)
 export const setAuthModalAppConfig = (config: AppConfig): void => {
   currentAppConfig = config;
 };
@@ -79,7 +79,21 @@ export const isAuthenticated = async (): Promise<boolean> => {
 
 // Show auth modal and return a promise that resolves when authenticated
 const showAuthModal = (): Promise<boolean> => {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
+    // Fetch current config before showing modal to ensure we have the latest accent color
+    try {
+      const configResponse = await fetch('/api/config');
+      if (configResponse.ok) {
+        const config = await configResponse.json();
+        currentAppConfig = config;
+        console.log('🎨 Auth modal: Fetched current config for accent color');
+      } else {
+        console.warn('⚠️ Auth modal: Failed to fetch config, using existing config');
+      }
+    } catch (error) {
+      console.warn('⚠️ Auth modal: Error fetching config:', error);
+    }
+
     // Create modal container if it doesn't exist
     if (!authModalRoot) {
       authModalRoot = document.createElement('div');
@@ -188,6 +202,12 @@ export const clearAuthentication = async (): Promise<void> => {
 // Get authentication token for API requests
 export const getAuthToken = (): string | null => {
   return getStoredToken();
+};
+
+// Check if user has a stored authentication token
+export const hasAuthToken = (): boolean => {
+  const token = getStoredToken();
+  return !!token;
 };
 
 // Get authentication headers for API requests

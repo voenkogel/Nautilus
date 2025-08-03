@@ -10,7 +10,7 @@ import MobileNodeList from './MobileNodeList';
 import EmptyNodesFallback from './EmptyNodesFallback';
 import { createStartingNode } from './EmptyNodesFallback';
 import NetworkScanWindow from './NetworkScanWindow';
-import { authenticate, getAuthHeaders, setAuthModalAppConfig } from '../utils/auth';
+import { authenticate, getAuthHeaders, hasAuthToken } from '../utils/auth';
 import { 
   iconImageCache, 
   iconSvgCache, 
@@ -106,7 +106,10 @@ const Canvas: React.FC = () => {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hoveredEditButtonNodeId, setHoveredEditButtonNodeId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  
+  // Check for recent scan results on initialization (only for authenticated users)
   const [isScanWindowOpen, setIsScanWindowOpen] = useState(false);
+  
   const [scanActive, setScanActive] = useState(false);
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(undefined);
   const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
@@ -176,22 +179,25 @@ const Canvas: React.FC = () => {
           };
           
           setCurrentConfig(completeConfig);
-          // Set app config for auth modal
-          setAuthModalAppConfig(completeConfig);
         } else {
           console.warn('Failed to fetch config from server, using default');
           setCurrentConfig(initialAppConfig);
-          setAuthModalAppConfig(initialAppConfig);
         }
       } catch (error) {
         console.warn('Failed to fetch config from server, using default:', error);
         setCurrentConfig(initialAppConfig);
-        setAuthModalAppConfig(initialAppConfig);
       }
     };
 
     const checkScanStatus = async () => {
       try {
+        // Only check scan status if user is already authenticated
+        // This avoids authentication errors on page load for unauthenticated users
+        if (!hasAuthToken()) {
+          console.debug('Skipping scan status check - user not authenticated');
+          return;
+        }
+        
         const response = await fetch('/api/network-scan/progress', {
           headers: getAuthHeaders()
         });
@@ -203,6 +209,9 @@ const Canvas: React.FC = () => {
             setIsScanWindowOpen(true);
             setScanActive(true);
           }
+        } else if (response.status === 401) {
+          // Authentication failed - token might be expired
+          console.debug('Authentication failed during scan status check - token may be expired');
         }
       } catch (error) {
         // Scan status check is optional, don't log errors
@@ -213,6 +222,117 @@ const Canvas: React.FC = () => {
     fetchCurrentConfig();
     checkScanStatus();
   }, []);
+
+  // Check for recent scan results or active scan and restore scan window
+  useEffect(() => {
+    const checkAndRestoreScanWindow = async () => {
+      // First check for recent scan results in localStorage
+      try {
+        const savedResults = localStorage.getItem('networkScanResults');
+        if (savedResults) {
+          const parsedResults = JSON.parse(savedResults);
+          // Check if results are recent (within last 30 minutes)
+          const now = Date.now();
+          const resultAge = now - (parsedResults.timestamp || 0);
+          const maxAge = 30 * 60 * 1000; // 30 minutes in milliseconds
+          
+          if (resultAge < maxAge) {
+            // Require authentication before showing scan results
+            const isAuth = await authenticate();
+            if (isAuth) {
+              setIsScanWindowOpen(true);
+            }
+            return; // Found recent results, no need to check scan status
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to check saved scan results:', err);
+      }
+
+      // If no recent results, check if there's an active scan
+      // Use public status endpoint (no auth required) - works for everyone
+      try {
+        console.log('🔍 Checking scan status on page load...');
+        const response = await fetch('/api/network-scan/status');
+        console.log('📡 Scan status response:', response.status, response.ok);
+        
+        if (response.ok) {
+          const scanData = await response.json();
+          console.log('📊 Scan data received:', scanData);
+          if (scanData.active) {
+            console.log('✅ Detected active scan on page load, opening scan window');
+            // Require authentication before showing active scan
+            const isAuth = await authenticate();
+            if (isAuth) {
+              setIsScanWindowOpen(true);
+              setScanActive(true);
+            }
+          } else {
+            console.log('❌ No active scan detected on page load');
+          }
+        } else {
+          console.warn('⚠️ Scan status endpoint returned non-OK status:', response.status);
+        }
+      } catch (error) {
+        // Scan status check failed, but don't show errors for this
+        console.warn('❌ Could not check scan status on page load:', error);
+      }
+    };
+
+    checkAndRestoreScanWindow();
+  }, []);
+
+  // Continuously poll for scan activity and automatically open scan window
+  useEffect(() => {
+    let pollInterval: number | null = null;
+    
+    const checkScanActivity = async () => {
+      // Only check if scan window is not already open
+      if (isScanWindowOpen) {
+        return;
+      }
+
+      try {
+        // Use public status endpoint (no auth required) - works for everyone
+        console.log('🔄 Polling for scan activity...');
+        const response = await fetch('/api/network-scan/status');
+        console.log('📡 Poll response:', response.status, response.ok);
+        
+        if (response.ok) {
+          const scanData = await response.json();
+          console.log('📊 Poll scan data:', scanData);
+          if (scanData.active) {
+            console.log('✅ Detected active scan during polling, opening scan window');
+            // Require authentication before showing scan results
+            const isAuthenticated = await authenticate();
+            if (isAuthenticated) {
+              setIsScanWindowOpen(true);
+              setScanActive(true);
+            }
+          }
+        }
+      } catch (error) {
+        // Silent fail - scan status polling is optional
+        console.warn('❌ Scan activity polling failed:', error);
+      }
+    };
+
+    // Start polling after a short delay to avoid overlap with initial check
+    const initialDelay = setTimeout(() => {
+      // Check immediately after delay
+      checkScanActivity();
+      
+      // Set up frequent polling every 2 seconds for maximum responsiveness
+      pollInterval = setInterval(checkScanActivity, 2000);
+    }, 1000);
+
+    return () => {
+      clearTimeout(initialDelay);
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [isScanWindowOpen]); // Re-run when scan window state changes
 
   // Listen for config updates from scan window
   useEffect(() => {
@@ -233,8 +353,6 @@ const Canvas: React.FC = () => {
           };
           
           setCurrentConfig(completeConfig);
-          // Set app config for auth modal
-          setAuthModalAppConfig(completeConfig);
         }
       } catch (error) {
         console.warn('Failed to refresh config:', error);
@@ -831,10 +949,12 @@ const Canvas: React.FC = () => {
     if (node.url) {
       targetUrl = node.url.includes('://') ? node.url : `https://${node.url}`;
     }
-    // For nodes with hasWebGui and an IP, create URL from IP
-    else if (node.hasWebGui && node.ip) {
-      // Try HTTPS first, fallback will be handled by the browser
-      targetUrl = `https://${node.ip}`;
+    // For nodes with healthCheckPort and an IP, create URL from IP:port
+    else if (node.healthCheckPort && node.ip) {
+      // Use HTTP for common HTTP-only ports, HTTPS for others
+      const commonHttpPorts = [80, 8080, 8989, 7878, 8686, 6767, 5076, 9117];
+      const protocol = commonHttpPorts.includes(node.healthCheckPort) ? 'http' : 'https';
+      targetUrl = `${protocol}://${node.ip}:${node.healthCheckPort}`;
     }
     
     if (targetUrl) {
@@ -936,16 +1056,18 @@ const Canvas: React.FC = () => {
     // Determine border radius based on node type
     const borderRadius = type === 'circular' ? height / 2 : (type === 'angular' ? 0 : 12); // Perfect pill for circular, no radius for angular, normal radius for square
     
-    // Get the current status for this node (use IP if available, otherwise URL)
-    const originalIdentifier = ip || url;
+    // Get the current status for this node (use NEW ARCHITECTURE: ip:healthCheckPort format)
+    const originalIdentifier = node.healthCheckPort && node.ip 
+      ? `${node.ip}:${node.healthCheckPort}` 
+      : (ip || url);
     
     // Get status using the original identifier to match the API response format
     const nodeStatus = originalIdentifier 
       ? getNodeStatus(originalIdentifier) 
       : { status: 'checking' as const, lastChecked: new Date().toISOString(), statusChangedAt: new Date().toISOString(), progress: 0 };
     
-    // Check if node has web GUI disabled
-    const hasWebGuiDisabled = node.hasWebGui === false;
+    // Check if node has health monitoring disabled (no healthCheckPort)
+    const isMonitoringDisabled = !node.healthCheckPort;
 
     // Apply soft shadow using blur (save context to restore after shadow drawing)
     ctx.save();
@@ -982,11 +1104,11 @@ const Canvas: React.FC = () => {
     
     // Use the pre-calculated circle values from the top of the function
     
-    // Set circle color based on node status - gray if no IP/URL provided or hasWebGui is disabled
+    // Set circle color based on node status - gray if no IP/URL provided or monitoring is disabled
     let circleColor = '#6b7280'; // Default gray for checking or no identifier
     let circleOpacity = 1.0; // Default full opacity
     
-    if (hasWebGuiDisabled || !originalIdentifier) {
+    if (isMonitoringDisabled || !originalIdentifier) {
       // Gray circle for disabled nodes or nodes without IP/URL
       circleColor = '#6b7280';
     } else if (nodeStatus.status === 'online') {
@@ -1054,9 +1176,9 @@ const Canvas: React.FC = () => {
     // Use the pre-calculated titleX and titleY values
     ctx.fillText(title, titleX, titleY);
     
-    // Draw status duration badge next to title - only for nodes with web GUI enabled
-    if (nodeStatus && nodeStatus.statusChangedAt && !hasWebGuiDisabled && originalIdentifier) {
-      const duration = formatTimeSince(nodeStatus.statusChangedAt);
+    // Draw status duration badge next to title - only for nodes with monitoring enabled
+    if (nodeStatus && (nodeStatus.statusChangedAt || nodeStatus.lastChecked) && !isMonitoringDisabled && originalIdentifier) {
+      const duration = formatTimeSince(nodeStatus.statusChangedAt || nodeStatus.lastChecked);
       const statusText = `${nodeStatus.status} for ${duration}`;
       
       // Calculate badge position next to title
@@ -1131,10 +1253,12 @@ const Canvas: React.FC = () => {
       // Draw network icon using regular icon system for better performance and reliability
       drawIconOnCanvas(ctx, 'network', textAreaX + 10 + iconSize/2, iconCenterY, iconSize * 0.8, '#6b7280', handleIconLoaded);
       
-      // Draw IP text or "No IP" if only URL is available
+      // Draw IP text with port (if healthCheckPort available) or "No IP" if only URL is available
       ctx.fillStyle = '#6b7280';
       ctx.font = `400 ${detailFontSize}px Roboto, sans-serif`;
-      const displayText = ip || 'No IP';
+      const displayText = ip 
+        ? (node.healthCheckPort ? `${ip}:${node.healthCheckPort}` : ip)
+        : 'No IP';
       ctx.fillText(displayText, textAreaX + 10 + iconSize + 6, currentY); // Increased gap to 6px
       
       currentY += detailFontSize + 6;
@@ -1626,10 +1750,10 @@ const Canvas: React.FC = () => {
     if (node.url) {
       targetUrl = node.url.includes('://') ? node.url : `https://${node.url}`;
     }
-    // For nodes with hasWebGui and an IP, create URL from IP
-    else if (node.hasWebGui && node.ip) {
+    // For nodes with healthCheckPort and an IP, create URL from IP:port
+    else if (node.healthCheckPort && node.ip) {
       // Try HTTPS first, fallback will be handled by the browser
-      targetUrl = `https://${node.ip}`;
+      targetUrl = `https://${node.ip}:${node.healthCheckPort}`;
     }
     
     if (targetUrl) {
@@ -1729,8 +1853,8 @@ const Canvas: React.FC = () => {
           <div className="relative z-10 h-full overflow-auto bg-transparent">
             {currentConfig.tree.nodes.length === 0 ? (
               <div className="flex flex-col h-full">
-                {/* Status card for mobile when no nodes */}
-                <div className="p-4">
+                {/* Status card for mobile when no nodes - edge to edge */}
+                <div>
                   <StatusCard
                     onOpenSettings={handleOpenSettings}
                     appConfig={currentConfig}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { TreeNode, AppConfig } from '../types/config';
-import { getAuthHeaders } from '../utils/auth';
+import { getAuthHeaders, hasAuthToken, authenticate } from '../utils/auth';
 import ReactDOM from 'react-dom';
 
 // Helper function to generate unique IDs for nodes
@@ -145,18 +145,79 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
       }, 100);
     }
   }, [scanCompleted, webGuis, filterMode]);
+
+  // Effect to save scan results when selection changes
   useEffect(() => {
-    (async () => {
-      // const authenticated = await isAuthenticated();
-      // Auth modal logic removed as unused
-    })();
+    if (scanCompleted) {
+      saveScanResults({
+        scanCompleted: true,
+        activeHosts: activeHosts,
+        openPorts: openPorts,
+        webGuis: webGuis,
+        selectedItems: Array.from(selectedItems),
+        filterMode: filterMode,
+        logs: logs,
+        progress: progress,
+        currentPhase: currentPhase,
+        logsCollapsed: logsCollapsed
+      });
+    }
+  }, [scanCompleted, activeHosts, openPorts, webGuis, selectedItems, filterMode, logs, progress, currentPhase, logsCollapsed]);
+  
+  // Check authentication on mount and show auth prompt if needed
+  useEffect(() => {
+    const checkAuthenticationOnMount = async () => {
+      if (!hasAuthToken()) {
+        // User is not authenticated, show error message
+        setError('Authentication required. Please click the gear icon (⚙️) in the top-right corner to log in.');
+        return;
+      }
+      
+      // User is authenticated, proceed with normal scan functionality
+      if (scanActive) {
+        fetchInitialScanState();
+      }
+    };
+    
+    checkAuthenticationOnMount();
   }, []);
+  
+  const fetchInitialScanState = async () => {
+    try {
+      const res = await fetch('/api/network-scan/progress', {
+        headers: getAuthHeaders()
+      });
+      
+      if (!res.ok) {
+        if (res.status === 401) {
+          console.warn('Authentication failed during initial scan state fetch');
+          setError('Authentication required. Please click the gear icon (⚙️) in the top-right corner to log in.');
+          return;
+        } else {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+      }
+      
+      const data = await res.json();
+      if (data.logs) setLogs(data.logs);
+      if (typeof data.progress === 'number') setProgress(data.progress);
+      if (data.currentPhase) setCurrentPhase(data.currentPhase);
+      if (data.activeHosts) setActiveHosts(data.activeHosts);
+      
+      // Start polling for updates
+      pollProgress();
+    } catch (error) {
+      console.error('Failed to fetch initial scan state:', error);
+      setError('Failed to fetch scan status. Please try again.');
+    }
+  };
+  
   const [ip, setIp] = useState(() => {
-    const lastSubnet = localStorage.getItem('lastSubnet') || '10.20.148.0/16';
+    const lastSubnet = localStorage.getItem('lastSubnet') || '192.168.0.0/16';
     return lastSubnet.split('/')[0];
   });
   const [cidr, setCidr] = useState(() => {
-    const lastSubnet = localStorage.getItem('lastSubnet') || '10.20.148.0/16';
+    const lastSubnet = localStorage.getItem('lastSubnet') || '192.168.0.0/16';
     return lastSubnet.split('/')[1] || '16';
   });
   const [ipError, setIpError] = useState<string | null>(null);
@@ -179,7 +240,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
     return `${Math.ceil(seconds / 3600)} hr`;
   };
   const [scanEstimate, setScanEstimate] = useState<string>(() => {
-    const lastSubnet = localStorage.getItem('lastSubnet') || '10.20.148.0/16';
+    const lastSubnet = localStorage.getItem('lastSubnet') || '192.168.0.0/16';
     const cidr = lastSubnet.split('/')[1] || '16';
     return estimateScanTime(cidr);
   });
@@ -216,6 +277,17 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             const res = await fetch('/api/network-scan/progress', {
               headers: getAuthHeaders()
             });
+            
+            if (!res.ok) {
+              if (res.status === 401) {
+                console.warn('Authentication failed during initial scan state fetch');
+                setError('Authentication required. Please refresh the page and log in.');
+                return;
+              } else {
+                throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+              }
+            }
+            
             const data = await res.json();
             if (data.logs) setLogs(data.logs);
             if (typeof data.progress === 'number') setProgress(data.progress);
@@ -226,6 +298,45 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
           }
         };
         fetchCurrentState();
+      } else {
+        // If scan is not active, check if we have completed scan results to restore
+        const restoreScanResults = () => {
+          try {
+            const savedResults = localStorage.getItem('networkScanResults');
+            if (savedResults) {
+              const parsedResults = JSON.parse(savedResults);
+              
+              // Check if results are recent (within last 30 minutes)
+              const now = Date.now();
+              const resultAge = now - (parsedResults.timestamp || 0);
+              const maxAge = 30 * 60 * 1000; // 30 minutes in milliseconds
+              
+              if (resultAge < maxAge && parsedResults.scanCompleted) {
+                setScanCompleted(true);
+                setActiveHosts(parsedResults.activeHosts || []);
+                setOpenPorts(parsedResults.openPorts || {});
+                setWebGuis(parsedResults.webGuis || {});
+                setSelectedItems(new Set(parsedResults.selectedItems || []));
+                setFilterMode(parsedResults.filterMode || 'web-devices');
+                setShowLogs(true);
+                setLogsCollapsed(parsedResults.logsCollapsed || true);
+                setLogs(parsedResults.logs || []);
+                setProgress(parsedResults.progress || 100);
+                setCurrentPhase(parsedResults.currentPhase || 'completed');
+                
+                console.log('Restored scan results from localStorage');
+              } else {
+                // Clear old results
+                localStorage.removeItem('networkScanResults');
+              }
+            }
+          } catch (err) {
+            console.warn('Failed to restore scan results:', err);
+            localStorage.removeItem('networkScanResults');
+          }
+        };
+        
+        restoreScanResults();
       }
     }
   }, [scanActive]);
@@ -255,6 +366,39 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
   const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPollingRef = useRef<boolean>(false);
   
+  // Function to save scan results to localStorage
+  const saveScanResults = (results: {
+    scanCompleted: boolean;
+    activeHosts: string[];
+    openPorts: {[host: string]: string[]};
+    webGuis: {[host: string]: {protocol: string, host: string, port: string, url: string, status?: number, reason?: string, title?: string}[]};
+    selectedItems: string[];
+    filterMode: string;
+    logs: string[];
+    progress: number;
+    currentPhase: string;
+    logsCollapsed: boolean;
+  }) => {
+    try {
+      const dataToSave = {
+        ...results,
+        timestamp: Date.now()
+      };
+      localStorage.setItem('networkScanResults', JSON.stringify(dataToSave));
+    } catch (err) {
+      console.warn('Failed to save scan results to localStorage:', err);
+    }
+  };
+
+  // Function to clear saved scan results
+  const clearSavedScanResults = () => {
+    try {
+      localStorage.removeItem('networkScanResults');
+    } catch (err) {
+      console.warn('Failed to clear saved scan results:', err);
+    }
+  };
+
   const pollProgress = async () => {
     // Prevent multiple polling loops
     if (isPollingRef.current) {
@@ -268,6 +412,28 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
         const res = await fetch('/api/network-scan/progress', {
           headers: getAuthHeaders()
         });
+        
+        if (!res.ok) {
+          if (res.status === 401) {
+            // Authentication failed during polling - stop polling and show error
+            console.warn('Authentication failed during scan progress polling');
+            setError('Authentication required. Please click the gear icon (⚙️) in the top-right corner to log in, then refresh this page.');
+            // Also try to trigger authentication modal
+            try {
+              await authenticate();
+              // If authentication succeeds, reload the page to retry
+              window.location.reload();
+            } catch (authError) {
+              console.warn('Authentication modal failed:', authError);
+            }
+            setIsScanning(false);
+            isPollingRef.current = false;
+            return;
+          } else {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          }
+        }
+        
         const data = await res.json();
         if (data.logs) setLogs(data.logs);
         if (typeof data.progress === 'number') setProgress(data.progress);
@@ -305,6 +471,21 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             setLogsCollapsed(true); // Auto-collapse details
             // Initialize with recommended filter selection
             setFilterMode('web-devices');
+            
+            // Save scan results to localStorage for persistence
+            saveScanResults({
+              scanCompleted: true,
+              activeHosts: data.activeHosts || [],
+              openPorts: data.openPorts || {},
+              webGuis: processedWebGuis,
+              selectedItems: [], // Will be set by auto-selection
+              filterMode: 'web-devices',
+              logs: logs,
+              progress: progress,
+              currentPhase: currentPhase,
+              logsCollapsed: true
+            });
+            
             // Auto-selection will be handled by the useEffect when scan completes
           }
         }
@@ -591,22 +772,26 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
         id: `device-${host}-${generateUniqueId()}`,
         title: deviceTitle,
         subtitle: '',
-        ip: host,
+        ip: host, // CLEAN: Only IP/hostname, no port
         icon: 'server',
         type: 'square', // Will be updated based on embedded GUI status
         children: []
       };
       
-      // Set hasWebGui property and card type based on whether this device has an embedded GUI
+      // NEW ARCHITECTURE: Set healthCheckPort and url based on whether this device has an embedded GUI
       if (embeddedGuiUrl) {
-        deviceNode.hasWebGui = true;
+        // Extract port from the embedded GUI URL for health checking
+        const portMatch = embeddedGuiUrl.match(/:(\d+)/);
+        if (portMatch) {
+          deviceNode.healthCheckPort = parseInt(portMatch[1]);
+        }
+        // Set external URL for user access (browser opening)
+        deviceNode.url = embeddedGuiUrl;
         deviceNode.type = 'square'; // Device-web combos get square cards
-        // DO NOT set url field for auto-generated nodes - only ip field
-        // url field is reserved for manually created/edited nodes
       } else {
-        // Pure devices get square cards (keeping current behavior)
-        deviceNode.hasWebGui = false;
+        // Pure devices get square cards and no health checking
         deviceNode.type = 'square';
+        // No healthCheckPort = no health checks (this is the new way to exclude from monitoring)
       }
       
       deviceMap.set(host, deviceNode);
@@ -623,10 +808,11 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             id: `port-${host}-${port}-${generateUniqueId()}`,
             title: `Open Port (${host}:${port})`,
             subtitle: '',
-            ip: `${host}:${port}`, // Include port in IP field for health checking
+            ip: host, // CLEAN: Only IP/hostname, no port
+            healthCheckPort: parseInt(port), // NEW: Dedicated port field for health checking
             icon: 'network',
-            type: 'angular', // Port cards without web GUI get angular cards
-            hasWebGui: false // Port nodes should not have web GUI status checking
+            type: 'angular', // Port cards get angular cards
+            // No hasWebGui field = excluded from legacy health check logic
           };
 
           // Always add as child to parent device
@@ -644,7 +830,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
           // Skip creating web node if this URL is already embedded in the parent device
           const parentDevice = deviceMap.get(host);
           const embeddedGuiUrl = devicesWithEmbeddedGui.get(host);
-          if (parentDevice && parentDevice.hasWebGui && embeddedGuiUrl === webUrl) {
+          if (parentDevice && parentDevice.url && embeddedGuiUrl === webUrl) {
             // This web interface is already embedded in the parent device, skip creating separate node
             continue;
           }
@@ -661,11 +847,11 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             id: `web-${webUrl}-${generateUniqueId()}`,
             title: nodeTitle,
             subtitle: '',
-            ip: `${host}:${port}`, // Include port in IP field for health checking
-            // DO NOT set url field - it's reserved for manual nodes/proxies
+            ip: host, // CLEAN: Only IP/hostname, no port
+            healthCheckPort: parseInt(port), // NEW: Dedicated port field for health checking
+            url: webUrl, // NEW: Set external URL for user access (browser opening)
             icon: 'globe',
-            type: 'circular', // Web GUIs get circular cards
-            hasWebGui: true // Web nodes should have web GUI status checking enabled
+            type: 'circular' // Web GUIs get circular cards
           };
 
           // Always add as child to parent device
@@ -719,7 +905,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
       });
       if (!response.ok) {
         if (response.status === 401) {
-          throw new Error('Authentication required. Please log in again.');
+          throw new Error('Authentication required. Please click the gear icon (⚙️) in the top-right corner to log in.');
         }
         throw new Error('Failed to fetch current configuration');
       }
@@ -744,13 +930,17 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
       if (!saveResponse.ok) {
         const errorText = await saveResponse.text();
         if (saveResponse.status === 401) {
-          throw new Error('Authentication required. Please log in again.');
+          throw new Error('Authentication required. Please click the gear icon (⚙️) in the top-right corner to log in.');
         }
         throw new Error(`Failed to save configuration: ${errorText}`);
       }
 
       // Close the scan window and notify parent
       if (setScanActive) setScanActive(false);
+      
+      // Clear saved scan results since they've been successfully imported
+      clearSavedScanResults();
+      
       if (typeof window !== 'undefined' && window.dispatchEvent) {
         window.dispatchEvent(new CustomEvent('closeScanWindow'));
         // Trigger config reload to refresh the canvas
@@ -809,6 +999,14 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
     if (setScanActive) setScanActive(true);
     setLogs(["Scan started..."]);
     setShowLogs(true);
+    
+    // Clear any previous scan results
+    clearSavedScanResults();
+    setScanCompleted(false);
+    setActiveHosts([]);
+    setOpenPorts({});
+    setWebGuis({});
+    setSelectedItems(new Set());
     
     // Reset enhanced progress tracking state
     setTotalExpectedHosts(0);
@@ -885,7 +1083,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             {cidrError && <div className="text-xs text-red-600">{cidrError}</div>}
           </div>
           <div className="text-xs text-gray-500 mt-1">
-            Enter a valid IPv4 address and CIDR size (e.g. 10.20.148.0 / 16). This determines the range of IP addresses to scan.
+            Enter a valid IPv4 address and CIDR size (e.g. 192.168.0.0 / 16). This determines the range of IP addresses to scan.
           </div>
         </div>
         
@@ -1191,6 +1389,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
                   className="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded font-medium transition-colors"
                   onClick={() => {
                     // Reset to initial state and close
+                    clearSavedScanResults(); // Clear persisted results
                     setScanCompleted(false);
                     setActiveHosts([]);
                     setOpenPorts({});

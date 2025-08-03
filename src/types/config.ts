@@ -2,11 +2,15 @@ export interface TreeNode {
   id: string;
   title: string;
   subtitle: string;
-  ip?: string; // Optional IP address
-  url?: string; // Optional URL
+  
+  // Separated concerns for better architecture
+  ip?: string;          // IP address only (no port) - for display/identification
+  healthCheckPort?: number; // Optional dedicated port for health checks
+  url?: string;         // External URL for user access (opening in browser)
+  
   icon?: string; // Optional icon name from lucide-react
   type?: 'square' | 'circular' | 'angular'; // Square (normal cards), circular (pill-shaped cards), or angular (diamond-sided cards)
-  hasWebGui?: boolean; // Optional flag to indicate if the node has a web GUI
+  
   children?: TreeNode[];
 }
 

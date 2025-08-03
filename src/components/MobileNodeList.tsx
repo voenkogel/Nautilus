@@ -75,10 +75,10 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
     const status = nodeIdentifier ? statuses[nodeIdentifier] : undefined;
     let statusColor = '#6b7280'; // Default gray
     
-    // Check if node has web GUI disabled
-    const hasWebGuiDisabled = node.hasWebGui === false;
+    // Check if node has monitoring disabled (no healthCheckPort)
+    const isMonitoringDisabled = !node.healthCheckPort;
     
-    if (status && !hasWebGuiDisabled) {
+    if (status && !isMonitoringDisabled) {
       if (status.status === 'online') {
         statusColor = '#10b981'; // Green
       } else if (status.status === 'offline') {
@@ -193,8 +193,8 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
               {/* Title row with status badge */}
               <div className="flex items-center gap-2 mb-1">
                 <div className="font-semibold text-gray-900 truncate text-base leading-tight">{title}</div>
-                {/* Status duration badge inline with title - only for nodes with web GUI enabled */}
-                {status && status.statusChangedAt && !hasWebGuiDisabled && nodeIdentifier && (
+                {/* Status duration badge inline with title - only for nodes with monitoring enabled */}
+                {status && status.statusChangedAt && !isMonitoringDisabled && nodeIdentifier && (
                   <div
                     className={`px-2 py-0.5 rounded text-xs font-medium shadow-sm flex-shrink-0 ${
                       status.status === 'online' 
@@ -204,7 +204,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
                           : 'bg-gray-200 text-gray-600'
                     }`}
                   >
-                    {status.status} for {formatTimeSince(status.statusChangedAt)}
+                    {status.status} for {formatTimeSince(status.statusChangedAt || status.lastChecked)}
                   </div>
                 )}
               </div>

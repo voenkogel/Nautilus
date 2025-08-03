@@ -215,32 +215,43 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
               type="text"
               value={editedNode.ip || ''}
               onChange={(e) => setEditedNode(prev => ({ ...prev, ip: e.target.value || undefined }))}
-              placeholder="192.168.1.100"
+              placeholder="192.168.1.100 or hostname.local"
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <p className="text-xs text-gray-500 mt-1">IP address or hostname for identification (no port)</p>
+          </div>
+
+          {/* Health Check Port */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Health Check Port (optional)</label>
+            <input
+              type="number"
+              min="1"
+              max="65535"
+              value={editedNode.healthCheckPort || ''}
+              onChange={(e) => setEditedNode(prev => ({ 
+                ...prev, 
+                healthCheckPort: e.target.value ? parseInt(e.target.value) : undefined 
+              }))}
+              placeholder="8080"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Port for health checks. If specified, this node will be monitored. Leave empty to exclude from health checks.
+            </p>
           </div>
 
           {/* URL */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">URL (optional)</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">External URL (optional)</label>
             <input
               type="text"
               value={editedNode.url || ''}
               onChange={(e) => setEditedNode(prev => ({ ...prev, url: e.target.value || undefined }))}
-              placeholder="example.com or https://example.com"
+              placeholder="https://example.com or radarr.domain.com"
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-          </div>
-
-          {/* Has Web GUI Toggle */}
-          <div className="flex items-center justify-between">
-            <label htmlFor="hasWebGui" className="text-sm font-medium text-gray-700">Has web GUI</label>
-            <button
-              id="hasWebGui"
-              onClick={() => setEditedNode(prev => ({ ...prev, hasWebGui: !(prev.hasWebGui === false) ? false : true }))}
-              className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors ${(editedNode.hasWebGui === false) ? 'bg-gray-200' : 'bg-blue-600'}`}>
-              <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${(editedNode.hasWebGui === false) ? 'translate-x-1' : 'translate-x-6'}`} />
-            </button>
+            <p className="text-xs text-gray-500 mt-1">External URL for opening in browser (user access)</p>
           </div>
 
           {/* Children Nodes */}
