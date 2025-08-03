@@ -231,10 +231,10 @@ const Canvas: React.FC = () => {
         const savedResults = localStorage.getItem('networkScanResults');
         if (savedResults) {
           const parsedResults = JSON.parse(savedResults);
-          // Check if results are recent (within last 30 minutes)
+          // Check if results are recent (within last 24 hours for completed scans)
           const now = Date.now();
           const resultAge = now - (parsedResults.timestamp || 0);
-          const maxAge = 30 * 60 * 1000; // 30 minutes in milliseconds
+          const maxAge = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
           
           if (resultAge < maxAge) {
             // Require authentication before showing scan results
@@ -267,8 +267,16 @@ const Canvas: React.FC = () => {
               setIsScanWindowOpen(true);
               setScanActive(true);
             }
+          } else if (scanData.hasRecentResults) {
+            console.log('📋 Detected recent completed scan results on server, opening scan window');
+            // Require authentication before showing recent results
+            const isAuth = await authenticate();
+            if (isAuth) {
+              setIsScanWindowOpen(true);
+              setScanActive(false); // Not actively scanning, just showing results
+            }
           } else {
-            console.log('❌ No active scan detected on page load');
+            console.log('❌ No active scan or recent results detected on page load');
           }
         } else {
           console.warn('⚠️ Scan status endpoint returned non-OK status:', response.status);

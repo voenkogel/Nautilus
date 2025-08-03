@@ -850,9 +850,11 @@ app.get('/api/network-scan/progress', authenticateRequest, (req, res) => {
 app.get('/api/network-scan/status', (req, res) => {
   const progress = networkScanService.get_progress();
   const isActive = progress.status === 'starting' || progress.status === 'scanning';
+  const hasRecentResults = networkScanService.has_recent_results();
   res.json({ 
     active: isActive,
     status: progress.status,
+    hasRecentResults: hasRecentResults,
     timestamp: progress.timestamp 
   });
 });

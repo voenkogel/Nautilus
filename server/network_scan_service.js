@@ -1,4 +1,6 @@
 import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 export class NetworkScanService {
   constructor() {
@@ -8,6 +10,10 @@ export class NetworkScanService {
     this._logs = [];
     this._activeHosts = [];
     this._currentPhase = 'idle'; // 'ping', 'port', 'completed'
+    this._resultsFile = path.join(process.cwd(), 'data', 'last_scan_results.json');
+    
+    // Load any existing scan results on startup
+    this._loadPersistedResults();
   }
 
   start_scan(params = {}) {
@@ -126,6 +132,8 @@ export class NetworkScanService {
       } else {
         this._progress = { status: 'completed', code, phase: 'ping', activeHosts: this._activeHosts };
         this._scanProcess = null;
+        // Persist completed scan results
+        this._persistResults();
       }
     });
     this._scanProcess.on('error', (err) => {
@@ -137,6 +145,8 @@ export class NetworkScanService {
   _startPortScan() {
     if (this._activeHosts.length === 0) {
       this._progress = { status: 'completed', phase: 'port', activeHosts: this._activeHosts };
+      // Persist completed scan results
+      this._persistResults();
       return;
     }
 
@@ -232,6 +242,8 @@ export class NetworkScanService {
         this._progress = { status: 'cancelled' };
       } else {
         this._progress = { status: 'completed', code, phase: 'port', activeHosts: this._activeHosts };
+        // Persist completed scan results
+        this._persistResults();
       }
       this._scanProcess = null;
     });
@@ -259,7 +271,69 @@ export class NetworkScanService {
     };
   }
 
+  // Check if there are recent scan results available
+  has_recent_results() {
+    return this._progress.status === 'completed' && this._activeHosts.length >= 0;
+  }
+
   get_logs() {
     return this._logs;
+  }
+
+  // Load persisted scan results from disk
+  _loadPersistedResults() {
+    try {
+      // Ensure data directory exists
+      const dataDir = path.dirname(this._resultsFile);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+
+      if (fs.existsSync(this._resultsFile)) {
+        const data = fs.readFileSync(this._resultsFile, 'utf8');
+        const persistedData = JSON.parse(data);
+        
+        // Check if the persisted data is recent (within 24 hours)
+        const now = Date.now();
+        const dataAge = now - (persistedData.timestamp || 0);
+        const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+        
+        if (dataAge < maxAge && persistedData.status === 'completed') {
+          // Restore the scan results
+          this._progress = persistedData.progress || { status: 'idle' };
+          this._activeHosts = persistedData.activeHosts || [];
+          this._logs = persistedData.logs || [];
+          console.log(`✅ [SCAN-RESTORE] Loaded previous scan results: ${this._activeHosts.length} hosts found`);
+        } else {
+          console.log('⏭️  [SCAN-RESTORE] Previous scan results too old or incomplete, starting fresh');
+        }
+      }
+    } catch (error) {
+      console.warn('⚠️ [SCAN-RESTORE] Failed to load persisted scan results:', error.message);
+    }
+  }
+
+  // Save completed scan results to disk
+  _persistResults() {
+    try {
+      const dataToSave = {
+        timestamp: Date.now(),
+        status: this._progress.status,
+        progress: this._progress,
+        activeHosts: this._activeHosts,
+        logs: this._logs
+      };
+
+      // Ensure data directory exists
+      const dataDir = path.dirname(this._resultsFile);
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+
+      fs.writeFileSync(this._resultsFile, JSON.stringify(dataToSave, null, 2));
+      console.log(`💾 [SCAN-PERSIST] Saved scan results: ${this._activeHosts.length} hosts found`);
+    } catch (error) {
+      console.error('❌ [SCAN-PERSIST] Failed to save scan results:', error.message);
+    }
   }
 }
