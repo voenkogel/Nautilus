@@ -111,6 +111,8 @@ const Canvas: React.FC = () => {
   const [isScanWindowOpen, setIsScanWindowOpen] = useState(false);
   
   const [scanActive, setScanActive] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [authAttemptedForCurrentScan, setAuthAttemptedForCurrentScan] = useState(false);
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(undefined);
   const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
   const [currentConfig, setCurrentConfig] = useState<AppConfig>(initialAppConfig);
@@ -159,6 +161,22 @@ const Canvas: React.FC = () => {
 
   // Apply appearance settings
   useAppearance(currentConfig);
+
+  // Wrapper function to handle authentication with state tracking
+  const authenticateWithState = async (): Promise<boolean> => {
+    if (isAuthenticating) {
+      console.log('🔄 Authentication already in progress, skipping');
+      return false;
+    }
+    
+    setIsAuthenticating(true);
+    try {
+      const result = await authenticate();
+      return result;
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
 
   // Fetch current config from server on mount
   useEffect(() => {
@@ -238,7 +256,7 @@ const Canvas: React.FC = () => {
           
           if (resultAge < maxAge) {
             // Require authentication before showing scan results
-            const isAuth = await authenticate();
+            const isAuth = await authenticateWithState();
             if (isAuth) {
               setIsScanWindowOpen(true);
             }
@@ -262,7 +280,7 @@ const Canvas: React.FC = () => {
           if (scanData.active) {
             console.log('✅ Detected active scan on page load, opening scan window');
             // Require authentication before showing active scan
-            const isAuth = await authenticate();
+            const isAuth = await authenticateWithState();
             if (isAuth) {
               setIsScanWindowOpen(true);
               setScanActive(true);
@@ -270,7 +288,7 @@ const Canvas: React.FC = () => {
           } else if (scanData.hasRecentResults) {
             console.log('📋 Detected recent completed scan results on server, opening scan window');
             // Require authentication before showing recent results
-            const isAuth = await authenticate();
+            const isAuth = await authenticateWithState();
             if (isAuth) {
               setIsScanWindowOpen(true);
               setScanActive(false); // Not actively scanning, just showing results
@@ -297,6 +315,10 @@ const Canvas: React.FC = () => {
     const checkScanActivity = async () => {
       // Only check if scan window is not already open
       if (isScanWindowOpen) {
+        // Reset auth attempt flag when scan window is open
+        if (authAttemptedForCurrentScan) {
+          setAuthAttemptedForCurrentScan(false);
+        }
         return;
       }
 
@@ -310,12 +332,26 @@ const Canvas: React.FC = () => {
           const scanData = await response.json();
           console.log('📊 Poll scan data:', scanData);
           if (scanData.active) {
-            console.log('✅ Detected active scan during polling, opening scan window');
-            // Require authentication before showing scan results
-            const isAuthenticated = await authenticate();
-            if (isAuthenticated) {
-              setIsScanWindowOpen(true);
-              setScanActive(true);
+            // Only attempt authentication if we haven't already tried for this scan session
+            if (!authAttemptedForCurrentScan && !isAuthenticating) {
+              console.log('✅ Detected active scan during polling, attempting authentication');
+              setAuthAttemptedForCurrentScan(true); // Mark that we've attempted auth
+              // Require authentication before showing scan results
+              const isAuthenticated = await authenticateWithState();
+              if (isAuthenticated) {
+                setIsScanWindowOpen(true);
+                setScanActive(true);
+              }
+            } else if (authAttemptedForCurrentScan) {
+              console.log('🔄 Active scan detected but authentication already attempted for this scan');
+            } else if (isAuthenticating) {
+              console.log('🔄 Active scan detected but authentication already in progress');
+            }
+          } else {
+            // No active scan - reset the auth attempt flag for the next scan
+            if (authAttemptedForCurrentScan) {
+              console.log('🔄 No active scan detected, resetting auth attempt flag');
+              setAuthAttemptedForCurrentScan(false);
             }
           }
         }
@@ -340,7 +376,7 @@ const Canvas: React.FC = () => {
         clearInterval(pollInterval);
       }
     };
-  }, [isScanWindowOpen]); // Re-run when scan window state changes
+  }, [isScanWindowOpen, authAttemptedForCurrentScan, isAuthenticating]); // Re-run when scan window state changes
 
   // Listen for config updates from scan window
   useEffect(() => {
@@ -1977,6 +2013,11 @@ const Canvas: React.FC = () => {
             setScanActive(active);
             if (!active) {
               setIsScanWindowOpen(false);
+              // Reset auth attempt flag when scan ends
+              setAuthAttemptedForCurrentScan(false);
+            } else {
+              // Reset auth attempt flag when new scan starts
+              setAuthAttemptedForCurrentScan(false);
             }
           }}
         />
