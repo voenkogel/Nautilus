@@ -70,8 +70,10 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
   const renderNode = useCallback((node: TreeNode, level: number = 0, isLastChild: boolean = true, parentPath: boolean[] = [], childIndex: number = 0) => {
     const { id, title, subtitle, ip, url, icon, type, children } = node;
     
-    // Get status for this node
-    const nodeIdentifier = ip || url;
+    // Get status for this node using the same identifier logic as desktop
+    const nodeIdentifier = node.healthCheckPort && node.ip 
+      ? `${node.ip}:${node.healthCheckPort}` 
+      : (ip || url);
     const status = nodeIdentifier ? statuses[nodeIdentifier] : undefined;
     let statusColor = '#6b7280'; // Default gray
     
