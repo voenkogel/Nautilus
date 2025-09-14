@@ -52,7 +52,10 @@ const StatusCard: React.FC<StatusCardProps> = ({
     return status && status.status === 'checking';
   }).length;
 
-  const healthPercentage = totalNodes > 0 ? (healthyNodes / totalNodes) * 100 : 100; // 100% when no nodes (green)
+  // Calculate percentages for the progress bar
+  const healthPercentage = totalNodes > 0 ? (healthyNodes / totalNodes) * 100 : 100; // Green portion
+  const offlinePercentage = totalNodes > 0 ? (offlineNodes / totalNodes) * 100 : 0; // Red portion
+  const checkingPercentage = totalNodes > 0 ? (checkingNodes / totalNodes) * 100 : 0; // Gray portion
 
   // Calculate progress for countdown (0 to 1)
   // Simpler calculation with smoother transitions
@@ -205,20 +208,39 @@ const StatusCard: React.FC<StatusCardProps> = ({
             )}
           </div>
 
-          {/* Progress bar */}
+          {/* Progress bar with three sections: green (online), gray (checking), red (offline) */}
           <div className="relative">
-            {/* Background (red) */}
-            <div className="w-full h-3 bg-red-400 rounded-full overflow-hidden">
-              {/* Foreground (green) */}
+            {/* Background for the full bar */}
+            <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+              {/* Red portion (offline nodes) - positioned from the right */}
+              {offlinePercentage > 0 && (
+                <div 
+                  className="absolute right-0 top-0 h-full bg-red-400 transition-all duration-500 ease-out"
+                  style={{ width: `${offlinePercentage}%` }}
+                ></div>
+              )}
+              
+              {/* Gray portion (checking nodes) - positioned after green */}
+              {checkingPercentage > 0 && (
+                <div 
+                  className="absolute top-0 h-full bg-gray-300 transition-all duration-500 ease-out"
+                  style={{ 
+                    left: `${healthPercentage}%`, 
+                    width: `${checkingPercentage}%` 
+                  }}
+                ></div>
+              )}
+              
+              {/* Green portion (online nodes) - starts from left */}
               <div 
                 className="h-full bg-green-500 rounded-full transition-all duration-500 ease-out"
                 style={{ width: `${healthPercentage}%` }}
               ></div>
             </div>
             
-            {/* Progress bar shine effect */}
+            {/* Progress bar shine effect - only on green portion */}
             <div 
-              className="absolute top-0 h-full bg-gradient-to-r from-transparent via-white/30 to-transparent rounded-full transition-all duration-500"
+              className="absolute top-0 left-0 h-full bg-gradient-to-r from-transparent via-white/30 to-transparent rounded-full transition-all duration-500"
               style={{ width: `${healthPercentage}%` }}
             ></div>
           </div>

@@ -39,17 +39,17 @@
         "children": [
           {
             "id": "node_1752182528974",
-            "title": "JE MOEDER",
+            "title": "amp",
             "subtitle": "New subtitle",
             "type": "square",
             "icon": "server",
             "children": [
               {
                 "id": "node-1752185738696",
-                "title": "New Child Node",
+                "title": "HA",
                 "subtitle": "Description",
-                "ip": "localhost:3000",
-                "url": "localhost:3000",
+                "ip": "homeassistant.lan",
+                "url": "homeassistant.koenvogel.com",
                 "icon": "server",
                 "type": "square",
                 "children": [
@@ -81,17 +81,23 @@
                       }
                     ]
                   }
-                ]
+                ],
+                "healthCheckPort": 8123
               },
               {
                 "id": "node_1757866156315",
-                "title": "je vader",
+                "title": "sonarr",
                 "subtitle": "New subtitle",
                 "type": "square",
                 "icon": "server",
-                "children": []
+                "children": [],
+                "ip": "pirate.lan",
+                "healthCheckPort": 8989,
+                "url": "sonarr.koenvogel.com"
               }
-            ]
+            ],
+            "ip": "amp.lan",
+            "healthCheckPort": 8080
           }
         ],
         "healthCheckPort": 7878,
@@ -101,8 +107,8 @@
   },
   "webhooks": {
     "statusNotifications": {
-      "notifyOffline": false,
-      "notifyOnline": false,
+      "notifyOffline": true,
+      "notifyOnline": true,
       "endpoint": "http://homeassistant.lan:8123/api/webhook/nautilusNotifications"
     }
   },

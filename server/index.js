@@ -373,35 +373,81 @@ async function checkNodeHealth(identifier) {
     };
   }
   
+  let finalResult;
+  
   // If protocol is already specified, use it directly
   if (baseEndpoint.includes('://')) {
-    return await attemptHealthCheck(baseEndpoint, normalizedIdentifier, nodeData);
-  }
-  
-  // Always try HTTPS first, then HTTP fallback
-  
-  // Try HTTPS first
-  let result = await attemptHealthCheck(`https://${baseEndpoint}`, normalizedIdentifier, nodeData);
-  
-  // If HTTPS failed with connection errors, try HTTP
-  if (result.status === 'offline' && result.error && 
-      (result.error.includes('Connection refused') || 
-       result.error.includes('Connection timeout') ||
-       result.error.includes('ECONNREFUSED') ||
-       result.error.includes('ETIMEDOUT') ||
-       result.error.includes('EPROTO') ||
-       result.error.includes('SSL routines') ||
-       result.error.includes('wrong version number') ||
-       result.error.includes('certificate'))) {
-    const httpResult = await attemptHealthCheck(`http://${baseEndpoint}`, normalizedIdentifier, nodeData);
+    finalResult = await attemptHealthCheck(baseEndpoint, normalizedIdentifier, nodeData);
+  } else {
+    // Always try HTTPS first, then HTTP fallback
     
-    // Use HTTP result if it's successful
-    if (httpResult.status === 'online') {
-      result = httpResult;
+    // Try HTTPS first
+    let result = await attemptHealthCheck(`https://${baseEndpoint}`, normalizedIdentifier, nodeData);
+    
+    // If HTTPS failed with connection errors, try HTTP
+    if (result.status === 'offline' && result.error && 
+        (result.error.includes('Connection refused') || 
+         result.error.includes('Connection timeout') ||
+         result.error.includes('ECONNREFUSED') ||
+         result.error.includes('ETIMEDOUT') ||
+         result.error.includes('EPROTO') ||
+         result.error.includes('SSL routines') ||
+         result.error.includes('wrong version number') ||
+         result.error.includes('certificate'))) {
+      const httpResult = await attemptHealthCheck(`http://${baseEndpoint}`, normalizedIdentifier, nodeData);
+      
+      // Use HTTP result if it's successful
+      if (httpResult.status === 'online') {
+        finalResult = httpResult;
+      } else {
+        finalResult = result; // Keep original HTTPS error if HTTP also failed
+      }
+    } else {
+      finalResult = result;
     }
   }
   
-  return result;
+  // NOW handle status change notifications AFTER all attempts are complete
+  const previousStatus = nodeStatuses.get(normalizedIdentifier);
+  const statusChanged = !previousStatus || previousStatus.status !== finalResult.status;
+  
+  // Preserve statusChangedAt timestamp if status hasn't changed, otherwise set to now
+  if (previousStatus && !statusChanged) {
+    // Status hasn't changed, preserve the original statusChangedAt timestamp
+    finalResult.statusChangedAt = previousStatus.statusChangedAt;
+  } else {
+    // Status has changed (or this is first check), set statusChangedAt to now
+    finalResult.statusChangedAt = new Date().toISOString();
+  }
+  
+  // Only send notifications for transitions between 'online' and 'offline' states
+  // Exclude transitions from 'checking' to prevent initial startup notifications
+  const shouldNotify = statusChanged && 
+                      previousStatus && 
+                      previousStatus.status !== 'checking' && 
+                      (finalResult.status === 'online' || finalResult.status === 'offline') &&
+                      (previousStatus.status === 'online' || previousStatus.status === 'offline');
+  
+  // Store using normalized identifier for consistent lookups
+  nodeStatuses.set(normalizedIdentifier, finalResult);
+  
+  if (shouldNotify) {
+    const nodeName = nodeData?.title || nodeData?.id || normalizedIdentifier;
+    console.log(`📢 [NOTIFICATION] Status change detected for "${nodeName}": ${previousStatus.status} → ${finalResult.status}`);
+    
+    // Send webhook notification
+    sendWebhookNotification({
+      identifier: normalizedIdentifier,
+      name: nodeName,
+      previousStatus: previousStatus.status,
+      currentStatus: finalResult.status,
+      timestamp: finalResult.statusChangedAt,
+      error: finalResult.error,
+      responseTime: finalResult.responseTime
+    });
+  }
+  
+  return finalResult;
 }
 
 // Helper function to attempt health check for a specific endpoint
@@ -472,61 +518,9 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
       endpoint: endpoint,
       error: errorMessage
     };
-    
   }
   
-  // Check if the status has changed (for webhook notifications)
-  const previousStatus = nodeStatuses.get(normalizedIdentifier);
-  const statusChanged = !previousStatus || previousStatus.status !== result.status;
-  
-  // Preserve statusChangedAt timestamp if status hasn't changed, otherwise set to now
-  if (previousStatus && !statusChanged) {
-    // Status hasn't changed, preserve the original statusChangedAt timestamp
-    result.statusChangedAt = previousStatus.statusChangedAt;
-  } else {
-    // Status has changed (or this is first check), set statusChangedAt to now
-    result.statusChangedAt = new Date().toISOString();
-  }
-  
-  // Only send notifications for transitions between 'online' and 'offline' states
-  // Exclude transitions from 'checking' to prevent initial startup notifications
-  const shouldNotify = statusChanged && 
-                      previousStatus && 
-                      previousStatus.status !== 'checking' && 
-                      (result.status === 'online' || result.status === 'offline') &&
-                      (previousStatus.status === 'online' || previousStatus.status === 'offline');
-  
-  // Store using normalized identifier for consistent lookups
-  nodeStatuses.set(normalizedIdentifier, result);
-  
-  // Send notifications only for meaningful status transitions
-  if (!initialHealthCheck && shouldNotify && appConfig.webhooks?.statusNotifications) {
-    // Get the node name for a more descriptive notification
-    const nodeName = nodeData?.title || normalizedIdentifier;
-    if (result.status === 'online') {
-      // Node came online
-      await sendStatusWebhook(
-        appConfig.webhooks.statusNotifications, 
-        nodeName, 
-        'online'
-      );
-    } else {
-      // Node went offline
-      await sendStatusWebhook(
-        appConfig.webhooks.statusNotifications, 
-        nodeName, 
-        'offline'
-      );
-    }
-  }
-  
-  // Log the result of this attempt
-  if (result.status === 'online') {
-    console.log(`✅ [SUCCESS] ${endpoint} → ${result.statusCode} (${result.responseTime}ms)`);
-  } else {
-    console.log(`❌ [FAILED] ${endpoint} → ${result.error} (${result.responseTime}ms)`);
-  }
-  
+  // Just return the result without updating status or sending notifications
   return result;
 }
 
