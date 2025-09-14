@@ -249,10 +249,10 @@ const Canvas: React.FC = () => {
         const savedResults = localStorage.getItem('networkScanResults');
         if (savedResults) {
           const parsedResults = JSON.parse(savedResults);
-          // Check if results are recent (within last 24 hours for completed scans)
+          // Check if results are recent (within last 10 minutes for completed scans)
           const now = Date.now();
           const resultAge = now - (parsedResults.timestamp || 0);
-          const maxAge = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+          const maxAge = 10 * 60 * 1000; // 10 minutes in milliseconds
           
           if (resultAge < maxAge) {
             // Require authentication before showing scan results

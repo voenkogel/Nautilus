@@ -224,10 +224,23 @@ const StatusCard: React.FC<StatusCardProps> = ({
           </div>
 
           {/* Status breakdown */}
-          <div className="flex justify-between text-xs text-gray-500 font-roboto mt-2">
-            <span>{healthyNodes} online</span>
-            {checkingNodes > 0 && <span>{checkingNodes} checking</span>}
-            <span>{offlineNodes} offline</span>
+          <div className="flex items-center justify-between text-[11px] text-gray-600 font-roboto mt-2 select-none" aria-label={`Status breakdown: ${healthyNodes} online${checkingNodes>0?`, ${checkingNodes} checking`:''}, ${offlineNodes} offline`}>
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_0_1px_rgba(0,0,0,0.05)]" aria-hidden="true" />
+                <span>{healthyNodes} online</span>
+              </span>
+              {checkingNodes > 0 && (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-gray-300 animate-pulse shadow-[0_0_0_1px_rgba(0,0,0,0.05)]" aria-hidden="true" />
+                  <span>{checkingNodes} checking</span>
+                </span>
+              )}
+              <span className="flex items-center gap-1.5">
+                <span className={`w-2.5 h-2.5 rounded-full shadow-[0_0_0_1px_rgba(0,0,0,0.05)] ${offlineNodes>0 ? 'bg-red-500' : 'bg-red-200'}`} aria-hidden="true" />
+                <span>{offlineNodes} offline</span>
+              </span>
+            </div>
           </div>
         </div>
       )}

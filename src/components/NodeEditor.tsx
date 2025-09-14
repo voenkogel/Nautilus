@@ -38,7 +38,7 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
     onClose();
   };
 
-  const handleAddChild = () => {
+  const handleAddChild = async () => {
     const newChild: TreeNode = {
       id: `node_${Date.now()}`,
       title: 'New Node',
@@ -48,10 +48,26 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
       children: []
     };
     
-    setEditedNode(prev => ({
-      ...prev,
-      children: [...(prev.children || []), newChild]
-    }));
+    const updatedNode = {
+      ...editedNode,
+      children: [...(editedNode.children || []), newChild]
+    };
+    
+    setEditedNode(updatedNode);
+    
+    // Save the current node with the new child and then immediately edit the new child
+    try {
+      await onSave(updatedNode);
+      if (onEditChild) {
+        onEditChild(newChild);
+      }
+    } catch (error) {
+      console.error("Failed to save node after adding child:", error);
+      // Still try to edit the child even if save failed
+      if (onEditChild && window.confirm("Failed to save changes. Continue to edit new child node?")) {
+        onEditChild(newChild);
+      }
+    }
   };
 
   // const handleUpdateChild = (childIndex: number, updatedChild: TreeNode) => {

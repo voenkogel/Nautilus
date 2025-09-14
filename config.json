@@ -33,13 +33,13 @@
         "id": "node_1752172583793",
         "title": "radarr",
         "subtitle": "Infrastructure dashboard",
-        "ip": "pirate.lan:7878",
+        "ip": "pirate.lan",
         "url": "radarr.koenvogel.com",
         "type": "circular",
         "children": [
           {
             "id": "node_1752182528974",
-            "title": "New Node",
+            "title": "JE MOEDER",
             "subtitle": "New subtitle",
             "type": "square",
             "icon": "server",
@@ -82,10 +82,20 @@
                     ]
                   }
                 ]
+              },
+              {
+                "id": "node_1757866156315",
+                "title": "je vader",
+                "subtitle": "New subtitle",
+                "type": "square",
+                "icon": "server",
+                "children": []
               }
             ]
           }
-        ]
+        ],
+        "healthCheckPort": 7878,
+        "icon": "server"
       }
     ]
   },

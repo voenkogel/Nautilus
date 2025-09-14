@@ -130,7 +130,7 @@ export class NetworkScanService {
         this._scanProcess = null;
         this._startPortScan();
       } else {
-        this._progress = { status: 'completed', code, phase: 'ping', activeHosts: this._activeHosts };
+        this._progress = { status: 'completed', code, phase: 'ping', activeHosts: this._activeHosts, timestamp: Date.now() };
         this._scanProcess = null;
         // Persist completed scan results
         this._persistResults();
@@ -144,7 +144,7 @@ export class NetworkScanService {
 
   _startPortScan() {
     if (this._activeHosts.length === 0) {
-      this._progress = { status: 'completed', phase: 'port', activeHosts: this._activeHosts };
+      this._progress = { status: 'completed', phase: 'port', activeHosts: this._activeHosts, timestamp: Date.now() };
       // Persist completed scan results
       this._persistResults();
       return;
@@ -241,7 +241,7 @@ export class NetworkScanService {
       if (this._cancelled) {
         this._progress = { status: 'cancelled' };
       } else {
-        this._progress = { status: 'completed', code, phase: 'port', activeHosts: this._activeHosts };
+        this._progress = { status: 'completed', code, phase: 'port', activeHosts: this._activeHosts, timestamp: Date.now() };
         // Persist completed scan results
         this._persistResults();
       }
@@ -273,7 +273,15 @@ export class NetworkScanService {
 
   // Check if there are recent scan results available
   has_recent_results() {
-    return this._progress.status === 'completed' && this._activeHosts.length >= 0;
+    // Only return true if scan is completed AND results are actually recent (within last 10 minutes)
+    // Show results even if no hosts found so user can see scan completion/failure
+    if (this._progress.status === 'completed') {
+      const now = Date.now();
+      const resultAge = now - (this._progress.timestamp || 0);
+      const maxAge = 10 * 60 * 1000; // 10 minutes in milliseconds
+      return resultAge < maxAge;
+    }
+    return false;
   }
 
   get_logs() {
