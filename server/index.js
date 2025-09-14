@@ -435,16 +435,20 @@ async function checkNodeHealth(identifier) {
     const nodeName = nodeData?.title || nodeData?.id || normalizedIdentifier;
     console.log(`📢 [NOTIFICATION] Status change detected for "${nodeName}": ${previousStatus.status} → ${finalResult.status}`);
     
-    // Send webhook notification
-    sendWebhookNotification({
-      identifier: normalizedIdentifier,
-      name: nodeName,
-      previousStatus: previousStatus.status,
-      currentStatus: finalResult.status,
-      timestamp: finalResult.statusChangedAt,
-      error: finalResult.error,
-      responseTime: finalResult.responseTime
-    });
+    // Send webhook notification if configured
+    if (appConfig.webhooks?.statusNotifications) {
+      const event = finalResult.status === 'online' ? 'online' : 'offline';
+      
+      try {
+        await sendStatusWebhook(
+          appConfig.webhooks.statusNotifications,
+          nodeName,
+          event
+        );
+      } catch (error) {
+        console.error(`❌ [WEBHOOK] Failed to send notification for ${nodeName}:`, error.message);
+      }
+    }
   }
   
   return finalResult;
