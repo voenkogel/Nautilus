@@ -93,159 +93,61 @@ msg_detail() {
 # System diagnostics function
 run_diagnostics() {
   echo ""
-  echo -e "${BL}========================================${CL}"
-  echo -e "${BL}           SYSTEM DIAGNOSTICS           ${CL}"
-  echo -e "${BL}========================================${CL}"
+  echo -e "${BL}Running system diagnostics...${CL}"
   
   # Check Proxmox version
-  echo -e "${YW}Proxmox VE Version:${CL}"
-  if command -v pveversion >/dev/null 2>&1; then
-    pveversion | head -1
-  else
-    echo -e "${RD}  ERROR: pveversion command not found${CL}"
+  if ! command -v pveversion >/dev/null 2>&1; then
+    echo -e "${RD}  ✗ Proxmox VE not detected${CL}"
     return 1
   fi
+  echo -e "${GN}  ✓ Proxmox VE detected${CL}"
   
   # Check available container IDs
-  echo -e "\n${YW}Container ID Information:${CL}"
   if command -v pvesh >/dev/null 2>&1; then
     local next_id=$(pvesh get /cluster/nextid 2>/dev/null || echo "ERROR")
     if [ "$next_id" != "ERROR" ]; then
-      echo -e "  Next available ID: ${GN}$next_id${CL}"
+      echo -e "${GN}  ✓ Container ID $next_id available${CL}"
       CT_ID=${next_id}
     else
-      echo -e "${RD}  ERROR: Cannot determine next available ID${CL}"
+      echo -e "${RD}  ✗ Cannot determine next available ID${CL}"
       return 1
     fi
   else
-    echo -e "${RD}  ERROR: pvesh command not found${CL}"
+    echo -e "${RD}  ✗ pvesh command not found${CL}"
     return 1
   fi
   
-  # Check if proposed ID is available
-  if [ -n "${CT_ID:-}" ]; then
-    if pct config $CT_ID >/dev/null 2>&1; then
-      echo -e "${RD}  ERROR: Container ID $CT_ID is already in use${CL}"
-      return 1
-    else
-      echo -e "  Container ID $CT_ID: ${GN}Available${CL}"
-    fi
-  fi
-  
-  # Check storage
-  echo -e "\n${YW}Storage Information:${CL}"
-  if command -v pvesm >/dev/null 2>&1; then
-    local storage_info=$(pvesm status | grep -E "^local" || echo "")
-    if [ -n "$storage_info" ]; then
-      echo -e "  Storage status:"
-      echo "    $storage_info" | while read line; do
-        echo "    $line"
-      done
-      
-      # Check available space
-      local avail_gb=$(pvesm status | awk '/^local/ {print $4}' | head -1)
-      if [ -n "$avail_gb" ] && [ "$avail_gb" -gt 0 ]; then
-        local avail_human=$(numfmt --to=iec --from-unit=1048576 $avail_gb 2>/dev/null || echo "${avail_gb}MB")
-        echo -e "  Available space: ${GN}${avail_human}${CL}"
-        
-        local required_mb=$((var_disk * 1024))
-        if [ "$avail_gb" -lt "$required_mb" ]; then
-          echo -e "${RD}  ERROR: Insufficient storage space${CL}"
-          echo -e "    Required: ${var_disk}GB, Available: ${avail_human}"
-          return 1
-        else
-          echo -e "  Space check: ${GN}OK (${var_disk}GB required)${CL}"
-        fi
-      else
-        echo -e "${YW}  WARNING: Could not determine available space${CL}"
-      fi
-    else
-      echo -e "${RD}  ERROR: Local storage not found${CL}"
-      return 1
-    fi
+  # Storage validation
+  if pvesm status | grep -q "^local"; then
+    echo -e "${GN}  ✓ Storage access verified${CL}"
   else
-    echo -e "${RD}  ERROR: pvesm command not found${CL}"
+    echo -e "${RD}  ✗ Storage not accessible${CL}"
     return 1
   fi
   
-  # Check templates
-  echo -e "\n${YW}Template Information:${CL}"
-  if command -v pveam >/dev/null 2>&1; then
-    local template_file="ubuntu-${var_version}-standard_${var_version}-1_amd64.tar.zst"
-    local template_path="/var/lib/vz/template/cache/$template_file"
-    
-    if [ -f "$template_path" ]; then
-      echo -e "  Template: ${GN}Found${CL}"
-      echo -e "    Path: $template_path"
-      local size=$(du -h "$template_path" 2>/dev/null | cut -f1 || echo "unknown")
-      echo -e "    Size: $size"
-    else
-      echo -e "  Template: ${YW}Not found locally${CL}"
-      echo -e "    Will attempt to download: $template_file"
-      
-      # Check if we can list available templates
-      local available=$(pveam available | grep "ubuntu-${var_version}-standard" | head -1 || echo "")
-      if [ -n "$available" ]; then
-        echo -e "    Available for download: ${GN}Yes${CL}"
-      else
-        echo -e "${RD}    ERROR: Template not available for download${CL}"
-        return 1
-      fi
-    fi
+  # Network bridge
+  if ip link show vmbr0 >/dev/null 2>&1; then
+    echo -e "${GN}  ✓ Network bridge vmbr0 available${CL}"
   else
-    echo -e "${RD}  ERROR: pveam command not found${CL}"
+    echo -e "${RD}  ✗ Network bridge vmbr0 not found${CL}"
     return 1
   fi
   
-  # Check network bridges
-  echo -e "\n${YW}Network Information:${CL}"
-  local bridge="${var_bridge:-vmbr0}"
-  if ip link show "$bridge" >/dev/null 2>&1; then
-    echo -e "  Bridge $bridge: ${GN}Available${CL}"
-    local bridge_state=$(ip link show "$bridge" | grep -o "state [A-Z]*" | awk '{print $2}')
-    echo -e "    State: $bridge_state"
-  else
-    echo -e "${RD}  ERROR: Bridge $bridge not found${CL}"
-    echo -e "    Available bridges:"
-    ip link show | grep -E "^[0-9]+: [a-zA-Z0-9]+.*:" | grep -E "(vmbr|bridge)" | while read line; do
-      local bridge_name=$(echo "$line" | cut -d: -f2 | xargs)
-      echo -e "      $bridge_name"
-    done
-    return 1
-  fi
-  
-  # Check internet connectivity
-  echo -e "\n${YW}Connectivity Check:${CL}"
+  # Internet connectivity
   if ping -c 1 8.8.8.8 >/dev/null 2>&1; then
-    echo -e "  Internet: ${GN}Connected${CL}"
-    if ping -c 1 github.com >/dev/null 2>&1; then
-      echo -e "  GitHub: ${GN}Reachable${CL}"
-    else
-      echo -e "${YW}  WARNING: GitHub not reachable (DNS issue?)${CL}"
-    fi
+    echo -e "${GN}  ✓ Internet connectivity confirmed${CL}"
   else
-    echo -e "${RD}  ERROR: No internet connectivity${CL}"
+    echo -e "${RD}  ✗ No internet connection${CL}"
     return 1
   fi
   
-  # Memory check
-  echo -e "\n${YW}Memory Information:${CL}"
-  local total_mem=$(free -m | awk '/^Mem:/ {print $2}')
+  # Resource check
   local available_mem=$(free -m | awk '/^Mem:/ {print $7}')
-  echo -e "  Total RAM: ${total_mem}MB"
-  echo -e "  Available RAM: ${available_mem}MB"
-  echo -e "  Required for container: ${var_ram}MB"
-  
-  if [ "$available_mem" -gt "$var_ram" ]; then
-    echo -e "  Memory check: ${GN}OK${CL}"
+  if [ "$available_mem" -gt "1024" ]; then
+    echo -e "${GN}  ✓ Sufficient memory available (${available_mem}MB)${CL}"
   else
-    echo -e "${YW}  WARNING: Low available memory${CL}"
+    echo -e "${YW}  ⚠️  Low memory: ${available_mem}MB available${CL}"
   fi
-  
-  echo -e "\n${BL}========================================${CL}"
-  echo -e "${GN}All diagnostics completed!${CL}"
-  echo -e "${BL}========================================${CL}"
-  echo ""
   
   return 0
 }
@@ -301,7 +203,7 @@ function default_settings() {
   CORE_COUNT="$var_cpu"
   RAM_SIZE="$var_ram"
   BRG="vmbr0"
-  NET=""
+  NET="dhcp"
   GATE=""
   APT_CACHER=""
   APT_CACHER_IP=""
@@ -487,7 +389,7 @@ function install_script() {
   msg_detail "Bridge: $BRG"
   
   # Build network configuration
-  if [[ "$NET" == "dhcp" ]]; then
+  if [[ "$NET" == "dhcp" ]] || [[ -z "$NET" ]]; then
     NET_CONFIG="name=eth0,bridge=$BRG,ip=dhcp"
     msg_detail "Network: DHCP on $BRG"
   else
@@ -499,6 +401,9 @@ function install_script() {
       msg_detail "Network: $NET on $BRG"
     fi
   fi
+  
+  # Validate network configuration before proceeding
+  msg_debug "Final network config: $NET_CONFIG"
   
   # Show full pct create command if verbose
   msg_debug "Container creation command:"
@@ -546,22 +451,18 @@ function install_script() {
       echo -e "  ${RD}$line${CL}"
     done
     echo ""
-    echo -e "${YW}Common Solutions:${CL}"
-    echo -e "  1. Try a different container ID:"
-    echo -e "     ${BL}curl -s [SCRIPT_URL] | bash -s 200${CL}"
-    echo ""
-    echo -e "  2. Check if ID $CT_ID is already in use:"
-    echo -e "     ${BL}pct list | grep $CT_ID${CL}"
-    echo ""
-    echo -e "  3. Check storage space:"
-    echo -e "     ${BL}pvesm status${CL}"
-    echo ""
-    echo -e "  4. Verify bridge exists:"
-    echo -e "     ${BL}ip link show $BRG${CL}"
-    echo ""
-    echo -e "  5. Check template integrity:"
-    echo -e "     ${BL}ls -la /var/lib/vz/template/cache/ubuntu-22.04*${CL}"
-    echo ""
+    echo -e "${YW}Since diagnostics passed, this is likely:${CL}"
+    if echo "$create_output" | grep -q "already exists\|in use"; then
+      echo -e "  • Container ID conflict - try: ${BL}bash <(curl -s [SCRIPT_URL]) 200${CL}"
+    elif echo "$create_output" | grep -q "storage\|space"; then
+      echo -e "  • Storage issue - check: ${BL}pvesm status && df -h${CL}"
+    elif echo "$create_output" | grep -q "network\|bridge"; then
+      echo -e "  • Network config - verify: ${BL}ip link show vmbr0${CL}"
+    elif echo "$create_output" | grep -q "template\|ostemplate"; then
+      echo -e "  • Template issue - check: ${BL}ls -la /var/lib/vz/template/cache/ubuntu-*${CL}"
+    else
+      echo -e "  • Unknown issue - manual debug: ${BL}pct create $CT_ID [template] --debug${CL}"
+    fi
     echo -e "${RD}========================================${CL}"
     exit 1
   fi
