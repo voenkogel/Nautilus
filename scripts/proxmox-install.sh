@@ -371,33 +371,76 @@ function install_script() {
     storage_info=$(pvesm status -storage "$storage_name" 2>/dev/null)
     if [ $? -eq 0 ]; then
       content_types=$(echo "$storage_info" | awk 'NR>1{print $5}')
-      msg_debug "  $storage_name: content=$content_types"
+      storage_type=$(echo "$storage_info" | awk 'NR>1{print $2}')
+      msg_debug "  $storage_name ($storage_type): content=$content_types"
       
-      # Check if this storage supports containers (rootdir content type)
+      # Prioritize storage that already supports containers (rootdir content type)
       if echo "$content_types" | grep -q "rootdir"; then
         STORAGE="$storage_name"
-        msg_detail "Selected container-compatible storage: $storage_name"
+        msg_detail "Found container-ready storage: $storage_name ($storage_type)"
         break
       fi
     fi
   done <<< "$(pvesm status 2>/dev/null)"
   
-  # If no storage with rootdir found, try to find one with vztmpl (can be configured)
+  # If no storage with rootdir found, try to find LVM storage first (usually local-lvm)
   if [ -z "$STORAGE" ]; then
-    msg_detail "No rootdir storage found, checking for configurable storage..."
+    msg_detail "No rootdir storage found, checking for LVM storage first..."
     while IFS= read -r storage_line; do
       storage_name=$(echo "$storage_line" | awk '{print $1}')
       if [ "$storage_name" = "NAME" ] || [ -z "$storage_name" ]; then
         continue
       fi
       
-      # Check storage type - some can be reconfigured
+      # Prefer LVM-based storage types first
       storage_info=$(pvesm status -storage "$storage_name" 2>/dev/null)
       if [ $? -eq 0 ]; then
         storage_type=$(echo "$storage_info" | awk 'NR>1{print $2}')
-        if [ "$storage_type" = "dir" ] || [ "$storage_type" = "lvm" ] || [ "$storage_type" = "lvmthin" ] || [ "$storage_type" = "zfspool" ]; then
+        # Check for LVM storage first (these usually support containers)
+        if [ "$storage_type" = "lvm" ] || [ "$storage_type" = "lvmthin" ] || [ "$storage_type" = "zfspool" ]; then
           STORAGE="$storage_name"
-          msg_detail "Found potentially configurable storage: $storage_name ($storage_type)"
+          msg_detail "Found LVM-based storage: $storage_name ($storage_type)"
+          
+          # Try to automatically configure storage for containers
+          current_content=$(echo "$storage_info" | awk 'NR>1{print $5}')
+          if ! echo "$current_content" | grep -q "rootdir"; then
+            msg_detail "Attempting to enable container support..."
+            new_content="$current_content,rootdir"
+            if pvesm set "$storage_name" --content "$new_content" >/dev/null 2>&1; then
+              msg_detail "Successfully enabled container support on $storage_name"
+            fi
+          fi
+          break
+        fi
+      fi
+    done <<< "$(pvesm status 2>/dev/null)"
+  fi
+  
+  # If still no storage, fall back to directory storage
+  if [ -z "$STORAGE" ]; then
+    msg_detail "No LVM storage found, checking directory storage..."
+    while IFS= read -r storage_line; do
+      storage_name=$(echo "$storage_line" | awk '{print $1}')
+      if [ "$storage_name" = "NAME" ] || [ -z "$storage_name" ]; then
+        continue
+      fi
+      
+      storage_info=$(pvesm status -storage "$storage_name" 2>/dev/null)
+      if [ $? -eq 0 ]; then
+        storage_type=$(echo "$storage_info" | awk 'NR>1{print $2}')
+        if [ "$storage_type" = "dir" ]; then
+          STORAGE="$storage_name"
+          msg_detail "Found directory storage: $storage_name ($storage_type)"
+          
+          # Try to automatically configure storage for containers
+          current_content=$(echo "$storage_info" | awk 'NR>1{print $5}')
+          if ! echo "$current_content" | grep -q "rootdir"; then
+            msg_detail "Attempting to enable container support..."
+            new_content="$current_content,rootdir"
+            if pvesm set "$storage_name" --content "$new_content" >/dev/null 2>&1; then
+              msg_detail "Successfully enabled container support on $storage_name"
+            fi
+          fi
           break
         fi
       fi
