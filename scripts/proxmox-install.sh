@@ -355,21 +355,45 @@ function echo_advanced() {
 }
 
 function install_script() {
-  STORAGE_TYPE=$(pvesm status -storage $(pvesm status | awk 'NR>1{print $1}' | head -1) | awk 'NR>1{print $2}')
-  if [ "$STORAGE_TYPE" = "dir" ]; then
-    STORAGE=$(pvesm status | awk 'NR>1{print $1}' | head -1)
-    ROOTFS="$STORAGE:$DISK_SIZE"
-  else
-    STORAGE=$(pvesm status | awk 'NR>1{print $1}' | head -1)
-    ROOTFS="$STORAGE:$DISK_SIZE"
-  fi
+  # Find storage that supports containers
+  msg_info "Detecting suitable storage"
+  STORAGE=""
   
-  msg_info "Validating Storage"
-  if ! pvesm status -storage $STORAGE >/dev/null 2>&1; then
-    msg_error "Storage $STORAGE not found"
+  # Check each storage to find one that supports containers
+  while IFS= read -r storage_line; do
+    storage_name=$(echo "$storage_line" | awk '{print $1}')
+    if [ "$storage_name" = "NAME" ]; then
+      continue  # Skip header
+    fi
+    
+    # Check if this storage supports containers by checking content types
+    storage_content=$(pvesm status -storage "$storage_name" 2>/dev/null | awk 'NR>1{print $5}' | tr ',' '\n')
+    if echo "$storage_content" | grep -q "rootdir\|vztmpl"; then
+      STORAGE="$storage_name"
+      msg_detail "Found container-compatible storage: $storage_name"
+      break
+    fi
+  done <<< "$(pvesm status)"
+  
+  if [ -z "$STORAGE" ]; then
+    msg_error "No storage found that supports containers"
+    echo ""
+    echo -e "${RD}Available storage and their content types:${CL}"
+    pvesm status | while IFS= read -r line; do
+      echo -e "  $line"
+    done
+    echo ""
+    echo -e "${YW}Configure a storage with 'rootdir' content type for containers${CL}"
     exit 1
   fi
-  msg_ok "Storage $STORAGE validated"
+  
+  STORAGE_TYPE=$(pvesm status -storage $STORAGE | awk 'NR>1{print $2}')
+  if [ "$STORAGE_TYPE" = "dir" ]; then
+    ROOTFS="$STORAGE:$DISK_SIZE"
+  else
+    ROOTFS="$STORAGE:$DISK_SIZE"
+  fi
+  msg_ok "Storage $STORAGE selected for containers"
   
   msg_info "Downloading Ubuntu Template"
   if [[ ! -f /var/lib/vz/template/cache/ubuntu-22.04-standard_22.04-1_amd64.tar.zst ]]; then
@@ -454,6 +478,9 @@ function install_script() {
     echo -e "${YW}Since diagnostics passed, this is likely:${CL}"
     if echo "$create_output" | grep -q "already exists\|in use"; then
       echo -e "  • Container ID conflict - try: ${BL}bash <(curl -s [SCRIPT_URL]) 200${CL}"
+    elif echo "$create_output" | grep -q "does not support container\|rootdir"; then
+      echo -e "  • Storage doesn't support containers - check: ${BL}pvesm status${CL}"
+      echo -e "    Configure storage with 'rootdir' content type for containers"
     elif echo "$create_output" | grep -q "storage\|space"; then
       echo -e "  • Storage issue - check: ${BL}pvesm status && df -h${CL}"
     elif echo "$create_output" | grep -q "network\|bridge"; then
