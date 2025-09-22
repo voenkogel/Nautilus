@@ -22,8 +22,8 @@
         "id": "node_1752172583793",
         "title": "radarr",
         "subtitle": "Infrastructure dashboard",
-        "ip": "pirate.lan:7878",
-        "url": "radarr.koenvogel.com",
+        "ip": "server.local:7878",
+        "url": "radarr.example.com",
         "type": "circular",
         "children": [
           {
@@ -82,7 +82,7 @@
     "statusNotifications": {
       "notifyOffline": true,
       "notifyOnline": true,
-      "endpoint": "http://homeassistant.lan:8123/api/webhook/nautilusNotifications"
+      "endpoint": "http://homeassistant.local:8123/api/webhook/nautilusNotifications"
     }
   }
 }
