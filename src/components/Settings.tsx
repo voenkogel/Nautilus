@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, X, Plus, Trash2, Save, ChevronDown, ChevronRight, LogOut, Network } from 'lucide-react';
+import { Settings as SettingsIcon, X, Plus, Trash2, Save, ChevronDown, ChevronRight, LogOut, Network, Download, Upload } from 'lucide-react';
 import * as LucideIcons from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
 import { clearAuthentication, isAuthenticated } from '../utils/auth';
+import { downloadConfigBackup, createConfigFileInput } from '../utils/configBackup';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -52,8 +53,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   const [isSaving, setIsSaving] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showClearNodesConfirm, setShowClearNodesConfirm] = useState(false);
-  // State for clear nodes confirmation modal
-  // State for clear nodes confirmation modal
+  const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
+  const [pendingRestoreConfig, setPendingRestoreConfig] = useState<AppConfig | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
 
   // Check authentication status on mount
   useEffect(() => {
@@ -72,6 +74,51 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       setIsLoggedIn(false);
       onClose(); // Close settings modal after logout
     }
+  };
+
+  // Handle config backup
+  const handleSaveBackup = () => {
+    try {
+      setBackupError(null);
+      downloadConfigBackup(config);
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : 'Failed to create backup');
+    }
+  };
+
+  // Handle config restore
+  const handleLoadBackup = () => {
+    const input = createConfigFileInput(
+      (restoredConfig) => {
+        setPendingRestoreConfig(restoredConfig);
+        setShowRestoreConfirm(true);
+        setBackupError(null);
+      },
+      (error) => {
+        setBackupError(error);
+      }
+    );
+    
+    document.body.appendChild(input);
+    input.click();
+    document.body.removeChild(input);
+  };
+
+  // Confirm and apply restored configuration
+  const confirmRestore = () => {
+    if (pendingRestoreConfig) {
+      setConfig(pendingRestoreConfig);
+      setPendingRestoreConfig(null);
+      setShowRestoreConfirm(false);
+      setBackupError(null);
+    }
+  };
+
+  // Cancel restore operation
+  const cancelRestore = () => {
+    setPendingRestoreConfig(null);
+    setShowRestoreConfirm(false);
+    setBackupError(null);
   };
 
   // Simple list of common/popular icons for suggestions (optional)
@@ -1025,6 +1072,54 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
               </div>
                 </div>
               </div>
+
+              {/* Configuration Backup/Restore Section */}
+              <div>
+                <h3 className="text-lg font-medium text-gray-800 mb-4">Configuration Backup</h3>
+                <div className="space-y-4">
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="font-medium text-gray-800">Save Configuration</h4>
+                        <p className="text-sm text-gray-600">Download your current configuration as a backup file</p>
+                      </div>
+                      <button
+                        onClick={handleSaveBackup}
+                        className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors"
+                        style={{ backgroundColor: accentColor }}
+                      >
+                        <Download size={16} />
+                        <span>Save Backup</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="font-medium text-gray-800">Load Configuration</h4>
+                        <p className="text-sm text-gray-600">Restore configuration from a backup file</p>
+                      </div>
+                      <button
+                        onClick={handleLoadBackup}
+                        className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors bg-blue-600 hover:bg-blue-700"
+                      >
+                        <Upload size={16} />
+                        <span>Load Backup</span>
+                      </button>
+                    </div>
+                    <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
+                      ⚠️ Warning: Loading a backup will replace your current configuration. Make sure to save a backup first if needed.
+                    </div>
+                  </div>
+
+                  {backupError && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                      <p className="text-sm text-red-600">{backupError}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1097,6 +1192,37 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                         className="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700"
                       >
                         Yes, Clear All
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Restore Configuration Confirmation Modal */}
+              {showRestoreConfirm && (
+                <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50">
+                  <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full flex flex-col items-center">
+                    <Upload size={32} className="text-amber-600 mb-2" />
+                    <h4 className="text-lg font-semibold text-gray-800 mb-2">Restore Configuration?</h4>
+                    <p className="text-sm text-gray-600 mb-6 text-center">
+                      This will <b>replace your entire current configuration</b> with the loaded backup. 
+                      All current settings, nodes, and appearance customizations will be overwritten.
+                      <br /><br />
+                      Are you sure you want to proceed?
+                    </p>
+                    <div className="flex gap-4">
+                      <button
+                        onClick={cancelRestore}
+                        className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 bg-gray-100 hover:bg-gray-200"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={confirmRestore}
+                        className="px-4 py-2 rounded-md text-white hover:opacity-90"
+                        style={{ backgroundColor: accentColor }}
+                      >
+                        Yes, Restore
                       </button>
                     </div>
                   </div>

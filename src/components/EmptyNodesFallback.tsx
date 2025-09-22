@@ -1,21 +1,25 @@
 import React from 'react';
 import NetworkScanWindow from './NetworkScanWindow';
 import type { AppConfig, TreeNode } from '../types/config';
+import { createConfigFileInput } from '../utils/configBackup';
 
 interface EmptyNodesFallbackProps {
   onCreateStartingNode: () => void;
   appConfig: AppConfig;
+  onLoadConfig?: (config: AppConfig) => void;
 }
 
 const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({ 
   onCreateStartingNode,
-  appConfig
+  appConfig,
+  onLoadConfig
 }) => {
   const accentColor = appConfig.appearance?.accentColor || '#3b82f6';
   const [showScanWindow, setShowScanWindow] = React.useState(false);
   const [scanActive, setScanActive] = React.useState(false);
   const [initialProgress, setInitialProgress] = React.useState<number>(0);
   const [initialLogs, setInitialLogs] = React.useState<string[]>([]);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   React.useEffect(() => {
     // Poll backend for scan status on mount
     const poll = async () => {
@@ -47,6 +51,25 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
       window.removeEventListener('openScanWindow', openHandler);
     };
   }, []);
+
+  // Handle loading config from file
+  const handleLoadConfig = () => {
+    if (!onLoadConfig) return;
+    
+    const input = createConfigFileInput(
+      (restoredConfig) => {
+        onLoadConfig(restoredConfig);
+        setLoadError(null);
+      },
+      (error) => {
+        setLoadError(error);
+      }
+    );
+    
+    document.body.appendChild(input);
+    input.click();
+    document.body.removeChild(input);
+  };
   
   return (
     <div className="flex items-center justify-center min-h-[400px] w-full">
@@ -76,44 +99,84 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
           Get started by creating your first node to monitor your services and applications.
         </p>
 
-        {/* Discover Nodes Button */}
-        <button
-          onClick={async () => {
-            const { authenticate } = await import('../utils/auth');
-            const authenticated = await authenticate();
-            if (!authenticated) {
-              // Silently fail, just stay on welcome card
-              return;
-            }
-            setShowScanWindow(true);
-          }}
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105 mb-2"
-          style={{ backgroundColor: accentColor }}
-          disabled={scanActive}
-        >
-          {/* SVG network icon */}
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
-            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-            <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
-          </svg>
-          Discover Nodes
-        </button>
-        <div className="w-full flex items-center justify-center my-2">
-          <span className="text-gray-500 font-semibold italic text-lg">or</span>
+        {/* Action buttons */}
+        <div className="space-y-3">
+          {/* Discover Nodes Button */}
+          <button
+            onClick={async () => {
+              const { authenticate } = await import('../utils/auth');
+              const authenticated = await authenticate();
+              if (!authenticated) {
+                // Silently fail, just stay on welcome card
+                return;
+              }
+              setShowScanWindow(true);
+            }}
+            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105"
+            style={{ backgroundColor: accentColor }}
+            disabled={scanActive}
+          >
+            {/* SVG network icon */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+              <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
+            </svg>
+            Discover Nodes
+          </button>
+
+          <div className="w-full flex items-center justify-center">
+            <span className="text-gray-500 font-medium text-sm">or</span>
+          </div>
+
+          {/* Create Node Manually Button */}
+          <button
+            onClick={onCreateStartingNode}
+            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105"
+            style={{ backgroundColor: accentColor }}
+          >
+            {/* SVG plus icon */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
+              <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" strokeWidth="2" />
+              <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" strokeWidth="2" />
+            </svg>
+            Create Node Manually
+          </button>
+
+          {onLoadConfig && (
+            <>
+              <div className="w-full flex items-center justify-center">
+                <span className="text-gray-500 font-medium text-sm">or</span>
+              </div>
+
+              {/* Load Configuration Button */}
+              <button
+                onClick={handleLoadConfig}
+                className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium border-2 transition-all duration-200 hover:shadow-lg hover:scale-105"
+                style={{ 
+                  borderColor: accentColor,
+                  color: accentColor,
+                  backgroundColor: 'transparent'
+                }}
+              >
+                {/* SVG upload icon */}
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: accentColor }}>
+                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" stroke="currentColor" strokeWidth="2" />
+                  <polyline points="14,2 14,8 20,8" stroke="currentColor" strokeWidth="2" />
+                  <line x1="12" y1="18" x2="12" y2="12" stroke="currentColor" strokeWidth="2" />
+                  <polyline points="9,15 12,12 15,15" stroke="currentColor" strokeWidth="2" />
+                </svg>
+                Load Configuration
+              </button>
+            </>
+          )}
         </div>
-        {/* Create Node Manually Button */}
-        <button
-          onClick={onCreateStartingNode}
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105"
-          style={{ backgroundColor: accentColor }}
-        >
-          {/* SVG plus icon */}
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
-            <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" strokeWidth="2" />
-            <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" strokeWidth="2" />
-          </svg>
-          Create Node Manually
-        </button>
+
+        {/* Error message */}
+        {loadError && (
+          <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-3">
+            <p className="text-sm text-red-600">{loadError}</p>
+          </div>
+        )}
 
         {/* Helpful hint */}
         <p className="text-sm text-gray-500 mt-4">

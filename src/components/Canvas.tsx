@@ -532,6 +532,18 @@ const Canvas: React.FC = () => {
       setIconsPreloaded(false);
     }
   };
+
+  const handleLoadConfig = async (newConfig: AppConfig) => {
+    try {
+      // Save the loaded config to the server
+      await handleSaveConfig(newConfig);
+      // Config is already updated by handleSaveConfig, no need to set it again
+    } catch (error) {
+      console.error('Failed to load configuration:', error);
+      // Re-throw to let the EmptyNodesFallback handle the error display
+      throw error;
+    }
+  };
   
   const handleEditNode = async (nodeId: string) => {
     // Authenticate before allowing node editing
@@ -1852,6 +1864,7 @@ const Canvas: React.FC = () => {
               <EmptyNodesFallback 
                 onCreateStartingNode={handleCreateStartingNode}
                 appConfig={currentConfig}
+                onLoadConfig={handleLoadConfig}
               />
             </div>
           )}
@@ -1918,6 +1931,7 @@ const Canvas: React.FC = () => {
                   <EmptyNodesFallback 
                     onCreateStartingNode={handleCreateStartingNode}
                     appConfig={currentConfig}
+                    onLoadConfig={handleLoadConfig}
                   />
                 </div>
               </div>
