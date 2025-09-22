@@ -359,40 +359,69 @@ function install_script() {
   msg_info "Detecting suitable storage"
   STORAGE=""
   
-  # Check each storage to find one that supports containers
+  # First, let's get a list of all available storage with their content types
+  msg_debug "Available storage systems:"
   while IFS= read -r storage_line; do
     storage_name=$(echo "$storage_line" | awk '{print $1}')
-    if [ "$storage_name" = "NAME" ]; then
-      continue  # Skip header
+    if [ "$storage_name" = "NAME" ] || [ -z "$storage_name" ]; then
+      continue  # Skip header and empty lines
     fi
     
-    # Check if this storage supports containers by checking content types
-    storage_content=$(pvesm status -storage "$storage_name" 2>/dev/null | awk 'NR>1{print $5}' | tr ',' '\n')
-    if echo "$storage_content" | grep -q "rootdir\|vztmpl"; then
-      STORAGE="$storage_name"
-      msg_detail "Found container-compatible storage: $storage_name"
-      break
+    # Get detailed info about this storage
+    storage_info=$(pvesm status -storage "$storage_name" 2>/dev/null)
+    if [ $? -eq 0 ]; then
+      content_types=$(echo "$storage_info" | awk 'NR>1{print $5}')
+      msg_debug "  $storage_name: content=$content_types"
+      
+      # Check if this storage supports containers (rootdir content type)
+      if echo "$content_types" | grep -q "rootdir"; then
+        STORAGE="$storage_name"
+        msg_detail "Selected container-compatible storage: $storage_name"
+        break
+      fi
     fi
-  done <<< "$(pvesm status)"
+  done <<< "$(pvesm status 2>/dev/null)"
+  
+  # If no storage with rootdir found, try to find one with vztmpl (can be configured)
+  if [ -z "$STORAGE" ]; then
+    msg_detail "No rootdir storage found, checking for configurable storage..."
+    while IFS= read -r storage_line; do
+      storage_name=$(echo "$storage_line" | awk '{print $1}')
+      if [ "$storage_name" = "NAME" ] || [ -z "$storage_name" ]; then
+        continue
+      fi
+      
+      # Check storage type - some can be reconfigured
+      storage_info=$(pvesm status -storage "$storage_name" 2>/dev/null)
+      if [ $? -eq 0 ]; then
+        storage_type=$(echo "$storage_info" | awk 'NR>1{print $2}')
+        if [ "$storage_type" = "dir" ] || [ "$storage_type" = "lvm" ] || [ "$storage_type" = "lvmthin" ] || [ "$storage_type" = "zfspool" ]; then
+          STORAGE="$storage_name"
+          msg_detail "Found potentially configurable storage: $storage_name ($storage_type)"
+          break
+        fi
+      fi
+    done <<< "$(pvesm status 2>/dev/null)"
+  fi
   
   if [ -z "$STORAGE" ]; then
-    msg_error "No storage found that supports containers"
+    msg_error "No suitable storage found for containers"
     echo ""
-    echo -e "${RD}Available storage and their content types:${CL}"
-    pvesm status | while IFS= read -r line; do
+    echo -e "${RD}Available storage systems:${CL}"
+    pvesm status 2>/dev/null | while IFS= read -r line; do
       echo -e "  $line"
     done
     echo ""
-    echo -e "${YW}Configure a storage with 'rootdir' content type for containers${CL}"
+    echo -e "${YW}To fix this:${CL}"
+    echo -e "  1. Configure existing storage to support containers:"
+    echo -e "     ${BL}pvesm set [storage-name] --content images,rootdir,vztmpl${CL}"
+    echo -e "  2. Or create new directory storage:"
+    echo -e "     ${BL}pvesm add dir containers --path /var/lib/vz --content images,rootdir,vztmpl${CL}"
     exit 1
   fi
   
-  STORAGE_TYPE=$(pvesm status -storage $STORAGE | awk 'NR>1{print $2}')
-  if [ "$STORAGE_TYPE" = "dir" ]; then
-    ROOTFS="$STORAGE:$DISK_SIZE"
-  else
-    ROOTFS="$STORAGE:$DISK_SIZE"
-  fi
+  STORAGE_TYPE=$(pvesm status -storage $STORAGE 2>/dev/null | awk 'NR>1{print $2}')
+  ROOTFS="$STORAGE:$DISK_SIZE"
   msg_ok "Storage $STORAGE selected for containers"
   
   msg_info "Downloading Ubuntu Template"
@@ -479,8 +508,9 @@ function install_script() {
     if echo "$create_output" | grep -q "already exists\|in use"; then
       echo -e "  • Container ID conflict - try: ${BL}bash <(curl -s [SCRIPT_URL]) 200${CL}"
     elif echo "$create_output" | grep -q "does not support container\|rootdir"; then
-      echo -e "  • Storage doesn't support containers - check: ${BL}pvesm status${CL}"
-      echo -e "    Configure storage with 'rootdir' content type for containers"
+      echo -e "  • Storage '$STORAGE' doesn't support containers"
+      echo -e "    Fix: ${BL}pvesm set $STORAGE --content images,rootdir,vztmpl${CL}"
+      echo -e "    Or check: ${BL}pvesm status${CL} for other storage options"
     elif echo "$create_output" | grep -q "storage\|space"; then
       echo -e "  • Storage issue - check: ${BL}pvesm status && df -h${CL}"
     elif echo "$create_output" | grep -q "network\|bridge"; then
