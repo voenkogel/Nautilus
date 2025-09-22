@@ -4,8 +4,8 @@
 # Network Infrastructure Monitor
 # Repository: https://github.com/voenkogel/nautilus
 
-set -Eeuo pipefail
-trap cleanup SIGINT SIGTERM ERR EXIT
+set -Euo pipefail
+trap cleanup EXIT INT TERM
 
 # Colors for output
 RD='\033[01;31m'
@@ -45,20 +45,31 @@ EOF
 # Enhanced logging functions
 msg_info() {
   local msg="$1"
-  echo -ne " ${HOLD} ${YW}${msg}..."
-  spinner &
-  SPINNER_PID=$!
+  # Start spinner only when running in an interactive TTY and spinner isn't disabled
+  if [ -t 1 ] && [ "${CI:-}" != "true" ] && [ "${VERBOSE:-}" != "yes" ] && [ "${NO_SPINNER:-}" != "1" ]; then
+    echo -ne " ${HOLD} ${YW}${msg}..."
+    spinner &
+    SPINNER_PID=$!
+  else
+    echo -e " ${HOLD} ${YW}${msg}..."
+  fi
 }
 
 msg_ok() {
   local msg="$1"
-  kill $SPINNER_PID > /dev/null 2>&1
+  if [ -n "${SPINNER_PID-}" ] && ps -p $SPINNER_PID > /dev/null 2>&1; then
+    kill $SPINNER_PID > /dev/null 2>&1 || true
+    unset SPINNER_PID
+  fi
   echo -e "${BFR} ✓ ${GN}${msg}${CL}"
 }
 
 msg_error() {
   local msg="$1"
-  kill $SPINNER_PID > /dev/null 2>&1
+  if [ -n "${SPINNER_PID-}" ] && ps -p $SPINNER_PID > /dev/null 2>&1; then
+    kill $SPINNER_PID > /dev/null 2>&1 || true
+    unset SPINNER_PID
+  fi
   echo -e "${BFR} ✗ ${RD}${msg}${CL}"
 }
 
@@ -250,11 +261,15 @@ spinner() {
 }
 
 cleanup() {
-  if [ -n "${SPINNER_PID-}" ] && ps -p $SPINNER_PID > /dev/null; then
-    kill $SPINNER_PID > /dev/null 2>&1
+  if [ -n "${SPINNER_PID-}" ] && ps -p $SPINNER_PID > /dev/null 2>&1; then
+    kill $SPINNER_PID > /dev/null 2>&1 || true
+    unset SPINNER_PID
   fi
   popd >/dev/null 2>&1 || true
 }
+
+# Always clean up spinner on exit or interruption
+trap cleanup EXIT INT TERM
 
 function default_settings() {
   echo -e "${BL}[INFO]${CL} Using Default Settings"
@@ -591,6 +606,29 @@ function install_script() {
     exit 1
   fi
   msg_ok "Container Started"
+  
+  # Wait for container to be responsive
+  msg_info "Waiting for container initialization"
+  msg_detail "Checking pct status and basic exec availability"
+  READY=0
+  for i in {1..30}; do
+    if pct status $CT_ID 2>/dev/null | grep -q "status: running"; then
+      if pct exec $CT_ID -- /bin/true >/dev/null 2>&1; then
+        READY=1
+        break
+      fi
+    fi
+    sleep 2
+  done
+  if [ "$READY" -ne 1 ]; then
+    msg_error "Container not responsive after 60s"
+    echo -e "${YW}Troubleshooting:${CL}"
+    echo -e "  - ${BL}pct status $CT_ID${CL}"
+    echo -e "  - ${BL}pct enter $CT_ID${CL}"
+    echo -e "  - ${BL}journalctl -u pve-container@$CT_ID${CL}"
+    exit 1
+  fi
+  msg_ok "Container initialization confirmed"
   
   msg_info "Setting up Container OS"
   if ! pct exec $CT_ID -- bash -c "apt update && apt upgrade -y" >/dev/null 2>&1; then
