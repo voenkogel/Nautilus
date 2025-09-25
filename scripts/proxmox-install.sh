@@ -943,13 +943,45 @@ fi
       cd /opt/nautilus
       echo \"=== Cloning repository ===\" 
       git clone https://github.com/voenkogel/Nautilus.git . 2>&1
-      echo \"=== Installing dependencies ===\" 
-      npm install --production 2>&1
-      echo \"=== Building application ===\" 
+      echo \"=== Installing all dependencies (including devDependencies for build) ===\" 
+      npm install 2>&1
+      echo \"=== Building frontend application ===\" 
       npm run build 2>&1
+      echo \"=== Copying build output to public directory ===\" 
+      rm -rf server/public
+      mkdir -p server/public
+      cp -r dist/* server/public/ 2>&1
+      echo \"=== Installing production dependencies only ===\" 
+      npm ci --only=production 2>&1
       echo \"=== Creating data directory ===\" 
       mkdir -p data
       echo \"{}\" > data/config.json
+      echo \"=== Verifying build output ===\" 
+      ls -la server/public/
+      echo \"=== Adding catch-all route for React Router ===\" 
+      # Create a backup of the original server file
+      cp server/index.js server/index.js.backup
+      
+      # Add catch-all route before app.listen
+      cat > temp_patch.js << \"PATCH_EOF\"
+
+// Catch-all handler for React Router (must be last route)
+app.get('*', (req, res) => {
+  // Skip API routes
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API endpoint not found' });
+  }
+  // Serve React app for all other routes
+  res.sendFile(join(__dirname, 'public', 'index.html'));
+});
+
+PATCH_EOF
+      
+      # Insert the patch before the app.listen line
+      sed '/app.listen/r temp_patch.js' server/index.js > server/index.js.new
+      mv server/index.js.new server/index.js
+      rm temp_patch.js
+      
       echo \"=== Installation complete ===\" 
     '
   " 2>&1)
