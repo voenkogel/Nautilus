@@ -47,7 +47,9 @@ msg_info() {
   local msg="$1"
   # Start spinner only when running in an interactive TTY and spinner isn't disabled
   if [ -t 1 ] && [ "${CI:-}" != "true" ] && [ "${VERBOSE:-}" != "yes" ] && [ "${NO_SPINNER:-}" != "1" ]; then
-    echo -ne " ${HOLD} ${YW}${msg}..."
+    echo -n " ${HOLD} ${YW}${msg}... "
+    # Store the message for the spinner to use
+    SPINNER_MSG=" ${HOLD} ${YW}${msg}... "
     spinner &
     SPINNER_PID=$!
   else
@@ -60,6 +62,7 @@ msg_ok() {
   if [ -n "${SPINNER_PID-}" ] && ps -p $SPINNER_PID > /dev/null 2>&1; then
     kill $SPINNER_PID > /dev/null 2>&1 || true
     unset SPINNER_PID
+    unset SPINNER_MSG
   fi
   echo -e "${BFR} ✓ ${GN}${msg}${CL}"
 }
@@ -69,6 +72,7 @@ msg_error() {
   if [ -n "${SPINNER_PID-}" ] && ps -p $SPINNER_PID > /dev/null 2>&1; then
     kill $SPINNER_PID > /dev/null 2>&1 || true
     unset SPINNER_PID
+    unset SPINNER_MSG
   fi
   echo -e "${BFR} ✗ ${RD}${msg}${CL}"
 }
@@ -154,11 +158,11 @@ run_diagnostics() {
 
 spinner() {
   local chars="/-\|"
+  local i=0
   while :; do
-    for (( i=0; i<${#chars}; i++ )); do
-      sleep 0.1
-      echo -en "${chars:$i:1}" "\b"
-    done
+    printf "\r${SPINNER_MSG:-}${chars:$i:1}"
+    sleep 0.1
+    i=$(( (i + 1) % ${#chars} ))
   done
 }
 
@@ -166,6 +170,9 @@ cleanup() {
   if [ -n "${SPINNER_PID-}" ] && ps -p $SPINNER_PID > /dev/null 2>&1; then
     kill $SPINNER_PID > /dev/null 2>&1 || true
     unset SPINNER_PID
+    unset SPINNER_MSG
+    # Clear the line when cleaning up
+    printf "\r\033[K"
   fi
   popd >/dev/null 2>&1 || true
 }
@@ -359,8 +366,14 @@ function install_script() {
   msg_info "Detecting suitable storage"
   STORAGE=""
   
+  # Debug: Show all available storage first
+  msg_debug "All available storage:"
+  pvesm status 2>/dev/null | while IFS= read -r line; do
+    msg_debug "  $line"
+  done
+  
   # First, let's get a list of all available storage with their content types
-  msg_debug "Available storage systems:"
+  msg_debug "Checking storage compatibility:"
   while IFS= read -r storage_line; do
     storage_name=$(echo "$storage_line" | awk '{print $1}')
     if [ "$storage_name" = "NAME" ] || [ -z "$storage_name" ]; then
@@ -382,6 +395,35 @@ function install_script() {
       fi
     fi
   done <<< "$(pvesm status 2>/dev/null)"
+  
+  # If no container-ready storage found, specifically look for local-lvm
+  if [ -z "$STORAGE" ]; then
+    msg_detail "No container-ready storage found, checking for local-lvm..."
+    if pvesm status -storage "local-lvm" >/dev/null 2>&1; then
+      storage_info=$(pvesm status -storage "local-lvm" 2>/dev/null)
+      content_types=$(echo "$storage_info" | awk 'NR>1{print $5}')
+      storage_type=$(echo "$storage_info" | awk 'NR>1{print $2}')
+      
+      msg_detail "Found local-lvm ($storage_type): content=$content_types"
+      
+      # Check if it supports containers, if not try to enable it
+      if echo "$content_types" | grep -q "rootdir"; then
+        STORAGE="local-lvm"
+        msg_detail "local-lvm already supports containers"
+      else
+        msg_detail "Enabling container support on local-lvm..."
+        new_content="$content_types,rootdir"
+        if pvesm set "local-lvm" --content "$new_content" >/dev/null 2>&1; then
+          STORAGE="local-lvm"
+          msg_detail "Successfully enabled container support on local-lvm"
+        else
+          msg_detail "Failed to configure local-lvm"
+        fi
+      fi
+    else
+      msg_detail "local-lvm storage not found"
+    fi
+  fi
   
   # If no storage with rootdir found, try to find LVM storage first (usually local-lvm)
   if [ -z "$STORAGE" ]; then
@@ -646,11 +688,78 @@ function install_script() {
   msg_ok "Node.js Repository Added"
   
   msg_info "Installing Dependencies"
-  if ! pct exec $CT_ID -- bash -c "apt install -y nodejs git nginx curl" >/dev/null 2>&1; then
+  local deps_output
+  local deps_error
+  deps_output=$(pct exec $CT_ID -- bash -c "apt install -y nodejs git nginx curl" 2>&1)
+  deps_error=$?
+  
+  if [ $deps_error -ne 0 ]; then
     msg_error "Dependencies installation failed"
+    echo ""
+    echo -e "${RD}========================================${CL}"
+    echo -e "${RD}      DEPENDENCIES INSTALLATION ERROR   ${CL}"
+    echo -e "${RD}========================================${CL}"
+    echo -e "${YW}Exit Code:${CL} $deps_error"
+    echo -e "${YW}Installation Output:${CL}"
+    echo "$deps_output" | while IFS= read -r line; do
+      echo -e "  ${RD}$line${CL}"
+    done
+    echo ""
+    echo -e "${YW}Common Solutions:${CL}"
+    echo -e "  1. Check internet connectivity:"
+    echo -e "     ${BL}pct exec $CT_ID -- ping -c 3 8.8.8.8${CL}"
+    echo ""
+    echo -e "  2. Update package lists:"
+    echo -e "     ${BL}pct exec $CT_ID -- apt update${CL}"
+    echo ""
+    echo -e "  3. Check available space:"
+    echo -e "     ${BL}pct exec $CT_ID -- df -h${CL}"
+    echo ""
+    echo -e "${RD}========================================${CL}"
     exit 1
   fi
   msg_ok "Dependencies Installed"
+  
+  msg_info "Verifying Node.js Version"
+  local node_version
+  node_version=$(pct exec $CT_ID -- node --version 2>/dev/null || echo "none")
+  msg_detail "Installed Node.js version: $node_version"
+  
+  # Check if Node.js version is adequate (should be v18 or higher)
+  local node_check
+  node_check=$(pct exec $CT_ID -- node -e "process.exit(parseInt(process.version.slice(1)) >= 18 ? 0 : 1)" 2>/dev/null; echo $?)
+  
+  if [ "$node_check" -ne 0 ]; then
+    msg_warn "Node.js version is too old for Nautilus, updating to v18..."
+    local node_update_output
+    local node_update_error
+    node_update_output=$(pct exec $CT_ID -- bash -c "
+      curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      apt update && apt install -y nodejs
+    " 2>&1)
+    node_update_error=$?
+    
+    if [ $node_update_error -ne 0 ]; then
+      msg_error "Node.js update failed"
+      echo ""
+      echo -e "${RD}Node.js Update Output:${CL}"
+      echo "$node_update_output" | while IFS= read -r line; do
+        echo -e "  ${RD}$line${CL}"
+      done
+      exit 1
+    fi
+    
+    local new_node_version
+    new_node_version=$(pct exec $CT_ID -- node --version 2>/dev/null || echo "failed")
+    msg_detail "Updated Node.js version: $new_node_version"
+    
+    # Verify the update was successful
+    if ! pct exec $CT_ID -- node -e "process.exit(parseInt(process.version.slice(1)) >= 18 ? 0 : 1)" 2>/dev/null; then
+      msg_error "Node.js update verification failed"
+      exit 1
+    fi
+  fi
+  msg_ok "Node.js Version Verified"
   
   msg_info "Creating Nautilus User"
   if ! pct exec $CT_ID -- bash -c "
@@ -662,6 +771,124 @@ function install_script() {
     exit 1
   fi
   msg_ok "Nautilus User Created"
+  
+  msg_info "Setting up Welcome Message"
+  pct exec $CT_ID -- bash -c 'cat > /etc/motd << '"'"'EOF'"'"'
+
+ ███╗   ██╗ █████╗ ██╗   ██╗████████╗██╗██╗     ██╗   ██╗███████╗
+ ████╗  ██║██╔══██╗██║   ██║╚══██╔══╝██║██║     ██║   ██║██╔════╝
+ ██╔██╗ ██║███████║██║   ██║   ██║   ██║██║     ██║   ██║███████╗
+ ██║╚██╗██║██╔══██║██║   ██║   ██║   ██║██║     ██║   ██║╚════██║
+ ██║ ╚████║██║  ██║╚██████╔╝   ██║   ██║███████╗╚██████╔╝███████║
+ ╚═╝  ╚═══╝╚═╝  ╚═╝ ╚═════╝    ╚═╝   ╚═╝╚══════╝ ╚═════╝ ╚══════╝
+                                                                   
+          Network Infrastructure Monitor - Container Ready!        
+
+EOF'
+
+  # Create dynamic status script
+  pct exec $CT_ID -- bash -c 'cat > /usr/local/bin/nautilus-status << '"'"'EOF'"'"'
+#!/bin/bash
+
+# Colors
+RED='"'"'\033[0;31m'"'"'
+GREEN='"'"'\033[0;32m'"'"'
+YELLOW='"'"'\033[1;33m'"'"'
+BLUE='"'"'\033[0;34m'"'"'
+NC='"'"'\033[0m'"'"' # No Color
+
+# Get IP address
+IP=$(hostname -I | awk '"'"'{print $1}'"'"' || echo "No IP assigned")
+
+# Check services
+NAUTILUS_STATUS=$(systemctl is-active nautilus 2>/dev/null)
+NGINX_STATUS=$(systemctl is-active nginx 2>/dev/null)
+
+# Status icons
+if [ "$NAUTILUS_STATUS" = "active" ]; then
+    NAUTILUS_ICON="${GREEN}●${NC}"
+    NAUTILUS_TEXT="${GREEN}Running${NC}"
+else
+    NAUTILUS_ICON="${RED}●${NC}"
+    NAUTILUS_TEXT="${RED}Stopped${NC}"
+fi
+
+if [ "$NGINX_STATUS" = "active" ]; then
+    NGINX_ICON="${GREEN}●${NC}"
+    NGINX_TEXT="${GREEN}Running${NC}"
+else
+    NGINX_ICON="${RED}●${NC}"
+    NGINX_TEXT="${RED}Stopped${NC}"
+fi
+
+# Check if port 3069 is listening
+if ss -tlnp | grep -q ":3069"; then
+    PORT_STATUS="${GREEN}Listening${NC}"
+else
+    PORT_STATUS="${RED}Not listening${NC}"
+fi
+
+# Display status
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${YELLOW} Container IP Address:${NC} ${BLUE}$IP${NC}"
+echo -e "${YELLOW} Web Interface:${NC}       ${BLUE}http://$IP${NC}"
+echo -e "${YELLOW} Default Login:${NC}       admin / 1234"
+echo ""
+echo -e "${YELLOW} Service Status:${NC}"
+echo -e "   Nautilus Application: $NAUTILUS_ICON $NAUTILUS_TEXT"
+echo -e "   Nginx Proxy:         $NGINX_ICON $NGINX_TEXT"
+echo -e "   Port 3069:           $PORT_STATUS"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "${YELLOW} Quick Commands:${NC}"
+echo -e "   ${BLUE}nautilus-logs${NC}    - View application logs"
+echo -e "   ${BLUE}nautilus-restart${NC}  - Restart services"
+echo -e "   ${BLUE}nautilus-status${NC}   - Show this status"
+echo ""
+
+EOF'
+
+  # Create convenience scripts
+  pct exec $CT_ID -- bash -c 'cat > /usr/local/bin/nautilus-logs << '"'"'EOF'"'"'
+#!/bin/bash
+echo "=== Nautilus Application Logs ==="
+journalctl -u nautilus -n 20 --no-pager
+echo ""
+echo "=== Nginx Logs ==="
+journalctl -u nginx -n 10 --no-pager
+EOF'
+
+  pct exec $CT_ID -- bash -c 'cat > /usr/local/bin/nautilus-restart << '"'"'EOF'"'"'
+#!/bin/bash
+echo "Restarting Nautilus services..."
+systemctl restart nautilus nginx
+echo "Services restarted. Checking status..."
+sleep 2
+nautilus-status
+EOF'
+
+  # Make scripts executable
+  pct exec $CT_ID -- chmod +x /usr/local/bin/nautilus-status
+  pct exec $CT_ID -- chmod +x /usr/local/bin/nautilus-logs  
+  pct exec $CT_ID -- chmod +x /usr/local/bin/nautilus-restart
+
+  # Add to login profile for root user
+  pct exec $CT_ID -- bash -c 'echo "
+# Display Nautilus status on login
+if [ -f /usr/local/bin/nautilus-status ]; then
+    /usr/local/bin/nautilus-status
+fi
+" >> /root/.bashrc'
+
+  # Add to login profile for nautilus user
+  pct exec $CT_ID -- bash -c 'echo "
+# Display Nautilus status on login
+if [ -f /usr/local/bin/nautilus-status ]; then
+    /usr/local/bin/nautilus-status
+fi
+" >> /home/nautilus/.bashrc'
+
+  msg_ok "Welcome Message Configured"
   
   msg_info "Downloading and Building Nautilus"
   msg_detail "Repository: https://github.com/voenkogel/Nautilus.git"
@@ -798,6 +1025,34 @@ EOF
   fi
   msg_ok "Systemd Service Created"
   
+  msg_info "Testing Nautilus Application"
+  msg_detail "Verifying Node.js compatibility with Nautilus code..."
+  local nautilus_test_output
+  nautilus_test_output=$(pct exec $CT_ID -- su - nautilus -c "
+    cd /opt/nautilus
+    timeout 10s node -e 'require(\"./server/index.js\")' 2>&1 || echo 'SYNTAX_CHECK_COMPLETE'
+  " 2>&1)
+  
+  if echo "$nautilus_test_output" | grep -q "SyntaxError"; then
+    msg_error "Nautilus application has syntax errors"
+    echo ""
+    echo -e "${RD}========================================${CL}"
+    echo -e "${RD}        NAUTILUS SYNTAX ERROR           ${CL}"
+    echo -e "${RD}========================================${CL}"
+    echo -e "${YW}Syntax Check Output:${CL}"
+    echo "$nautilus_test_output" | while IFS= read -r line; do
+      echo -e "  ${RD}$line${CL}"
+    done
+    echo ""
+    echo -e "${YW}This usually indicates Node.js version incompatibility${CL}"
+    echo -e "  Current Node.js: $(pct exec $CT_ID -- node --version 2>/dev/null || echo 'unknown')"
+    echo -e "  Required: Node.js 18+ for optional chaining support"
+    echo ""
+    echo -e "${RD}========================================${CL}"
+    exit 1
+  fi
+  msg_ok "Nautilus Application Verified"
+  
   msg_info "Configuring Nginx Reverse Proxy"
   msg_detail "Proxy target: http://localhost:3069"
   msg_detail "Configuration file: /etc/nginx/sites-available/default"
@@ -900,20 +1155,32 @@ EOF
       echo -e "  ${RD}$line${CL}"
     done
     echo ""
-    echo -e "${YW}Common Solutions:${CL}"
-    echo -e "  1. Check individual service status:"
-    echo -e "     ${BL}pct exec $CT_ID -- systemctl status nautilus${CL}"
-    echo -e "     ${BL}pct exec $CT_ID -- systemctl status nginx${CL}"
-    echo ""
-    echo -e "  2. Check service logs:"
-    echo -e "     ${BL}pct exec $CT_ID -- journalctl -u nautilus -n 20${CL}"
-    echo -e "     ${BL}pct exec $CT_ID -- journalctl -u nginx -n 20${CL}"
-    echo ""
-    echo -e "  3. Check port conflicts:"
-    echo -e "     ${BL}pct exec $CT_ID -- ss -tlnp | grep -E ':(80|3069)'${CL}"
-    echo ""
-    echo -e "  4. Test services manually:"
-    echo -e "     ${BL}pct exec $CT_ID -- su - nautilus -c \"cd /opt/nautilus && node server/index.js\"${CL}"
+    
+    # Check for specific error patterns
+    if echo "$service_start_output" | grep -q "SyntaxError.*Unexpected token"; then
+      echo -e "${YW}Detected Node.js Syntax Error - likely version incompatibility${CL}"
+      local current_node=$(pct exec $CT_ID -- node --version 2>/dev/null || echo 'unknown')
+      echo -e "  Current Node.js version: $current_node"
+      echo -e "  Required: Node.js 18+ for modern JavaScript syntax"
+      echo ""
+      echo -e "${YW}Fix command:${CL}"
+      echo -e "  ${BL}pct exec $CT_ID -- bash -c 'curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && apt update && apt install -y nodejs && systemctl restart nautilus'${CL}"
+    elif echo "$service_start_output" | grep -q "EADDRINUSE.*3069"; then
+      echo -e "${YW}Port 3069 is already in use${CL}"
+      echo -e "  Check what's using the port: ${BL}pct exec $CT_ID -- ss -tlnp | grep 3069${CL}"
+    else
+      echo -e "${YW}Common Solutions:${CL}"
+      echo -e "  1. Check individual service status:"
+      echo -e "     ${BL}pct exec $CT_ID -- systemctl status nautilus${CL}"
+      echo -e "     ${BL}pct exec $CT_ID -- systemctl status nginx${CL}"
+      echo ""
+      echo -e "  2. Check service logs:"
+      echo -e "     ${BL}pct exec $CT_ID -- journalctl -u nautilus -n 20${CL}"
+      echo -e "     ${BL}pct exec $CT_ID -- journalctl -u nginx -n 20${CL}"
+      echo ""
+      echo -e "  3. Test services manually:"
+      echo -e "     ${BL}pct exec $CT_ID -- su - nautilus -c \"cd /opt/nautilus && node server/index.js\"${CL}"
+    fi
     echo ""
     echo -e "${RD}========================================${CL}"
     exit 1
@@ -1120,6 +1387,13 @@ echo
 if [ "${1:-}" = "--verbose" ] || [ "${1:-}" = "-v" ]; then
   VERBOSE="yes"
   echo -e "${BL}Verbose mode enabled - detailed diagnostics will be shown${CL}"
+  echo ""
+fi
+
+# Also enable verbose if debugging storage issues
+if [ "${DEBUG_STORAGE:-}" = "1" ]; then
+  VERBOSE="yes"
+  echo -e "${BL}Storage debugging enabled${CL}"
   echo ""
 fi
 
