@@ -1023,15 +1023,9 @@ Environment=PORT=3069
 [Install]
 WantedBy=multi-user.target
 EOF
-    echo \"=== Reloading systemd daemon ===\" 
-    systemctl daemon-reload 2>&1
-    echo \"=== Enabling nautilus service ===\" 
-    systemctl enable nautilus 2>&1
-    echo \"=== Starting nautilus service ===\" 
-    systemctl start nautilus 2>&1
-    echo \"=== Checking service status ===\" 
-    systemctl is-active nautilus 2>&1
-    systemctl status nautilus --no-pager -l 2>&1 || true
+    echo \"=== Verifying service file creation ===\" 
+    ls -la /etc/systemd/system/nautilus.service 2>&1
+    echo \"=== Service will be started later after configuration ===\" 
   " 2>&1)
   service_error=$?
   
@@ -1102,13 +1096,23 @@ EOF
   local nginx_output
   local nginx_error
   nginx_output=$(pct exec $CT_ID -- bash -c "
+    echo \"=== Backing up original nginx configuration ===\" 
+    cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default.backup 2>&1 || echo \"No existing default config to backup\"
+    
     echo \"=== Creating nginx configuration ===\" 
     cat > /etc/nginx/sites-available/default << 'EOF'
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
     
+    server_name _;
     client_max_body_size 10M;
+    
+    # Disable access log for health checks
+    location = /favicon.ico {
+        log_not_found off;
+        access_log off;
+    }
     
     location / {
         proxy_pass http://localhost:3069;
@@ -1121,9 +1125,22 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_cache_bypass \$http_upgrade;
         proxy_read_timeout 86400;
+        proxy_connect_timeout 60;
+        proxy_send_timeout 60;
     }
 }
 EOF
+    
+    echo \"=== Verifying configuration file was created ===\" 
+    ls -la /etc/nginx/sites-available/default 2>&1
+    
+    echo \"=== Removing default nginx sites ===\" 
+    rm -f /etc/nginx/sites-enabled/default 2>&1 || true
+    rm -f /var/www/html/index.nginx-debian.html 2>&1 || true
+    
+    echo \"=== Enabling new site configuration ===\" 
+    ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default 2>&1
+    
     echo \"=== Testing nginx configuration ===\" 
     nginx -t 2>&1
   " 2>&1)
@@ -1160,27 +1177,40 @@ EOF
   msg_ok "Nginx Configured"
   
   msg_info "Starting Services"
-  msg_detail "Enabling services: nautilus, nginx"
-  msg_detail "Starting services: nautilus, nginx"
+  msg_detail "Restarting services with new configuration"
+  msg_detail "Services: nautilus, nginx"
   
   local service_start_output
   local service_start_error
   service_start_output=$(pct exec $CT_ID -- bash -c "
     echo \"=== Reloading systemd daemon ===\" 
     systemctl daemon-reload 2>&1
+    
+    echo \"=== Stopping services (if running) ===\" 
+    systemctl stop nautilus 2>&1 || true
+    systemctl stop nginx 2>&1 || true
+    
     echo \"=== Enabling services ===\" 
     systemctl enable nautilus 2>&1
     systemctl enable nginx 2>&1
+    
     echo \"=== Starting nautilus service ===\" 
     systemctl start nautilus 2>&1
-    echo \"=== Starting nginx service ===\" 
-    systemctl start nginx 2>&1
+    sleep 2
+    
+    echo \"=== Reloading nginx configuration ===\" 
+    systemctl reload nginx 2>&1 || systemctl restart nginx 2>&1
+    
     echo \"=== Checking service status ===\" 
     systemctl is-active nautilus 2>&1
     systemctl is-active nginx 2>&1
+    
     echo \"=== Service status details ===\" 
     systemctl status nautilus --no-pager -l 2>&1 || true
     systemctl status nginx --no-pager -l 2>&1 || true
+    
+    echo \"=== Testing local connection ===\" 
+    curl -s -o /dev/null -w \"HTTP Status: %{http_code}\" http://localhost 2>&1 || echo \"Connection test failed\"
   " 2>&1)
   service_start_error=$?
   
