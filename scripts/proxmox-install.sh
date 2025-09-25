@@ -734,8 +734,21 @@ function install_script() {
     local node_update_output
     local node_update_error
     node_update_output=$(pct exec $CT_ID -- bash -c "
+      # First, remove conflicting packages that cause installation issues
+      apt remove -y nodejs-doc libnode72 || true
+      apt autoremove -y || true
+      
+      # Set up NodeSource repository for Node.js 18
       curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-      apt update && apt install -y nodejs
+      
+      # Update package lists
+      apt update
+      
+      # Install Node.js with force-confnew to handle any config conflicts
+      DEBIAN_FRONTEND=noninteractive apt install -y -o Dpkg::Options::='--force-confnew' nodejs
+      
+      # Clean up any remaining conflicting packages
+      apt autoremove -y || true
     " 2>&1)
     node_update_error=$?
     
@@ -746,7 +759,35 @@ function install_script() {
       echo "$node_update_output" | while IFS= read -r line; do
         echo -e "  ${RD}$line${CL}"
       done
-      exit 1
+      
+      # Try alternative installation method
+      msg_warn "Attempting alternative Node.js installation..."
+      local alt_install_output
+      alt_install_output=$(pct exec $CT_ID -- bash -c "
+        # Remove all Node.js related packages
+        apt purge -y nodejs nodejs-doc libnode72 npm || true
+        apt autoremove -y || true
+        
+        # Clean package cache
+        apt clean
+        
+        # Re-add NodeSource repository
+        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+        echo 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x nodistro main' > /etc/apt/sources.list.d/nodesource.list
+        
+        # Update and install
+        apt update
+        DEBIAN_FRONTEND=noninteractive apt install -y nodejs
+      " 2>&1)
+      
+      if [ $? -ne 0 ]; then
+        echo ""
+        echo -e "${RD}Alternative installation also failed:${CL}"
+        echo "$alt_install_output" | while IFS= read -r line; do
+          echo -e "  ${RD}$line${CL}"
+        done
+        exit 1
+      fi
     fi
     
     local new_node_version
