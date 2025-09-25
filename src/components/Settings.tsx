@@ -1114,8 +1114,18 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                   </div>
 
                   {backupError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                      <p className="text-sm text-red-600">{backupError}</p>
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start gap-3">
+                        <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+                          <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2" />
+                          <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2" />
+                        </svg>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-medium text-red-800 mb-1">Configuration Error</h4>
+                          <div className="text-sm text-red-600 whitespace-pre-line">{backupError}</div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

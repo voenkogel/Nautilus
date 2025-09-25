@@ -535,8 +535,18 @@ const Canvas: React.FC = () => {
 
   const handleLoadConfig = async (newConfig: AppConfig) => {
     try {
+      // Authenticate before loading config
+      const isAuth = await authenticate();
+      if (!isAuth) {
+        throw new Error('Authentication required to load configuration');
+      }
+
       // Save the loaded config to the server
       await handleSaveConfig(newConfig);
+      
+      // Note: Success feedback would be shown if Canvas component had access to toast context
+      // For now, the success is implicit when no error is thrown
+      
       // Config is already updated by handleSaveConfig, no need to set it again
     } catch (error) {
       console.error('Failed to load configuration:', error);
