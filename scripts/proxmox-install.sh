@@ -687,10 +687,34 @@ function install_script() {
   fi
   msg_ok "Node.js Repository Added"
   
+  msg_info "Setting up Node.js 20 Repository"
+  local nodejs_repo_output
+  local nodejs_repo_error
+  nodejs_repo_output=$(pct exec $CT_ID -- bash -c "
+    # Install prerequisites for NodeSource repository
+    apt update
+    apt install -y ca-certificates curl gnupg apt-transport-https
+    
+    # Set up NodeSource repository for Node.js 20
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  " 2>&1)
+  nodejs_repo_error=$?
+  
+  if [ $nodejs_repo_error -ne 0 ]; then
+    msg_error "Node.js repository setup failed"
+    echo ""
+    echo -e "${RD}Node.js Repository Output:${CL}"
+    echo "$nodejs_repo_output" | while IFS= read -r line; do
+      echo -e "  ${RD}$line${CL}"
+    done
+    exit 1
+  fi
+  msg_ok "Node.js 20 Repository Added"
+
   msg_info "Installing Dependencies"
   local deps_output
   local deps_error
-  deps_output=$(pct exec $CT_ID -- bash -c "apt install -y nodejs git nginx curl" 2>&1)
+  deps_output=$(pct exec $CT_ID -- bash -c "apt update && apt install -y nodejs git nginx curl" 2>&1)
   deps_error=$?
   
   if [ $deps_error -ne 0 ]; then
@@ -730,6 +754,7 @@ function install_script() {
   node_check=$(pct exec $CT_ID -- node -e "process.exit(parseInt(process.version.slice(1)) >= 20 ? 0 : 1)" 2>/dev/null; echo $?)
   
   if [ "$node_check" -ne 0 ]; then
+    msg_warn "Node.js version is still too old, this should not happen after repository setup"
     msg_warn "Node.js version is too old for Nautilus, updating to v20..."
     local node_update_output
     local node_update_error
