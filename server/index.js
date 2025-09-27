@@ -241,75 +241,103 @@ function normalizeNodeIdentifier(identifier) {
 
 // Function to extract all node identifiers for health check monitoring
 // NEW ARCHITECTURE: Only includes nodes with healthCheckPort specified
-function extractAllNodeIdentifiers(nodes = appConfig.tree.nodes) {
+function extractAllNodeIdentifiers(nodes = appConfig.tree?.nodes) {
   const identifiers = [];
   
+  // Check if appConfig and tree structure exist
+  if (!appConfig || !appConfig.tree || !appConfig.tree.nodes) {
+    console.warn('⚠️  Warning: appConfig.tree.nodes is not available, using empty node list');
+    return identifiers;
+  }
+  
   function traverse(nodeList) {
+    if (!Array.isArray(nodeList)) {
+      console.warn('⚠️  Warning: nodeList is not an array, skipping');
+      return;
+    }
+    
     for (const node of nodeList) {
-      // Only monitor nodes with healthCheckPort and ip specified
-      if (node.healthCheckPort && node.ip) {
-        const identifier = `${node.ip}:${node.healthCheckPort}`;
-        console.log(`📍 [MONITOR] Node "${node.title || node.id}": ip="${node.ip}", healthCheckPort="${node.healthCheckPort}" → monitoring "${identifier}"`);
+      try {
+        // Only monitor nodes with healthCheckPort and ip specified
+        if (node.healthCheckPort && node.ip) {
+          const identifier = `${node.ip}:${node.healthCheckPort}`;
+          console.log(`📍 [MONITOR] Node "${node.title || node.id}": ip="${node.ip}", healthCheckPort="${node.healthCheckPort}" → monitoring "${identifier}"`);
+          
+          // Normalize the identifier to ensure consistent format
+          const normalizedIdentifier = normalizeNodeIdentifier(identifier);
+          identifiers.push(normalizedIdentifier);
+        } else {
+          console.log(`⏭️  [SKIP] Node "${node.title || node.id}": missing healthCheckPort or ip, excluded from monitoring`);
+        }
         
-        // Normalize the identifier to ensure consistent format
-        const normalizedIdentifier = normalizeNodeIdentifier(identifier);
-        identifiers.push(normalizedIdentifier);
-      } else {
-        console.log(`⏭️  [SKIP] Node "${node.title || node.id}": missing healthCheckPort or ip, excluded from monitoring`);
-      }
-      
-      if (node.children) {
-        traverse(node.children);
+        if (node.children && Array.isArray(node.children)) {
+          traverse(node.children);
+        }
+      } catch (nodeError) {
+        console.warn(`⚠️  Warning: Error processing node ${node.id || 'unknown'}:`, nodeError.message);
+        continue;
       }
     }
   }
   
-  traverse(nodes);
+  try {
+    traverse(nodes || appConfig.tree.nodes);
+  } catch (error) {
+    console.error('❌ Error in extractAllNodeIdentifiers:', error);
+    throw error;
+  }
+  
   return identifiers;
 }
 
 // Initialize statuses code (moved before health check)
 function initializeNodeStatuses(preserveExisting = false) {
-  // Get fresh list of node identifiers
-  const nodeIdentifiers = extractAllNodeIdentifiers();
-  
-  if (preserveExisting) {
-    // Preserve existing statuses and only add new nodes or remove deleted ones
-    const existingStatuses = new Map(nodeStatuses);
-    nodeStatuses.clear();
+  try {
+    // Get fresh list of node identifiers
+    const nodeIdentifiers = extractAllNodeIdentifiers();
     
-    // Add back statuses for nodes that still exist, or initialize new ones
-    nodeIdentifiers.forEach(identifier => {
-      if (existingStatuses.has(identifier)) {
-        // Preserve existing status
-        nodeStatuses.set(identifier, existingStatuses.get(identifier));
-      } else {
-        // Initialize new node as checking (loading state)
+    if (preserveExisting) {
+      // Preserve existing statuses and only add new nodes or remove deleted ones
+      const existingStatuses = new Map(nodeStatuses);
+      nodeStatuses.clear();
+      
+      // Add back statuses for nodes that still exist, or initialize new ones
+      nodeIdentifiers.forEach(identifier => {
+        if (existingStatuses.has(identifier)) {
+          // Preserve existing status
+          nodeStatuses.set(identifier, existingStatuses.get(identifier));
+        } else {
+          // Initialize new node as checking (loading state)
+          nodeStatuses.set(identifier, { 
+            status: 'checking', 
+            lastChecked: new Date().toISOString(),
+            statusChangedAt: new Date().toISOString(),
+            error: 'Initial check pending'
+          });
+        }
+      });
+    } else {
+      // Clear existing statuses (initial startup behavior)
+      nodeStatuses.clear();
+      
+      // Initialize all nodes as checking with normalized keys
+      nodeIdentifiers.forEach(identifier => {
+        // The identifier is already normalized by extractAllNodeIdentifiers
         nodeStatuses.set(identifier, { 
           status: 'checking', 
           lastChecked: new Date().toISOString(),
           statusChangedAt: new Date().toISOString(),
           error: 'Initial check pending'
         });
-      }
-    });
-  } else {
-    // Clear existing statuses (initial startup behavior)
-    nodeStatuses.clear();
-    
-    // Initialize all nodes as checking with normalized keys
-    nodeIdentifiers.forEach(identifier => {
-      // The identifier is already normalized by extractAllNodeIdentifiers
-      nodeStatuses.set(identifier, { 
-        status: 'checking', 
-        lastChecked: new Date().toISOString(),
-        statusChangedAt: new Date().toISOString(),
-        error: 'Initial check pending'
       });
-    });
+    }
+    
+    console.log(`🔄 Initialized monitoring for ${nodeIdentifiers.length} nodes`);
+    return nodeIdentifiers;
+  } catch (error) {
+    console.error('❌ Error in initializeNodeStatuses:', error);
+    throw error;
   }
-  
-  return nodeIdentifiers;
 }
 
 // Load node identifiers from centralized config and initialize statuses
@@ -773,22 +801,34 @@ app.post('/api/config', authenticateRequest, (req, res) => {
   }
   
   try {
+    let updatedConfig;
+    
     if (replaceMode) {
       // Complete replacement mode (for backup restoration)
       console.log('🔄 Performing complete configuration replacement');
-      appConfig = newConfig;
+      updatedConfig = newConfig;
     } else {
       // Deep merge new config with existing config (for partial updates)
       console.log('🔄 Performing configuration merge');
-      appConfig = deepMerge(appConfig, newConfig);
+      updatedConfig = deepMerge(appConfig, newConfig);
     }
     
-    // Write the new configuration to the file
+    // Write the new configuration to the file first
     const configPath = process.env.NODE_ENV === 'production' ? '/data/config.json' : './config.json';
-    writeFileSync(configPath, JSON.stringify(appConfig, null, 2), 'utf8');
+    writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2), 'utf8');
+    console.log('📁 Configuration file written successfully');
+    
+    // Update the in-memory config only after successful file write
+    appConfig = updatedConfig;
     
     // Reinitialize node monitoring with new config and update nodeIdentifiers
-    nodeIdentifiers = initializeNodeStatuses(true);
+    try {
+      nodeIdentifiers = initializeNodeStatuses(true);
+      console.log('🔄 Node monitoring reinitialized successfully');
+    } catch (nodeError) {
+      console.warn('⚠️  Warning: Node monitoring reinitialization failed:', nodeError.message);
+      // Don't fail the entire operation if node monitoring fails
+    }
     
     console.log('✅ Configuration updated successfully');
     res.json({ 
@@ -801,7 +841,7 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     console.error('Config data preview:', JSON.stringify(newConfig, null, 2).substring(0, 500) + '...');
     res.status(500).json({ 
       success: false, 
-      message: 'Failed to update configuration' 
+      message: `Failed to update configuration: ${error.message}` 
     });
   }
 });

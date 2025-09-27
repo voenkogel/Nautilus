@@ -554,7 +554,8 @@ const Canvas: React.FC = () => {
       throw new Error(`Server responded with ${response.status}: ${errorText}`);
     }
 
-    await response.json();
+    const result = await response.json();
+    console.log('Backup restore result:', result);
     
     // After successful restore, fetch the updated config from server to ensure sync
     const configResponse = await fetch('/api/config');

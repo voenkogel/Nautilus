@@ -1,0 +1,48 @@
+{
+  "appearance": {
+    "accentColor": "#10b981",
+    "backgroundImage": "",
+    "favicon": "",
+    "logo": "",
+    "theme": "light"
+  },
+  "tree": {
+    "nodes": [
+      {
+        "id": "test-node-1",
+        "title": "Test Node 1",
+        "ip": "192.168.1.100",
+        "healthCheckPort": "8080",
+        "type": "service",
+        "icon": "server",
+        "x": 100,
+        "y": 100,
+        "children": []
+      },
+      {
+        "id": "test-node-2", 
+        "title": "Test Node 2",
+        "ip": "192.168.1.101",
+        "healthCheckPort": "9090",
+        "type": "service",
+        "icon": "database",
+        "x": 300,
+        "y": 100,
+        "children": []
+      }
+    ]
+  },
+  "monitoring": {
+    "healthCheckInterval": 20000,
+    "retries": 3,
+    "timeout": 5000
+  },
+  "webhooks": {
+    "enabled": false,
+    "onlineUrl": "",
+    "offlineUrl": ""
+  },
+  "auth": {
+    "enabled": true
+  }
+}
