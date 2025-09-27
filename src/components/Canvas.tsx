@@ -1874,7 +1874,7 @@ const Canvas: React.FC = () => {
               <EmptyNodesFallback 
                 onCreateStartingNode={handleCreateStartingNode}
                 appConfig={currentConfig}
-                onLoadConfig={handleLoadConfig}
+                onRestoreConfig={handleLoadConfig}
               />
             </div>
           )}
@@ -1941,7 +1941,7 @@ const Canvas: React.FC = () => {
                   <EmptyNodesFallback 
                     onCreateStartingNode={handleCreateStartingNode}
                     appConfig={currentConfig}
-                    onLoadConfig={handleLoadConfig}
+                    onRestoreConfig={handleLoadConfig}
                   />
                 </div>
               </div>

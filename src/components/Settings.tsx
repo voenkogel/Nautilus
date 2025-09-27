@@ -76,8 +76,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }
   };
 
-  // Handle config backup
-  const handleSaveBackup = () => {
+  // Handle making backup
+  const handleMakeBackup = () => {
     try {
       setBackupError(null);
       downloadConfigBackup(config);
@@ -86,8 +86,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }
   };
 
-  // Handle config restore
-  const handleLoadBackup = () => {
+  // Handle restoring backup
+  const handleRestoreBackup = () => {
     const input = createConfigFileInput(
       (restoredConfig) => {
         setPendingRestoreConfig(restoredConfig);
@@ -1081,15 +1081,15 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h4 className="font-medium text-gray-800">Save Configuration</h4>
-                        <p className="text-sm text-gray-600">Download your current configuration as a backup file</p>
+                        <p className="text-sm text-gray-600">Create and download a backup of your current configuration</p>
                       </div>
                       <button
-                        onClick={handleSaveBackup}
+                        onClick={handleMakeBackup}
                         className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors"
                         style={{ backgroundColor: accentColor }}
                       >
                         <Download size={16} />
-                        <span>Save Backup</span>
+                        <span>Make Backup</span>
                       </button>
                     </div>
                   </div>
@@ -1098,18 +1098,18 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h4 className="font-medium text-gray-800">Load Configuration</h4>
-                        <p className="text-sm text-gray-600">Restore configuration from a backup file</p>
+                        <p className="text-sm text-gray-600">Restore your configuration from a backup file</p>
                       </div>
                       <button
-                        onClick={handleLoadBackup}
+                        onClick={handleRestoreBackup}
                         className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors bg-blue-600 hover:bg-blue-700"
                       >
                         <Upload size={16} />
-                        <span>Load Backup</span>
+                        <span>Restore Backup</span>
                       </button>
                     </div>
                     <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
-                      ⚠️ Warning: Loading a backup will replace your current configuration. Make sure to save a backup first if needed.
+                      ⚠️ Warning: Restoring a backup will replace your current configuration. Make sure to make a backup first if needed.
                     </div>
                   </div>
 
@@ -1215,7 +1215,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                     <Upload size={32} className="text-amber-600 mb-2" />
                     <h4 className="text-lg font-semibold text-gray-800 mb-2">Restore Configuration?</h4>
                     <p className="text-sm text-gray-600 mb-6 text-center">
-                      This will <b>replace your entire current configuration</b> with the loaded backup. 
+                      This will <b>replace your entire current configuration</b> with the restored backup. 
                       All current settings, nodes, and appearance customizations will be overwritten.
                       <br /><br />
                       Are you sure you want to proceed?

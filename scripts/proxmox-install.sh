@@ -725,12 +725,12 @@ function install_script() {
   node_version=$(pct exec $CT_ID -- node --version 2>/dev/null || echo "none")
   msg_detail "Installed Node.js version: $node_version"
   
-  # Check if Node.js version is adequate (should be v18 or higher)
+  # Check if Node.js version is adequate (should be v20 or higher)
   local node_check
-  node_check=$(pct exec $CT_ID -- node -e "process.exit(parseInt(process.version.slice(1)) >= 18 ? 0 : 1)" 2>/dev/null; echo $?)
+  node_check=$(pct exec $CT_ID -- node -e "process.exit(parseInt(process.version.slice(1)) >= 20 ? 0 : 1)" 2>/dev/null; echo $?)
   
   if [ "$node_check" -ne 0 ]; then
-    msg_warn "Node.js version is too old for Nautilus, updating to v18..."
+    msg_warn "Node.js version is too old for Nautilus, updating to v20..."
     local node_update_output
     local node_update_error
     node_update_output=$(pct exec $CT_ID -- bash -c "
@@ -738,8 +738,8 @@ function install_script() {
       apt remove -y nodejs-doc libnode72 || true
       apt autoremove -y || true
       
-      # Set up NodeSource repository for Node.js 18
-      curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      # Set up NodeSource repository for Node.js 20
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
       
       # Update package lists
       apt update
@@ -773,7 +773,7 @@ function install_script() {
         
         # Re-add NodeSource repository
         curl -fsSL https://deb.nodesource.com/gpgkey/nodesource.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-        echo 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_18.x nodistro main' > /etc/apt/sources.list.d/nodesource.list
+        echo 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main' > /etc/apt/sources.list.d/nodesource.list
         
         # Update and install
         apt update
@@ -795,7 +795,7 @@ function install_script() {
     msg_detail "Updated Node.js version: $new_node_version"
     
     # Verify the update was successful
-    if ! pct exec $CT_ID -- node -e "process.exit(parseInt(process.version.slice(1)) >= 18 ? 0 : 1)" 2>/dev/null; then
+    if ! pct exec $CT_ID -- node -e "process.exit(parseInt(process.version.slice(1)) >= 20 ? 0 : 1)" 2>/dev/null; then
       msg_error "Node.js update verification failed"
       exit 1
     fi
@@ -984,16 +984,16 @@ PATCH_EOF
       
       echo \"=== Fixing configuration loading issues ===\" 
       # Create a simple Node.js script to fix the server configuration handling
-      cat > fix_config_endpoint.js << \"FIX_EOF\"
+      cat > fix_config_endpoint.js << 'FIX_EOF'
 const fs = require('fs');
 
 // Read the server file
 let serverContent = fs.readFileSync('server/index.js', 'utf8');
 
 // Find and replace the configuration endpoint
-const oldEndpoint = /\/\/ Endpoint to update the configuration[\\s\\S]*?(?=\/\/ API endpoint to get status for a specific node)/;
+const oldEndpoint = /\/\/ Endpoint to update the configuration[\s\S]*?(?=\/\/ API endpoint to get status for a specific node)/;
 
-const newEndpoint = \`// Endpoint to update the configuration
+const newEndpoint = `// Endpoint to update the configuration
 app.post('/api/config', authenticateRequest, (req, res) => {
   const newConfig = req.body;
   
@@ -1043,12 +1043,12 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     console.error('❌ Error updating configuration:', error);
     res.status(500).json({ 
       success: false, 
-      message: \\\`Failed to update configuration: \\\${error.message}\\\`
+      message: \`Failed to update configuration: \${error.message}\`
     });
   }
 });
 
-\`;
+`;
 
 if (serverContent.match(oldEndpoint)) {
   serverContent = serverContent.replace(oldEndpoint, newEndpoint);
@@ -1345,10 +1345,10 @@ EOF
       echo -e "${YW}Detected Node.js Syntax Error - likely version incompatibility${CL}"
       local current_node=$(pct exec $CT_ID -- node --version 2>/dev/null || echo 'unknown')
       echo -e "  Current Node.js version: $current_node"
-      echo -e "  Required: Node.js 18+ for modern JavaScript syntax"
+      echo -e "  Required: Node.js 20+ for modern JavaScript syntax and Vite compatibility"
       echo ""
       echo -e "${YW}Fix command:${CL}"
-      echo -e "  ${BL}pct exec $CT_ID -- bash -c 'curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && apt update && apt install -y nodejs && systemctl restart nautilus'${CL}"
+      echo -e "  ${BL}pct exec $CT_ID -- bash -c 'curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt update && apt install -y nodejs && systemctl restart nautilus'${CL}"
     elif echo "$service_start_output" | grep -q "EADDRINUSE.*3069"; then
       echo -e "${YW}Port 3069 is already in use${CL}"
       echo -e "  Check what's using the port: ${BL}pct exec $CT_ID -- ss -tlnp | grep 3069${CL}"

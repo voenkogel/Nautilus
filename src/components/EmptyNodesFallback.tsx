@@ -6,13 +6,13 @@ import { createConfigFileInput } from '../utils/configBackup';
 interface EmptyNodesFallbackProps {
   onCreateStartingNode: () => void;
   appConfig: AppConfig;
-  onLoadConfig?: (config: AppConfig) => void;
+  onRestoreConfig?: (config: AppConfig) => void;
 }
 
 const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({ 
   onCreateStartingNode,
   appConfig,
-  onLoadConfig
+  onRestoreConfig
 }) => {
   const accentColor = appConfig.appearance?.accentColor || '#3b82f6';
   const [showScanWindow, setShowScanWindow] = React.useState(false);
@@ -53,19 +53,19 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
     };
   }, []);
 
-  // Handle loading config from file
-  const handleLoadConfig = () => {
-    if (!onLoadConfig) return;
+  // Handle restoring config from backup file
+  const handleRestoreConfig = () => {
+    if (!onRestoreConfig) return;
     
     const input = createConfigFileInput(
       async (restoredConfig) => {
         setIsLoading(true);
         setLoadError(null);
         try {
-          await onLoadConfig(restoredConfig);
+          await onRestoreConfig(restoredConfig);
           // Success is handled by the parent component
         } catch (error) {
-          setLoadError(error instanceof Error ? error.message : 'Failed to load configuration');
+          setLoadError(error instanceof Error ? error.message : 'Failed to restore backup');
         } finally {
           setIsLoading(false);
         }
@@ -152,15 +152,15 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
             Create Node Manually
           </button>
 
-          {onLoadConfig && (
+          {onRestoreConfig && (
             <>
               <div className="w-full flex items-center justify-center">
                 <span className="text-gray-500 font-medium text-sm">or</span>
               </div>
 
-              {/* Load Configuration Button */}
+              {/* Restore Backup Button */}
               <button
-                onClick={handleLoadConfig}
+                onClick={handleRestoreConfig}
                 disabled={isLoading}
                 className={`w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium border-2 transition-all duration-200 ${
                   isLoading 
@@ -191,7 +191,7 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
                       <line x1="12" y1="18" x2="12" y2="12" stroke="currentColor" strokeWidth="2" />
                       <polyline points="9,15 12,12 15,15" stroke="currentColor" strokeWidth="2" />
                     </svg>
-                    Load Configuration
+                    Restore Backup
                   </>
                 )}
               </button>
@@ -209,7 +209,7 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
                 <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2" />
               </svg>
               <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-medium text-red-800 mb-1">Configuration Load Failed</h4>
+                <h4 className="text-sm font-medium text-red-800 mb-1">Backup Restore Failed</h4>
                 <div className="text-sm text-red-600 whitespace-pre-line">{loadError}</div>
                 <div className="mt-2 text-xs text-red-500">
                   Make sure you're uploading a valid Nautilus configuration file (.json)
