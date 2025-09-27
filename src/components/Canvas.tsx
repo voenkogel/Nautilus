@@ -9,6 +9,7 @@ import { useDeviceDetection } from '../hooks/useDeviceDetection';
 import MobileNodeList from './MobileNodeList';
 import EmptyNodesFallback from './EmptyNodesFallback';
 import { createStartingNode } from './EmptyNodesFallback';
+import { useToast } from './Toast';
 import NetworkScanWindow from './NetworkScanWindow';
 import { authenticate, getAuthHeaders, hasAuthToken } from '../utils/auth';
 import { 
@@ -81,6 +82,7 @@ interface Connection {
 }
 
 const Canvas: React.FC = () => {
+  const { addToast } = useToast();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const backgroundImageRef = useRef<HTMLImageElement | null>(null);
@@ -533,23 +535,82 @@ const Canvas: React.FC = () => {
     }
   };
 
+  const handleRestoreConfig = async (newConfig: AppConfig) => {
+    // Send the config to the server with replace mode for complete restoration
+    const response = await fetch('/api/config?replace=true', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      },
+      body: JSON.stringify(newConfig),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      if (response.status === 401) {
+        throw new Error('Authentication required. Please log in again.');
+      }
+      throw new Error(`Server responded with ${response.status}: ${errorText}`);
+    }
+
+    await response.json();
+    
+    // After successful restore, fetch the updated config from server to ensure sync
+    const configResponse = await fetch('/api/config');
+    if (configResponse.ok) {
+      const updatedConfig = await configResponse.json();
+      setCurrentConfig(updatedConfig);
+      
+      // Clear icon caches when config changes to force reload of icons with new colors/content
+      iconImageCache.clear();
+      iconSvgCache.clear();
+      setIconsPreloaded(false);
+    }
+  };
+
   const handleLoadConfig = async (newConfig: AppConfig) => {
     try {
       // Authenticate before loading config
       const isAuth = await authenticate();
       if (!isAuth) {
-        throw new Error('Authentication required to load configuration');
+        addToast({
+          type: 'error',
+          message: 'Authentication required to restore backup',
+          duration: 5000
+        });
+        throw new Error('Authentication required to restore backup');
       }
 
-      // Save the loaded config to the server
-      await handleSaveConfig(newConfig);
+      // Show loading feedback
+      addToast({
+        type: 'info',
+        message: 'Restoring backup configuration...',
+        duration: 2000
+      });
+
+      // Save the loaded config to the server using replace mode
+      await handleRestoreConfig(newConfig);
       
-      // Note: Success feedback would be shown if Canvas component had access to toast context
-      // For now, the success is implicit when no error is thrown
+      // Show success feedback
+      addToast({
+        type: 'success',
+        message: `Backup restored successfully! Loaded ${newConfig.tree.nodes.length} nodes.`,
+        duration: 4000
+      });
       
       // Config is already updated by handleSaveConfig, no need to set it again
     } catch (error) {
-      console.error('Failed to load configuration:', error);
+      console.error('Failed to restore backup:', error);
+      
+      // Show error feedback
+      const errorMessage = error instanceof Error ? error.message : 'Failed to restore backup';
+      addToast({
+        type: 'error',
+        message: `Backup restore failed: ${errorMessage}`,
+        duration: 6000
+      });
+      
       // Re-throw to let the EmptyNodesFallback handle the error display
       throw error;
     }

@@ -1,10 +1,13 @@
 import Canvas from './components/Canvas';
+import { ToastProvider } from './components/Toast';
 
 function App() {
   return (
-    <div className="w-screen h-screen overflow-hidden" style={{ background: "transparent" }}>
-      <Canvas />
-    </div>
+    <ToastProvider>
+      <div className="w-screen h-screen overflow-hidden" style={{ background: "transparent" }}>
+        <Canvas />
+      </div>
+    </ToastProvider>
   );
 }
 

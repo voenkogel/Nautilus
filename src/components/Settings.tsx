@@ -4,6 +4,7 @@ import * as LucideIcons from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
 import { clearAuthentication, isAuthenticated } from '../utils/auth';
 import { downloadConfigBackup, createConfigFileInput } from '../utils/configBackup';
+import { useToast } from './Toast';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -14,6 +15,8 @@ interface SettingsProps {
 }
 
 const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onSave, focusNodeId }) => {
+  const { addToast } = useToast();
+  
   // Use initialConfig as the source of truth, reflecting merged config from env vars and config.json
   const [config, setConfig] = useState<AppConfig>(() => ({
     general: {
@@ -81,8 +84,19 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     try {
       setBackupError(null);
       downloadConfigBackup(config);
+      addToast({
+        type: 'success',
+        message: 'Backup created and downloaded successfully!',
+        duration: 3000
+      });
     } catch (error) {
-      setBackupError(error instanceof Error ? error.message : 'Failed to create backup');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to create backup';
+      setBackupError(errorMessage);
+      addToast({
+        type: 'error',
+        message: `Backup creation failed: ${errorMessage}`,
+        duration: 5000
+      });
     }
   };
 
@@ -93,9 +107,19 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
         setPendingRestoreConfig(restoredConfig);
         setShowRestoreConfirm(true);
         setBackupError(null);
+        addToast({
+          type: 'info',
+          message: 'Backup file loaded successfully. Please confirm to apply changes.',
+          duration: 4000
+        });
       },
       (error) => {
         setBackupError(error);
+        addToast({
+          type: 'error',
+          message: `Failed to load backup file: ${error}`,
+          duration: 6000
+        });
       }
     );
     
@@ -111,6 +135,11 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       setPendingRestoreConfig(null);
       setShowRestoreConfirm(false);
       setBackupError(null);
+      addToast({
+        type: 'success',
+        message: `Configuration restored! Applied ${pendingRestoreConfig.tree.nodes.length} nodes. Remember to save your changes.`,
+        duration: 5000
+      });
     }
   };
 
@@ -315,7 +344,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       await onSave(config);
       onClose();
     } catch (error) {
-      console.error('Error saving configuration:', error);
+      console.error('Error saving settings:', error);
       
       // Extract meaningful error message
       let errorMessage = 'Unknown error occurred';
@@ -1073,62 +1102,77 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                 </div>
               </div>
 
-              {/* Configuration Backup/Restore Section */}
+              {/* Backup Management Section */}
               <div>
-                <h3 className="text-lg font-medium text-gray-800 mb-4">Configuration Backup</h3>
-                <div className="space-y-4">
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h4 className="font-medium text-gray-800">Save Configuration</h4>
-                        <p className="text-sm text-gray-600">Create and download a backup of your current configuration</p>
+                <h3 className="text-lg font-medium text-gray-800 mb-6">Backup Management</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6 shadow-sm">
+                    <div className="flex flex-col space-y-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="flex-shrink-0 w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
+                          <Download size={20} className="text-white" />
+                        </div>
+                        <div>
+                          <h4 className="font-semibold text-gray-800">Make Backup</h4>
+                          <p className="text-sm text-gray-600">Create and download a backup of your current configuration</p>
+                        </div>
                       </div>
                       <button
                         onClick={handleMakeBackup}
-                        className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors"
+                        className="flex items-center justify-center space-x-2 px-4 py-3 text-white rounded-lg font-medium hover:opacity-90 transition-all transform hover:scale-105"
                         style={{ backgroundColor: accentColor }}
                       >
                         <Download size={16} />
-                        <span>Make Backup</span>
+                        <span>Create Backup</span>
                       </button>
                     </div>
                   </div>
 
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <h4 className="font-medium text-gray-800">Load Configuration</h4>
-                        <p className="text-sm text-gray-600">Restore your configuration from a backup file</p>
+                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 shadow-sm">
+                    <div className="flex flex-col space-y-4">
+                      <div className="flex items-center space-x-3">
+                        <div className="flex-shrink-0 w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
+                          <Upload size={20} className="text-white" />
+                        </div>
+                        <div>
+                          <h4 className="font-semibold text-gray-800">Restore Backup</h4>
+                          <p className="text-sm text-gray-600">Restore your configuration from a backup file</p>
+                        </div>
                       </div>
                       <button
                         onClick={handleRestoreBackup}
-                        className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors bg-blue-600 hover:bg-blue-700"
+                        className="flex items-center justify-center space-x-2 px-4 py-3 text-white rounded-lg font-medium hover:opacity-90 transition-all transform hover:scale-105 bg-blue-600 hover:bg-blue-700"
                       >
                         <Upload size={16} />
-                        <span>Restore Backup</span>
+                        <span>Choose File</span>
                       </button>
                     </div>
-                    <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
-                      ⚠️ Warning: Restoring a backup will replace your current configuration. Make sure to make a backup first if needed.
-                    </div>
                   </div>
+                </div>
+                
+                {/* Warning message moved outside cards for better visibility */}
+                <div className="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start space-x-2">
+                  <div className="flex-shrink-0 w-5 h-5 text-amber-500 mt-0.5">⚠️</div>
+                  <div>
+                    <strong>Important:</strong> Restoring a backup will replace your entire current configuration. Make sure to create a backup first if you want to preserve your current settings.
+                  </div>
+                </div>
 
-                  {backupError && (
-                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                      <div className="flex items-start gap-3">
-                        <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none">
-                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-                          <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2" />
-                          <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2" />
-                        </svg>
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-medium text-red-800 mb-1">Configuration Error</h4>
-                          <div className="text-sm text-red-600 whitespace-pre-line">{backupError}</div>
-                        </div>
+                {backupError && (
+                  <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
+                        <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2" />
+                        <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2" />
+                      </svg>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-medium text-red-800 mb-1">Backup Error</h4>
+                        <div className="text-sm text-red-600 whitespace-pre-line">{backupError}</div>
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1136,7 +1180,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           {activeTab === 'nodes' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-medium text-gray-800">Node Configuration</h3>
+                <h3 className="text-lg font-medium text-gray-800">Node Settings</h3>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setShowClearNodesConfirm(true)}
@@ -1208,14 +1252,14 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                 </div>
               )}
 
-              {/* Restore Configuration Confirmation Modal */}
+              {/* Restore Backup Confirmation Modal */}
               {showRestoreConfirm && (
                 <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50">
                   <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full flex flex-col items-center">
                     <Upload size={32} className="text-amber-600 mb-2" />
-                    <h4 className="text-lg font-semibold text-gray-800 mb-2">Restore Configuration?</h4>
+                    <h4 className="text-lg font-semibold text-gray-800 mb-2">Restore Backup?</h4>
                     <p className="text-sm text-gray-600 mb-6 text-center">
-                      This will <b>replace your entire current configuration</b> with the restored backup. 
+                      This will <b>replace your entire current configuration</b> with the backup file. 
                       All current settings, nodes, and appearance customizations will be overwritten.
                       <br /><br />
                       Are you sure you want to proceed?
@@ -1371,7 +1415,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                   <X className="h-5 w-5 text-red-400" />
                 </div>
                 <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800">Error saving configuration</h3>
+                  <h3 className="text-sm font-medium text-red-800">Error saving settings</h3>
                   <div className="mt-1 text-sm text-red-700">
                     {saveError}
                   </div>
@@ -1430,7 +1474,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                 ) : (
                   <>
                     <Save size={16} />
-                    <span>Save Changes</span>
+                    <span>Save Settings</span>
                   </>
                 )}
               </button>

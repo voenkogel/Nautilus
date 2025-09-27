@@ -760,6 +760,7 @@ function validateConfig(config) {
 // Endpoint to update the configuration
 app.post('/api/config', authenticateRequest, (req, res) => {
   const newConfig = req.body;
+  const replaceMode = req.query.replace === 'true'; // Check for replace query parameter
   
   // Validate configuration structure
   const validation = validateConfig(newConfig);
@@ -772,8 +773,15 @@ app.post('/api/config', authenticateRequest, (req, res) => {
   }
   
   try {
-    // Deep merge new config with existing config
-    appConfig = deepMerge(appConfig, newConfig);
+    if (replaceMode) {
+      // Complete replacement mode (for backup restoration)
+      console.log('🔄 Performing complete configuration replacement');
+      appConfig = newConfig;
+    } else {
+      // Deep merge new config with existing config (for partial updates)
+      console.log('🔄 Performing configuration merge');
+      appConfig = deepMerge(appConfig, newConfig);
+    }
     
     // Write the new configuration to the file
     const configPath = process.env.NODE_ENV === 'production' ? '/data/config.json' : './config.json';
@@ -789,7 +797,8 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error updating configuration:', error);
-    console.error('Config data:', JSON.stringify(newConfig, null, 2));
+    console.error('Error stack:', error.stack);
+    console.error('Config data preview:', JSON.stringify(newConfig, null, 2).substring(0, 500) + '...');
     res.status(500).json({ 
       success: false, 
       message: 'Failed to update configuration' 
