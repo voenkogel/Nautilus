@@ -982,6 +982,87 @@ PATCH_EOF
       mv server/index.js.new server/index.js
       rm temp_patch.js
       
+      echo \"=== Fixing configuration loading issues ===\" 
+      # Create a simple Node.js script to fix the server configuration handling
+      cat > fix_config_endpoint.js << \"FIX_EOF\"
+const fs = require('fs');
+
+// Read the server file
+let serverContent = fs.readFileSync('server/index.js', 'utf8');
+
+// Find and replace the configuration endpoint
+const oldEndpoint = /\/\/ Endpoint to update the configuration[\\s\\S]*?(?=\/\/ API endpoint to get status for a specific node)/;
+
+const newEndpoint = \`// Endpoint to update the configuration
+app.post('/api/config', authenticateRequest, (req, res) => {
+  const newConfig = req.body;
+  
+  try {
+    // Enhanced validation that's more lenient for backup files
+    if (!newConfig || typeof newConfig !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid configuration: must be an object'
+      });
+    }
+
+    // Check for critical sections
+    if (!newConfig.tree || !Array.isArray(newConfig.tree.nodes)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid configuration: tree.nodes must be an array'
+      });
+    }
+
+    // For complete configuration replacement (like loading from backup),
+    // preserve server settings and replace the rest
+    const serverConfig = appConfig.server; // Keep server config
+    
+    // Create new config with preserved server settings
+    appConfig = {
+      ...newConfig,
+      server: serverConfig // Always preserve server configuration
+    };
+    
+    // Write the new configuration to the file (without server config)
+    const configPath = process.env.NODE_ENV === 'production' ? '/data/config.json' : './config.json';
+    const configToSave = { ...newConfig };
+    delete configToSave.server; // Don't save server config to file
+    
+    fs.writeFileSync(configPath, JSON.stringify(configToSave, null, 2), 'utf8');
+    
+    // Reinitialize node monitoring with new config
+    nodeIdentifiers = initializeNodeStatuses(true);
+    
+    console.log('✅ Configuration updated successfully with', newConfig.tree.nodes.length, 'nodes');
+    res.json({ 
+      success: true, 
+      message: 'Configuration updated successfully' 
+    });
+  } catch (error) {
+    console.error('❌ Error updating configuration:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: \\\`Failed to update configuration: \\\${error.message}\\\`
+    });
+  }
+});
+
+\`;
+
+if (serverContent.match(oldEndpoint)) {
+  serverContent = serverContent.replace(oldEndpoint, newEndpoint);
+  fs.writeFileSync('server/index.js', serverContent, 'utf8');
+  console.log('✅ Server configuration endpoint updated');
+} else {
+  console.log('⚠️  Could not find configuration endpoint to replace');
+}
+FIX_EOF
+
+      # Run the fix script
+      node fix_config_endpoint.js
+      rm fix_config_endpoint.js
+      
       echo \"=== Installation complete ===\" 
     '
   " 2>&1)
