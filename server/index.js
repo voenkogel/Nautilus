@@ -3,7 +3,7 @@ import { NetworkScanService } from './network_scan_service.js';
 import cors from 'cors';
 import fetch from 'node-fetch';
 import https from 'https';
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import dotenv from 'dotenv';
@@ -814,7 +814,20 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     }
     
     // Write the new configuration to the file first
-    const configPath = process.env.NODE_ENV === 'production' ? '/data/config.json' : './config.json';
+    // Determine config path with fallback logic
+    let configPath;
+    if (process.env.NODE_ENV === 'production') {
+      configPath = '/data/config.json';
+      // Check if production path exists, fallback to local if not
+      if (!existsSync(dirname(configPath))) {
+        console.warn(`⚠️  Production config directory ${dirname(configPath)} does not exist, falling back to local config`);
+        configPath = './config.json';
+      }
+    } else {
+      configPath = './config.json';
+    }
+    
+    console.log(`🔧 NODE_ENV for config write: "${process.env.NODE_ENV}", using path: "${configPath}"`);
     writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2), 'utf8');
     console.log('📁 Configuration file written successfully');
     
