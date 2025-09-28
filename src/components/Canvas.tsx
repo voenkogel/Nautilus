@@ -2057,7 +2057,7 @@ const Canvas: React.FC = () => {
             <img 
               src={currentConfig.appearance.logo || currentConfig.appearance.favicon} 
               alt={currentConfig.general?.title || 'Logo'}
-              className="w-24 h-24 opacity-90 filter drop-shadow-lg bg-white/20 backdrop-blur-sm rounded-xl p-3"
+              className="max-h-20 max-w-32 opacity-90 filter drop-shadow-lg bg-white/20 backdrop-blur-sm rounded-xl p-3 object-contain"
               onError={(e) => {
                 // Fallback to default icon
                 console.warn('Logo failed to load, trying fallback');
@@ -2068,7 +2068,7 @@ const Canvas: React.FC = () => {
             <img 
               src="/nautilusIcon.png" 
               alt="Nautilus" 
-              className="w-24 h-24 opacity-90 filter drop-shadow-lg bg-white/20 backdrop-blur-sm rounded-xl p-3"
+              className="max-h-20 max-w-32 opacity-90 filter drop-shadow-lg bg-white/20 backdrop-blur-sm rounded-xl p-3 object-contain"
               onError={(e) => {
                 // Hide if fallback also fails
                 e.currentTarget.style.display = 'none';

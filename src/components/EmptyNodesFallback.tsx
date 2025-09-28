@@ -84,18 +84,41 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
   return (
     <div className="flex items-center justify-center min-h-[400px] w-full">
       <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg p-8 max-w-md mx-auto text-center border border-gray-200">
-        {/* Icon */}
-        <div 
-          className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6"
-          style={{ backgroundColor: `${accentColor}20` }}
-        >
-          {/* SVG server icon */}
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" style={{ color: accentColor }} className="opacity-80">
-            <rect x="3" y="5" width="18" height="6" rx="2" stroke="currentColor" strokeWidth="2" />
-            <rect x="3" y="13" width="18" height="6" rx="2" stroke="currentColor" strokeWidth="2" />
-            <circle cx="8" cy="8" r="1" fill="currentColor" />
-            <circle cx="8" cy="16" r="1" fill="currentColor" />
-          </svg>
+        {/* Icon - Logo or Fallback */}
+        <div className="flex items-center justify-center mx-auto mb-6 h-16">
+          {(appConfig?.appearance?.logo || appConfig?.appearance?.favicon) ? (
+            <img 
+              src={appConfig.appearance.logo || appConfig.appearance.favicon} 
+              alt={appConfig.general?.title || 'Logo'} 
+              className="max-h-16 max-w-48 opacity-90 object-contain"
+              onError={(e) => {
+                // Fallback to server icon if logo fails to load
+                console.warn('Logo failed to load in welcome card, showing server icon');
+                e.currentTarget.style.display = 'none';
+                // Show fallback server icon
+                const parent = e.currentTarget.parentElement;
+                if (parent && !parent.querySelector('.fallback-server-icon')) {
+                  const serverIcon = document.createElement('div');
+                  serverIcon.className = 'fallback-server-icon';
+                  serverIcon.innerHTML = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" style="color: ${accentColor}" class="opacity-80">
+                    <rect x="3" y="5" width="18" height="6" rx="2" stroke="currentColor" stroke-width="2" />
+                    <rect x="3" y="13" width="18" height="6" rx="2" stroke="currentColor" stroke-width="2" />
+                    <circle cx="8" cy="8" r="1" fill="currentColor" />
+                    <circle cx="8" cy="16" r="1" fill="currentColor" />
+                  </svg>`;
+                  parent.appendChild(serverIcon);
+                }
+              }}
+            />
+          ) : (
+            /* Fallback server icon when no logo is configured */
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" style={{ color: accentColor }} className="opacity-80">
+              <rect x="3" y="5" width="18" height="6" rx="2" stroke="currentColor" strokeWidth="2" />
+              <rect x="3" y="13" width="18" height="6" rx="2" stroke="currentColor" strokeWidth="2" />
+              <circle cx="8" cy="8" r="1" fill="currentColor" />
+              <circle cx="8" cy="16" r="1" fill="currentColor" />
+            </svg>
+          )}
         </div>
 
         {/* Title */}

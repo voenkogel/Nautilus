@@ -280,7 +280,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
             <img 
               src={appConfig.appearance.logo || appConfig.appearance.favicon} 
               alt={appConfig.general?.title || 'Logo'} 
-              className="w-12 h-12 opacity-80 filter drop-shadow-lg"
+              className="max-h-12 max-w-24 opacity-80 filter drop-shadow-lg object-contain"
               onError={(e) => {
               // Fallback to a default icon if logo/favicon fails
               console.warn('Logo failed to load, trying fallback');

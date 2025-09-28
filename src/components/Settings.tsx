@@ -59,6 +59,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [pendingRestoreConfig, setPendingRestoreConfig] = useState<AppConfig | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
+  const [isTestingSend, setIsTestingSend] = useState(false);
 
   // Check authentication status on mount
   useEffect(() => {
@@ -296,9 +297,14 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       return;
     }
 
-    // Rule 2: Size limit
-    if (file.size > 5 * 1024 * 1024) { // 5MB limit
-      setFileErrors(prev => ({ ...prev, [field]: 'File size exceeds 5MB limit.' }));
+    // Rule 2: Size limit - Server supports up to 50MB, but reasonable limit for images
+    const maxSizeBytes = 10 * 1024 * 1024; // 10MB limit (reasonable for logo images)
+    
+    if (file.size > maxSizeBytes) {
+      setFileErrors(prev => ({ 
+        ...prev, 
+        [field]: `File size exceeds 10MB limit. Current size: ${(file.size / 1024 / 1024).toFixed(2)} MB. Please compress your image or use a smaller file.` 
+      }));
       return;
     }
 
@@ -322,6 +328,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           setFileErrors(prev => ({ ...prev, [field]: 'Favicon dimensions should not exceed 128x128 pixels.' }));
           return;
         }
+        
+        // Note: No dimension restrictions for logo field - any size should work
         // All checks passed, update config
         updateAppearanceConfig(field, base64);
       };
@@ -357,7 +365,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       
       // Handle specific error types
       if (errorMessage.includes('PayloadTooLargeError') || errorMessage.includes('413')) {
-        errorMessage = 'One or more images are too large. Please use smaller images (under 5MB each).';
+        errorMessage = 'One or more images are too large. Please use smaller images (under 10MB each).';
       } else if (errorMessage.includes('NetworkError') || errorMessage.includes('Failed to fetch')) {
         errorMessage = 'Network error. Please check your connection and try again.';
       } else if (errorMessage.includes('Server responded with')) {
@@ -371,6 +379,64 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       setSaveError(errorMessage);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSendTestNotification = async () => {
+    const endpoint = config.webhooks?.statusNotifications?.endpoint;
+    
+    if (!endpoint) {
+      addToast({
+        type: 'error',
+        message: 'Please enter a webhook endpoint URL first',
+        duration: 4000
+      });
+      return;
+    }
+
+    setIsTestingSend(true);
+
+    try {
+      const testPayload = {
+        message: "🧪 Test notification from Nautilus",
+        timestamp: new Date().toISOString(),
+        nodeId: "test-node",
+        nodeName: "Test Node",
+        status: "test",
+        details: "This is a test notification to verify your webhook endpoint is working correctly."
+      };
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(testPayload),
+      });
+
+      if (response.ok) {
+        addToast({
+          type: 'success',
+          message: `Test notification sent successfully! (${response.status})`,
+          duration: 4000
+        });
+      } else {
+        const errorText = await response.text();
+        addToast({
+          type: 'error',
+          message: `Failed to send test notification: ${response.status} ${response.statusText}${errorText ? ` - ${errorText}` : ''}`,
+          duration: 6000
+        });
+      }
+    } catch (error) {
+      console.error('Test notification error:', error);
+      addToast({
+        type: 'error',
+        message: `Failed to send test notification: ${error instanceof Error ? error.message : 'Network error'}`,
+        duration: 6000
+      });
+    } finally {
+      setIsTestingSend(false);
     }
   };
 
@@ -826,7 +892,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                   </label>
                   <p className="pl-1">or drag and drop</p>
                 </div>
-                <p className="text-xs text-gray-500">PNG, JPG, SVG, ICO up to 5MB (recommended: 32x32px)</p>
+                <p className="text-xs text-gray-500">PNG, JPG, SVG, ICO up to 10MB (recommended: 32x32px)</p>
               </div>
             </div>
             {config.appearance.favicon && (
@@ -887,7 +953,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                   </label>
                   <p className="pl-1">or drag and drop</p>
                 </div>
-                <p className="text-xs text-gray-500">PNG, JPG, SVG up to 5MB (recommended: 256x256px)</p>
+                <p className="text-xs text-gray-500">PNG, JPG, SVG up to 10MB (any size or aspect ratio)</p>
               </div>
             </div>
             {config.appearance.logo && (
@@ -948,7 +1014,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                   </label>
                   <p className="pl-1">or drag and drop</p>
                 </div>
-                <p className="text-xs text-gray-500">PNG, JPG, SVG up to 5MB (will be used as canvas background)</p>
+                <p className="text-xs text-gray-500">PNG, JPG, SVG up to 10MB (will be used as canvas background)</p>
               </div>
             </div>
             
@@ -1391,14 +1457,44 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
 
                 {/* Example Payload */}
                 <div className="mt-6 p-4 bg-gray-50 rounded-md border border-gray-200">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Example Payload</h4>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-medium text-gray-700">Example Payload</h4>
+                    <button
+                      onClick={handleSendTestNotification}
+                      disabled={isTestingSend || !config.webhooks?.statusNotifications?.endpoint}
+                      className="flex items-center space-x-2 px-3 py-1.5 text-sm font-medium text-white rounded-md hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      style={{ backgroundColor: accentColor }}
+                    >
+                      {isTestingSend ? (
+                        <>
+                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
+                          <span>Sending...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                          </svg>
+                          <span>Send Test</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                   <pre className="text-xs bg-gray-100 p-3 rounded overflow-x-auto">
 {`{
-  "message": "❌ Node name has gone offline",
-  "timestamp": "${new Date().toISOString()}"
+  "message": "🧪 Test notification from Nautilus",
+  "timestamp": "${new Date().toISOString()}",
+  "nodeId": "test-node",
+  "nodeName": "Test Node",
+  "status": "test",
+  "details": "This is a test notification..."
 }`}
                   </pre>
-                  <p className="text-xs text-gray-500 mt-2">✅ Online notifications include a green checkmark<br/>❌ Offline notifications include a red X</p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    ✅ Online notifications include a green checkmark<br/>
+                    ❌ Offline notifications include a red X<br/>
+                    🧪 Test notifications help verify your webhook endpoint
+                  </p>
                 </div>
               </div>
             </div>

@@ -16,7 +16,7 @@ import { sendStatusWebhook } from './utils/webhooks.js';
 dotenv.config();
 
 const app = express();
-app.use(express.json());
+// Note: express.json() is configured later with proper limits for image uploads
 
 // --- Security Configuration ---
 
