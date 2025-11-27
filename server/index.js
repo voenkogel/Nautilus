@@ -149,7 +149,18 @@ const defaultConfig = {
 let appConfig;
 try {
   // Use different config paths for Docker vs local development
-  const configPath = process.env.NODE_ENV === 'production' ? '/data/config.json' : './config.json';
+  let configPath;
+  if (process.env.NODE_ENV === 'production') {
+    configPath = '/data/config.json';
+    // Check if production path exists, fallback to app directory if not
+    if (!existsSync(dirname(configPath))) {
+      console.warn(`⚠️  Production config directory ${dirname(configPath)} does not exist, falling back to app config`);
+      configPath = './data/config.json';
+    }
+  } else {
+    configPath = './config.json';
+  }
+  
   console.log(`🔧 NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
   console.log(`🔧 Config path: ${configPath}`);
   console.log(`🔧 Working directory: ${process.cwd()}`);
@@ -818,10 +829,15 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     let configPath;
     if (process.env.NODE_ENV === 'production') {
       configPath = '/data/config.json';
-      // Check if production path exists, fallback to local if not
+      // Check if production path exists, fallback to app directory if not
       if (!existsSync(dirname(configPath))) {
-        console.warn(`⚠️  Production config directory ${dirname(configPath)} does not exist, falling back to local config`);
-        configPath = './config.json';
+        console.warn(`⚠️  Production config directory ${dirname(configPath)} does not exist, falling back to app config`);
+        configPath = './data/config.json';
+        // Ensure the local data directory exists
+        if (!existsSync('./data')) {
+          console.log('📁 Creating local data directory');
+          require('fs').mkdirSync('./data', { recursive: true });
+        }
       }
     } else {
       configPath = './config.json';

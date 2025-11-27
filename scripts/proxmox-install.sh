@@ -557,11 +557,15 @@ function install_script() {
   msg_debug "  --swap 512 \\"
   msg_debug "  --timezone $timezone \\"
   msg_debug "  --unprivileged $CT_TYPE \\"
-  msg_debug "  --features $FEATURES"
+  msg_debug "  --features $FEATURES \\"
+  msg_debug "  --mp0 /var/lib/vz/nautilus-data-$CT_ID,mp=/data"
   
   # Attempt container creation with detailed error handling
   local create_output
   local create_error
+  # Create a directory on the host for persistent data
+  mkdir -p /var/lib/vz/nautilus-data-$CT_ID
+  
   create_output=$(pct create $CT_ID /var/lib/vz/template/cache/ubuntu-22.04-standard_22.04-1_amd64.tar.zst \
     --arch amd64 \
     --cores $CORE_COUNT \
@@ -574,7 +578,8 @@ function install_script() {
     --swap 512 \
     --timezone $timezone \
     --unprivileged $CT_TYPE \
-    --features $FEATURES 2>&1)
+    --features $FEATURES \
+    --mp0 /var/lib/vz/nautilus-data-$CT_ID,mp=/data 2>&1)
   create_error=$?
   
   if [ $create_error -ne 0 ]; then
@@ -979,8 +984,10 @@ fi
       echo \"=== Installing production dependencies only ===\" 
       npm ci --only=production 2>&1
       echo \"=== Creating data directory ===\" 
-      mkdir -p data
-      echo \"{}\" > data/config.json
+      mkdir -p /data
+      chown nautilus:nautilus /data
+      echo \"{}\" > /data/config.json
+      chown nautilus:nautilus /data/config.json
       echo \"=== Verifying build output ===\" 
       ls -la server/public/
       echo \"=== Adding catch-all route for React Router ===\" 
@@ -1152,6 +1159,7 @@ After=network.target
 Type=simple
 User=nautilus
 WorkingDirectory=/opt/nautilus
+ExecStartPre=/bin/bash -c 'mkdir -p /data && chown nautilus:nautilus /data && mkdir -p /opt/nautilus/data && chown nautilus:nautilus /opt/nautilus/data'
 ExecStart=/usr/bin/node server/index.js
 Restart=always
 RestartSec=5
@@ -1327,6 +1335,14 @@ EOF
     echo \"=== Stopping services (if running) ===\" 
     systemctl stop nautilus 2>&1 || true
     systemctl stop nginx 2>&1 || true
+    
+    echo \"=== Ensuring data directory exists with proper permissions ===\" 
+    mkdir -p /data
+    chown nautilus:nautilus /data
+    if [ ! -f /data/config.json ]; then
+      echo \"{}\" > /data/config.json
+      chown nautilus:nautilus /data/config.json
+    fi
     
     echo \"=== Enabling services ===\" 
     systemctl enable nautilus 2>&1
