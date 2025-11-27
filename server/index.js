@@ -269,8 +269,8 @@ function extractAllNodeIdentifiers(nodes = appConfig.tree?.nodes) {
     
     for (const node of nodeList) {
       try {
-        // Only monitor nodes with healthCheckPort and ip specified
-        if (node.healthCheckPort && node.ip) {
+        // Only monitor nodes with healthCheckPort and ip specified, AND not explicitly disabled
+        if (node.healthCheckPort && node.ip && !node.disableHealthCheck) {
           const identifier = `${node.ip}:${node.healthCheckPort}`;
           console.log(`📍 [MONITOR] Node "${node.title || node.id}": ip="${node.ip}", healthCheckPort="${node.healthCheckPort}" → monitoring "${identifier}"`);
           
@@ -278,7 +278,8 @@ function extractAllNodeIdentifiers(nodes = appConfig.tree?.nodes) {
           const normalizedIdentifier = normalizeNodeIdentifier(identifier);
           identifiers.push(normalizedIdentifier);
         } else {
-          console.log(`⏭️  [SKIP] Node "${node.title || node.id}": missing healthCheckPort or ip, excluded from monitoring`);
+          const reason = node.disableHealthCheck ? 'explicitly disabled' : 'missing healthCheckPort or ip';
+          console.log(`⏭️  [SKIP] Node "${node.title || node.id}": ${reason}, excluded from monitoring`);
         }
         
         if (node.children && Array.isArray(node.children)) {

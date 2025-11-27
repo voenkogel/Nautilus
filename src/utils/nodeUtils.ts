@@ -10,8 +10,8 @@ export const extractMonitoredNodeIdentifiers = (nodes: TreeNode[]): string[] => 
   
   const traverse = (nodeList: TreeNode[]) => {
     for (const node of nodeList) {
-      // Only monitor nodes with healthCheckPort and ip specified
-      if (node.healthCheckPort && node.ip) {
+      // Only monitor nodes with healthCheckPort and ip specified, AND not explicitly disabled
+      if (node.healthCheckPort && node.ip && !node.disableHealthCheck) {
         const identifier = `${node.ip}:${node.healthCheckPort}`;
         identifiers.push(identifier);
       }

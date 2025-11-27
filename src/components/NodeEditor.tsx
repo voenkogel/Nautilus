@@ -257,6 +257,23 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
             </p>
           </div>
 
+          {/* Disable Health Check Toggle */}
+          <div className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id="disableHealthCheck"
+              checked={editedNode.disableHealthCheck || false}
+              onChange={(e) => setEditedNode(prev => ({ ...prev, disableHealthCheck: e.target.checked }))}
+              className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            />
+            <label htmlFor="disableHealthCheck" className="text-sm font-medium text-gray-700">
+              Disable Health Checking
+            </label>
+          </div>
+          <p className="text-xs text-gray-500 ml-6 -mt-1 mb-4">
+            If checked, this node will show as blue and status monitoring will be skipped.
+          </p>
+
           {/* URL */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">External URL (optional)</label>

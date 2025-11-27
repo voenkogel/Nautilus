@@ -1258,9 +1258,18 @@ const Canvas: React.FC = () => {
     // Text area starts after circle with some spacing
     const textAreaX = circleCenterX + circleRadius + 10; // 10px gap after circle
     const textAreaWidth = width - (textAreaX - x);
-    const titleFontSize = Math.max(14 / scale, 10);
-    const subtitleFontSize = Math.max(11 / scale, 8);
-    const detailFontSize = Math.max(10 / scale, 7);
+    
+    // Calculate font sizes with clamping to prevent overflow when zoomed out
+    // We want text to stay readable (inverse to scale) but not grow larger than the node can handle
+    // Max sizes ensure text fits within the node width (280px) and height (90px)
+    const maxTitleSize = 24; 
+    const maxSubtitleSize = 18;
+    const maxDetailSize = 16;
+    
+    const titleFontSize = Math.min(Math.max(14 / scale, 10), maxTitleSize);
+    const subtitleFontSize = Math.min(Math.max(11 / scale, 8), maxSubtitleSize);
+    const detailFontSize = Math.min(Math.max(10 / scale, 7), maxDetailSize);
+    
     const titleX = textAreaX + 10;
     const titleY = y + 8;
     
@@ -1280,8 +1289,10 @@ const Canvas: React.FC = () => {
       ? getNodeStatus(originalIdentifier) 
       : { status: 'checking' as const, lastChecked: new Date().toISOString(), statusChangedAt: new Date().toISOString(), progress: 0 };
     
-    // Check if node has health monitoring disabled (no healthCheckPort)
-    const isMonitoringDisabled = !node.healthCheckPort;
+    // Check if node has health monitoring disabled
+    const isExplicitlyDisabled = node.disableHealthCheck;
+    const isMissingConfig = !node.healthCheckPort;
+    const isMonitoringDisabled = isExplicitlyDisabled || isMissingConfig;
 
     // Apply soft shadow using blur (save context to restore after shadow drawing)
     ctx.save();
@@ -1322,7 +1333,10 @@ const Canvas: React.FC = () => {
     let circleColor = '#6b7280'; // Default gray for checking or no identifier
     let circleOpacity = 1.0; // Default full opacity
     
-    if (isMonitoringDisabled || !originalIdentifier) {
+    if (isExplicitlyDisabled) {
+      // Blue circle for explicitly disabled nodes
+      circleColor = '#3b82f6';
+    } else if (isMissingConfig || !originalIdentifier) {
       // Gray circle for disabled nodes or nodes without IP/URL
       circleColor = '#6b7280';
     } else if (nodeStatus.status === 'online') {
@@ -1401,8 +1415,8 @@ const Canvas: React.FC = () => {
       const badgeX = titleX + titleWidth + badgeMargin;
       
       // Badge styling
-      const badgeFontSize = Math.max(9 / scale, 7);
-      const badgePadding = Math.max(4 / scale, 2);
+      const badgeFontSize = Math.min(Math.max(9 / scale, 7), 14);
+      const badgePadding = Math.min(Math.max(4 / scale, 2), 6);
       const badgeHeight = badgeFontSize + (badgePadding * 2);
       
       ctx.font = `500 ${badgeFontSize}px Roboto, sans-serif`;
@@ -1456,7 +1470,7 @@ const Canvas: React.FC = () => {
     ctx.fillText(subtitle, subtitleX, subtitleY);
     
     let currentY = subtitleY + subtitleFontSize + 8;
-    const iconSize = Math.max(16 / scale, 12); // Larger minimum size, scales better with zoom
+    const iconSize = Math.min(Math.max(16 / scale, 12), 24); // Larger minimum size, scales better with zoom
     
     // Draw IP with network icon (only if IP is provided, otherwise show "No IP" if URL exists)
     if (ip || url) {
@@ -1517,13 +1531,13 @@ const Canvas: React.FC = () => {
     
     // Draw connection line with proper T-junction and X-crossing corner rounding
     ctx.strokeStyle = '#6b7280';
-    ctx.lineWidth = Math.max(5 / scale, 3);
+    ctx.lineWidth = Math.min(Math.max(5 / scale, 3), 12);
     ctx.setLineDash([]);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     
     const midY = startY + (endY - startY) / 2;
-    const cornerRadius = Math.max(6 / scale, 3);
+    const cornerRadius = Math.min(Math.max(6 / scale, 3), 20);
     
     ctx.beginPath();
     ctx.moveTo(startX, startY);

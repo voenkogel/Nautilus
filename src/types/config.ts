@@ -6,6 +6,7 @@ export interface TreeNode {
   // Separated concerns for better architecture
   ip?: string;          // IP address only (no port) - for display/identification
   healthCheckPort?: number; // Optional dedicated port for health checks
+  disableHealthCheck?: boolean; // Explicitly disable health checking even if port is provided
   url?: string;         // External URL for user access (opening in browser)
   
   icon?: string; // Optional icon name from lucide-react
