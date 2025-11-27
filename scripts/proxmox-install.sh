@@ -1159,7 +1159,8 @@ After=network.target
 Type=simple
 User=nautilus
 WorkingDirectory=/opt/nautilus
-ExecStartPre=/bin/bash -c 'mkdir -p /data && chown nautilus:nautilus /data && mkdir -p /opt/nautilus/data && chown nautilus:nautilus /opt/nautilus/data'
+# ExecStartPre removed to avoid permission issues with bind mounts
+# ExecStartPre=/bin/bash -c 'mkdir -p /data && chown nautilus:nautilus /data && mkdir -p /opt/nautilus/data && chown nautilus:nautilus /opt/nautilus/data'
 ExecStart=/usr/bin/node server/index.js
 Restart=always
 RestartSec=5
