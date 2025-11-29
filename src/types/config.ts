@@ -8,6 +8,7 @@ export interface TreeNode {
   healthCheckPort?: number; // Optional dedicated port for health checks
   disableHealthCheck?: boolean; // Explicitly disable health checking even if port is provided
   url?: string;         // External URL for user access (opening in browser)
+  disableEmbedded?: boolean; // Force opening in new tab instead of embedded iframe
   
   icon?: string; // Optional icon name from lucide-react
   type?: 'square' | 'circular' | 'angular'; // Square (normal cards), circular (pill-shaped cards), or angular (diamond-sided cards)

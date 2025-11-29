@@ -982,7 +982,7 @@ const Canvas: React.FC = () => {
       const lastOpenTime = (window as any)[lastOpenKey] || 0;
       if (now - lastOpenTime > 1000) { // 1 second debounce
         (window as any)[lastOpenKey] = now;
-        if (currentConfig.general?.openNodesAsOverlay !== false) {
+        if (currentConfig.general?.openNodesAsOverlay !== false && !node.disableEmbedded) {
           setIframeOverlay({ url: targetUrl, title: node.title || appTitle });
         } else {
           window.open(targetUrl, '_blank', 'noopener,noreferrer');
@@ -1792,7 +1792,11 @@ const Canvas: React.FC = () => {
     
     if (targetUrl) {
       // Show iframe overlay instead of opening externally
-      setIframeOverlay({ url: targetUrl, title: node.title || appTitle });
+      if (!node.disableEmbedded) {
+        setIframeOverlay({ url: targetUrl, title: node.title || appTitle });
+      } else {
+        window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      }
     }
   }, [appTitle]);
 

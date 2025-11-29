@@ -126,7 +126,7 @@ app.use(express.static(join(__dirname, 'public')));
 const defaultConfig = {
   server: {
     port: parseInt(process.env.NAUTILUS_SERVER_PORT, 10) || 3069,
-    healthCheckInterval: parseInt(process.env.NAUTILUS_HEALTH_CHECK_INTERVAL, 10) || 20000,
+    healthCheckInterval: parseInt(process.env.NAUTILUS_HEALTH_CHECK_INTERVAL, 10) || 30000,
     corsOrigins: [`http://${process.env.NAUTILUS_HOST || 'localhost'}:${parseInt(process.env.NAUTILUS_CLIENT_PORT, 10) || 3070}`]
   },
   client: {
@@ -916,6 +916,9 @@ function validateConfig(config) {
     }
     if (node.type && typeof node.type !== 'string') {
       return { valid: false, error: `Node at ${path || 'root'} type must be a string` };
+    }
+    if (node.disableEmbedded && typeof node.disableEmbedded !== 'boolean') {
+      return { valid: false, error: `Node at ${path || 'root'} disableEmbedded must be a boolean` };
     }
     
     // Validate children if they exist

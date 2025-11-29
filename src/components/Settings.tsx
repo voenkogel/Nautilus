@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, X, Plus, Trash2, Save, ChevronDown, ChevronRight, LogOut, Network, Download, Upload } from 'lucide-react';
-import * as LucideIcons from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
 import { clearAuthentication, isAuthenticated } from '../utils/auth';
 import { downloadConfigBackup, createConfigFileInput } from '../utils/configBackup';
 import { useToast } from './Toast';
+
+import { NodeFormFields } from './NodeFormFields';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -151,47 +152,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     setBackupError(null);
   };
 
-  // Simple list of common/popular icons for suggestions (optional)
-  const commonIcons = [
-    'server', 'monitor', 'tv', 'clapperboard', 'smartphone', 'tablet', 'laptop',
-    'hard-drive', 'database', 'wifi', 'globe', 'cloud', 'shield', 'lock', 'key',
-    'users', 'user', 'settings', 'wrench', 'tool', 'cpu', 'activity', 'zap',
-    'play', 'pause', 'stop', 'power', 'camera', 'video', 'mic', 'headphones',
-    'printer', 'phone', 'mail', 'bell', 'clock', 'calendar', 'file', 'folder',
-    'download', 'upload', 'github', 'chrome', 'firefox', 'home', 'building'
-  ];
-
   // Get accent color from configuration
   const accentColor = config.appearance?.accentColor ?? '#3b82f6';
-
-  // Helper function to convert kebab-case to PascalCase for icon component names
-  const kebabToPascal = (kebabCase: string): string => {
-    return kebabCase
-      .split('-')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join('');
-  };
-
-  // Function to check if an icon exists and render it
-  const renderIconPreview = (iconName: string, size: number = 16, useDefault: boolean = true) => {
-    if (!iconName) {
-      if (useDefault) {
-        return <LucideIcons.Server size={size} />;
-      } else {
-        return <div className="text-gray-400 text-xs">No icon</div>;
-      }
-    }
-    
-    const pascalCaseName = kebabToPascal(iconName);
-    const IconComponent = (LucideIcons as any)[pascalCaseName];
-    
-    if (IconComponent) {
-      return <IconComponent size={size} />;
-    } else {
-      // Show a fallback icon if the specified icon doesn't exist
-      return <LucideIcons.HelpCircle size={size} className="text-gray-400" />;
-    }
-  };
 
   // Initialize collapsed state for all nodes when opening settings
   useEffect(() => {
@@ -560,67 +522,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     });
   };
 
-  const renderIconInput = (nodeId: string, currentIcon: string) => {
-    return (
-      <div className="space-y-2">
-        <div className="flex items-center space-x-3">
-          {/* Icon Preview */}
-          <div className="flex items-center justify-center w-10 h-10 border border-gray-300 rounded-md bg-gray-50">
-            {renderIconPreview(currentIcon, 20, false)}
-          </div>
-          
-          {/* Icon Name Input */}
-          <div className="flex-1">
-            <input
-              type="text"
-              value={currentIcon}
-              onChange={(e) => updateNode(nodeId, { icon: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter icon name (e.g., server, monitor, wifi)"
-            />
-          </div>
-        </div>
-        
-        {/* Common Icons Quick Select */}
-        <div className="flex flex-wrap gap-2">
-          <span className="text-xs text-gray-500 mb-1 w-full">Quick select:</span>
-          {commonIcons.slice(0, 12).map((iconName) => (
-            <button
-              key={iconName}
-              type="button"
-              onClick={() => updateNode(nodeId, { icon: iconName })}
-              className={`flex items-center space-x-1 px-2 py-1 text-xs border rounded-md hover:bg-gray-100 transition-colors ${
-                currentIcon === iconName ? 'border-2' : 'border-gray-300'
-              }`}
-              style={{
-                backgroundColor: currentIcon === iconName ? `${config.appearance.accentColor}15` : undefined,
-                borderColor: currentIcon === iconName ? config.appearance.accentColor : undefined,
-                color: currentIcon === iconName ? config.appearance.accentColor : undefined
-              }}
-              title={iconName}
-            >
-              {renderIconPreview(iconName, 12)}
-              <span className="capitalize">{iconName}</span>
-            </button>
-          ))}
-        </div>
-        
-        {/* Help Text */}
-        <div className="text-xs text-gray-500">
-          Enter any Lucide icon name. Visit{' '}
-          <a 
-            href="https://lucide.dev/icons/" 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="text-blue-500 hover:underline"
-          >
-            lucide.dev/icons
-          </a>{' '}
-          to browse all available icons.
-        </div>
-      </div>
-    );
-  };
+
 
   const renderNodeEditor = (node: TreeNode, level: number = 0): React.ReactNode => {
     const isCollapsed = collapsedNodes.has(node.id);
@@ -680,144 +582,13 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
             
             {/* Show detailed form only when expanded */}
             {!isCollapsed && (
-              <>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-                    <input
-                      type="text"
-                      value={node.title}
-                      onChange={(e) => updateNode(node.id, { title: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Subtitle</label>
-                    <input
-                      type="text"
-                      value={node.subtitle}
-                      onChange={(e) => updateNode(node.id, { subtitle: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">IP Address</label>
-                    <input
-                      type="text"
-                      value={node.ip || ''}
-                      onChange={(e) => updateNode(node.id, { ip: e.target.value || undefined })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="192.168.1.100 or hostname.local"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">IP address or hostname (no port)</p>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Health Check Port</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="65535"
-                      value={node.healthCheckPort || ''}
-                      onChange={(e) => updateNode(node.id, { 
-                        healthCheckPort: e.target.value ? parseInt(e.target.value) : undefined 
-                      })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="8080"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Port for health checks. Leave empty to exclude from monitoring.
-                    </p>
-                  </div>
-                  
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">External URL</label>
-                    <input
-                      type="text"
-                      value={node.url || ''}
-                      onChange={(e) => updateNode(node.id, { url: e.target.value || undefined })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="https://example.com or radarr.domain.com"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">External URL for opening in browser (user access)</p>
-                  </div>
-                  
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-3">Shape</label>
-                    <div className="grid grid-cols-3 gap-3 w-full">
-                      <div 
-                        className={`flex flex-col items-center p-4 rounded-lg cursor-pointer hover:bg-gray-50 transition-all ${
-                          (!node.type || !['square', 'circular', 'angular'].includes(node.type) || node.type === 'square') 
-                            ? `border-2 shadow-sm` 
-                            : 'border border-gray-300'
-                        }`}
-                        style={{
-                          borderColor: (!node.type || !['square', 'circular', 'angular'].includes(node.type) || node.type === 'square') ? config.appearance.accentColor : undefined,
-                          backgroundColor: (!node.type || !['square', 'circular', 'angular'].includes(node.type) || node.type === 'square') ? `${config.appearance.accentColor}08` : undefined
-                        }}
-                        onClick={() => updateNode(node.id, { type: 'square' })}
-                      >
-                        <div className="w-8 h-8 bg-gray-100 border border-gray-300 flex items-center justify-center rounded-md">
-                          <div className="w-4 h-4 bg-gray-400 rounded-sm"></div>
-                        </div>
-                        <div className="text-center mt-2">
-                          <div className="text-sm font-medium text-gray-900">Square</div>
-                          <div className="text-xs text-gray-500">Normal rectangular cards</div>
-                        </div>
-                      </div>
-                      
-                      <div 
-                        className={`flex flex-col items-center p-4 rounded-lg cursor-pointer hover:bg-gray-50 transition-all ${
-                          node.type === 'circular' 
-                            ? `border-2 shadow-sm` 
-                            : 'border border-gray-300'
-                        }`}
-                        style={{
-                          borderColor: node.type === 'circular' ? config.appearance.accentColor : undefined,
-                          backgroundColor: node.type === 'circular' ? `${config.appearance.accentColor}08` : undefined
-                        }}
-                        onClick={() => updateNode(node.id, { type: 'circular' })}
-                      >
-                        <div className="w-8 h-8 bg-gray-100 border border-gray-300 flex items-center justify-center rounded-full">
-                          <div className="w-4 h-4 bg-gray-400 rounded-full"></div>
-                        </div>
-                        <div className="text-center mt-2">
-                          <div className="text-sm font-medium text-gray-900">Circular</div>
-                          <div className="text-xs text-gray-500">Pill-shaped cards</div>
-                        </div>
-                      </div>
-                      
-                      <div 
-                        className={`flex flex-col items-center p-4 rounded-lg cursor-pointer hover:bg-gray-50 transition-all ${
-                          node.type === 'angular' 
-                            ? `border-2 shadow-sm` 
-                            : 'border border-gray-300'
-                        }`}
-                        style={{
-                          borderColor: node.type === 'angular' ? config.appearance.accentColor : undefined,
-                          backgroundColor: node.type === 'angular' ? `${config.appearance.accentColor}08` : undefined
-                        }}
-                        onClick={() => updateNode(node.id, { type: 'angular' })}
-                      >
-                        <div className="w-8 h-8 bg-gray-100 border border-gray-300 flex items-center justify-center" style={{ clipPath: 'polygon(12% 0%, 88% 0%, 100% 25%, 100% 75%, 88% 100%, 12% 100%, 0% 75%, 0% 25%)' }}>
-                          <div className="w-4 h-4 bg-gray-400" style={{ clipPath: 'polygon(20% 0%, 80% 0%, 100% 30%, 100% 70%, 80% 100%, 20% 100%, 0% 70%, 0% 30%)' }}></div>
-                        </div>
-                        <div className="text-center mt-2">
-                          <div className="text-sm font-medium text-gray-900">Angular</div>
-                          <div className="text-xs text-gray-500">Diamond-sided cards</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Icon</label>
-                    {renderIconInput(node.id, node.icon || '')}
-                  </div>
-                </div>
-              </>
+              <div className="mt-4">
+                <NodeFormFields 
+                  node={node} 
+                  onChange={(updates) => updateNode(node.id, updates)}
+                  appearance={config.appearance}
+                />
+              </div>
             )}
           </div>
         </div>
