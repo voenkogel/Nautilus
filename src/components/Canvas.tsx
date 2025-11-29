@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { TreeNode, AppConfig } from '../types/config';
 import { useNodeStatus } from '../hooks/useNodeStatus';
+import { getVisibleTree } from '../utils/nodeUtils';
 import { useAppearance } from '../hooks/useAppearance';
 import StatusCard from './StatusCard';
 import Settings from './Settings';
@@ -111,6 +112,8 @@ const Canvas: React.FC = () => {
   const [iconLoadCounter, setIconLoadCounter] = useState(0); // Track icon loading to trigger redraws
   const [iconsPreloaded, setIconsPreloaded] = useState(false); // Track icon preloading status
   const [tooltip, setTooltip] = useState<{text: string, x: number, y: number} | null>(null);
+  const [collapsedNodeIds, setCollapsedNodeIds] = useState<Set<string>>(new Set());
+  const [hoveredLineParentId, setHoveredLineParentId] = useState<string | null>(null);
   
   // Use refs for values that should not trigger draw function recreation
   const transformRef = useRef(transform);
@@ -131,7 +134,8 @@ const Canvas: React.FC = () => {
   }, [transform]);
   
   // Use device detection
-  const { isMobile } = useDeviceDetection();
+  const { isMobile, isTablet } = useDeviceDetection();
+  const isTouch = isMobile || isTablet;
   
   // State for mobile iframe overlay
   const [iframeOverlay, setIframeOverlay] = useState<{ url: string; title: string } | null>(null);
@@ -898,13 +902,14 @@ const Canvas: React.FC = () => {
 
   // Calculate positions for tree nodes in a proper vertical tree layout
   const calculateNodePositions = useCallback((): { nodes: PositionedNode[], connections: Connection[] } => {
-    return calculateTreeLayout(currentConfig.tree.nodes);
-  }, [currentConfig]);
+    const visibleTree = getVisibleTree(currentConfig.tree.nodes, collapsedNodeIds);
+    return calculateTreeLayout(visibleTree);
+  }, [currentConfig, collapsedNodeIds]);
 
   // Function to check if mouse is over a status circle for editing
   const getEditButtonHover = useCallback((canvasX: number, canvasY: number): string | null => {
-    // Don't check for edit circle hover on mobile
-    if (isMobile) return null;
+    // Don't check for edit circle hover on mobile/touch
+    if (isTouch) return null;
     
     // Convert canvas coordinates to world coordinates
     const worldX = (canvasX - transform.x) / transform.scale;
@@ -935,7 +940,7 @@ const Canvas: React.FC = () => {
     }
     
     return null;
-  }, [transform, calculateNodePositions, hoveredNodeId, isMobile]);
+  }, [transform, calculateNodePositions, hoveredNodeId, isTouch]);
 
   // Function to check if a point is inside a node
   const getNodeAtPosition = useCallback((canvasX: number, canvasY: number): PositionedNode | null => {
@@ -1470,12 +1475,169 @@ const Canvas: React.FC = () => {
     nodes.forEach(node => {
       const isNodeHovered = hoveredNodeIdRef.current === node.id;
       const isEditButtonHovered = hoveredEditButtonNodeIdRef.current === node.id;
-      drawNode(ctx, node, transform.scale, currentConfig, isNodeHovered, isEditButtonHovered, isMobile);
+      drawNode(ctx, node, transform.scale, currentConfig, isNodeHovered, isEditButtonHovered, isTouch);
+
+      // Draw collapse/expand buttons
+      const isCollapsed = collapsedNodeIds.has(node.id);
+      const originalNode = findNodeById(currentConfig.tree.nodes, node.id);
+      const hasChildren = originalNode && originalNode.children && originalNode.children.length > 0;
+      
+      if (hasChildren) {
+        // Mobile/Touch: Draw permanent button on the left side
+        if (isTouch) {
+          const buttonSize = 36 / transform.scale;
+          const buttonX = node.x; // Left edge of node
+          const buttonY = node.y + node.height / 2;
+          
+          // Draw circle button (half overlapping)
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = '#e5e7eb'; // Light gray border
+          ctx.lineWidth = 1 / transform.scale;
+          
+          // Add shadow
+          ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+          ctx.shadowBlur = 4 / transform.scale;
+          ctx.shadowOffsetY = 2 / transform.scale;
+
+          ctx.beginPath();
+          ctx.arc(buttonX, buttonY, buttonSize/2, 0, Math.PI * 2); // Full circle
+          ctx.fill();
+          
+          ctx.shadowColor = 'transparent';
+          ctx.shadowBlur = 0;
+          ctx.shadowOffsetY = 0;
+          ctx.stroke();
+          
+          // Draw Icon (Chevron Left/Right or Minus/Plus)
+          const iconSize = buttonSize * 0.4;
+          const iconX = buttonX; // Center of button
+          const iconY = buttonY;
+          
+          ctx.beginPath();
+          ctx.strokeStyle = '#6b7280';
+          ctx.lineWidth = 2 / transform.scale;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          
+          if (isCollapsed) {
+            // Chevron Right (Expand)
+            ctx.moveTo(iconX - iconSize/4, iconY - iconSize/2);
+            ctx.lineTo(iconX + iconSize/4, iconY);
+            ctx.lineTo(iconX - iconSize/4, iconY + iconSize/2);
+          } else {
+            // Chevron Left (Collapse)
+            ctx.moveTo(iconX + iconSize/4, iconY - iconSize/2);
+            ctx.lineTo(iconX - iconSize/4, iconY);
+            ctx.lineTo(iconX + iconSize/4, iconY + iconSize/2);
+          }
+          ctx.stroke();
+        } 
+        // Desktop: Draw hover buttons on the line
+        else {
+          const buttonSize = Math.min(Math.max(20 / transform.scale, 16), 30);
+          const buttonX = node.x + node.width / 2;
+          const buttonY = node.y + node.height + (12 / transform.scale);
+          
+          if (isCollapsed) {
+            // Draw Expand Button
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#e5e7eb';
+            ctx.lineWidth = 1 / transform.scale;
+            
+            const childCount = originalNode!.children!.length;
+            const countText = `${childCount} hidden nodes`;
+            ctx.font = `500 ${12 / transform.scale}px Roboto, sans-serif`;
+            const textWidth = ctx.measureText(countText).width;
+            const padding = 12 / transform.scale;
+            const pillWidth = textWidth + buttonSize + padding;
+            const pillHeight = Math.max(24 / transform.scale, 20);
+            
+            // Draw pill background with shadow
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+            ctx.shadowBlur = 4 / transform.scale;
+            ctx.shadowOffsetY = 2 / transform.scale;
+            
+            ctx.beginPath();
+            if (ctx.roundRect) {
+              ctx.roundRect(buttonX - pillWidth/2, buttonY, pillWidth, pillHeight, pillHeight/2);
+            } else {
+              // Fallback for older browsers
+              ctx.moveTo(buttonX - pillWidth/2 + pillHeight/2, buttonY);
+              ctx.lineTo(buttonX + pillWidth/2 - pillHeight/2, buttonY);
+              ctx.arc(buttonX + pillWidth/2 - pillHeight/2, buttonY + pillHeight/2, pillHeight/2, -Math.PI/2, Math.PI/2);
+              ctx.lineTo(buttonX - pillWidth/2 + pillHeight/2, buttonY + pillHeight);
+              ctx.arc(buttonX - pillWidth/2 + pillHeight/2, buttonY + pillHeight/2, pillHeight/2, Math.PI/2, -Math.PI/2);
+            }
+            ctx.fill();
+            
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.stroke();
+            
+            // Draw Chevron Down
+            const iconX = buttonX - pillWidth/2 + pillHeight/2;
+            const iconY = buttonY + pillHeight/2;
+            const iconSize = pillHeight * 0.4;
+            
+            ctx.beginPath();
+            ctx.moveTo(iconX - iconSize/2, iconY - iconSize/4);
+            ctx.lineTo(iconX, iconY + iconSize/4);
+            ctx.lineTo(iconX + iconSize/2, iconY - iconSize/4);
+            ctx.strokeStyle = '#6b7280';
+            ctx.lineWidth = 2 / transform.scale;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+            
+            // Draw Count
+            ctx.fillStyle = '#4b5563';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(countText, iconX + iconSize/2 + (6/transform.scale), iconY);
+            
+          } else if (hoveredLineParentId === node.id) {
+            // Draw Collapse Button (Chevron Up)
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = '#e5e7eb';
+            ctx.lineWidth = 1 / transform.scale;
+            
+            // Add shadow
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+            ctx.shadowBlur = 4 / transform.scale;
+            ctx.shadowOffsetY = 2 / transform.scale;
+            
+            ctx.beginPath();
+            ctx.arc(buttonX, buttonY + buttonSize/2, buttonSize/2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.stroke();
+            
+            // Draw Chevron Up
+            const iconX = buttonX;
+            const iconY = buttonY + buttonSize/2;
+            const iconSize = buttonSize * 0.5;
+            
+            ctx.beginPath();
+            ctx.moveTo(iconX - iconSize/2, iconY + iconSize/4);
+            ctx.lineTo(iconX, iconY - iconSize/4);
+            ctx.lineTo(iconX + iconSize/2, iconY + iconSize/4);
+            ctx.strokeStyle = '#6b7280';
+            ctx.lineWidth = 2 / transform.scale;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.stroke();
+          }
+        }
+      }
     });
     
     // Restore context state
     ctx.restore();
-  }, [backgroundLoaded, calculateNodePositions, getNodeStatus, iconLoadCounter, currentConfig, transform, hoveredNodeId, hoveredEditButtonNodeId]);
+  }, [backgroundLoaded, calculateNodePositions, getNodeStatus, iconLoadCounter, currentConfig, transform, hoveredNodeId, hoveredEditButtonNodeId, collapsedNodeIds, hoveredLineParentId]);
 
   // Use requestAnimationFrame for smooth redraws with simple throttling
   const animationFrameRef = useRef<number | null>(null);
@@ -1603,7 +1765,7 @@ const Canvas: React.FC = () => {
     setHoveredEditButtonNodeId(editButtonHovered);
     
     // Handle tooltip for edit circle hover
-    if (editButtonHovered && !isMobile) {
+    if (editButtonHovered && !isTouch) {
       setTooltip({
         text: 'Edit node',
         x: e.clientX + 10,
@@ -1611,6 +1773,38 @@ const Canvas: React.FC = () => {
       });
     } else {
       setTooltip(null);
+    }
+
+    // Check for hover on collapse/expand buttons or lines
+    if (!isDragging && !isTouch) {
+      const worldX = (canvasX - transform.x) / transform.scale;
+      const worldY = (canvasY - transform.y) / transform.scale;
+      
+      const { nodes } = calculateNodePositions();
+      let foundHoveredLine = null;
+      
+      for (const node of nodes) {
+        const originalNode = findNodeById(currentConfig.tree.nodes, node.id);
+        if (!originalNode || !originalNode.children || originalNode.children.length === 0) continue;
+        
+        // Check area below node where line/button is
+        const buttonX = node.x + node.width / 2;
+        // Hit area for the line/button
+        const hitWidth = 40 / transform.scale;
+        const hitHeight = 40 / transform.scale;
+        
+        if (
+          worldX >= buttonX - hitWidth/2 &&
+          worldX <= buttonX + hitWidth/2 &&
+          worldY >= node.y + node.height &&
+          worldY <= node.y + node.height + hitHeight
+        ) {
+          foundHoveredLine = node.id;
+          break;
+        }
+      }
+      
+      setHoveredLineParentId(foundHoveredLine);
     }
     
     if (!isDragging) return;
@@ -1646,39 +1840,108 @@ const Canvas: React.FC = () => {
     const wasClick = dragDistance < 5; // Less than 5 pixels movement = click
     
     if (wasClick) {
-      // Check for edit circle click first - only if we're hovering a node
-      if (hoveredNodeId) {
-        const hoveredNode = getNodeAtPosition(canvasX, canvasY);
-        if (hoveredNode && hoveredNode.id === hoveredNodeId) {
-          // Calculate circle bounds for the hovered node
-          const worldX = (canvasX - transform.x) / transform.scale;
-          const worldY = (canvasY - transform.y) / transform.scale;
+      // Check for collapse/expand button click
+      const worldX = (canvasX - transform.x) / transform.scale;
+      const worldY = (canvasY - transform.y) / transform.scale;
+      
+      const { nodes } = calculateNodePositions();
+      let buttonClicked = false;
+      
+      for (const node of nodes) {
+        const originalNode = findNodeById(currentConfig.tree.nodes, node.id);
+        if (!originalNode || !originalNode.children || originalNode.children.length === 0) continue;
+        
+        let hit = false;
+        
+        if (isTouch) {
+          // Mobile/Touch: Check side button
+          const buttonSize = 36 / transform.scale;
+          const buttonX = node.x;
+          const buttonY = node.y + node.height / 2;
           
-          // Calculate circle position (same logic as in drawNode)
-          const circlePadding = 15; // Consistent padding for circle
-          const maxCircleSize = Math.min(hoveredNode.height - (circlePadding * 2), 60); // Max circle diameter of 60px
-          const circleRadius = maxCircleSize * 0.5;
-          const circleCenterX = hoveredNode.x + circlePadding + circleRadius; // Center based on consistent padding
-          const circleCenterY = hoveredNode.y + hoveredNode.height / 2;
-          
-          // Check if click is within circle bounds
-          const distance = Math.sqrt(
-            Math.pow(worldX - circleCenterX, 2) + 
-            Math.pow(worldY - circleCenterY, 2)
-          );
-          
-          if (distance <= circleRadius) {
-            // Circle clicked - open edit dialog!
-            handleEditNode(hoveredNode.id);
-            return;
+          // Check circle hit area
+          const dist = Math.sqrt(Math.pow(worldX - buttonX, 2) + Math.pow(worldY - buttonY, 2));
+          if (dist <= buttonSize/2) {
+            hit = true;
           }
+        } else {
+          // Desktop: Check bottom button
+          const buttonX = node.x + node.width / 2;
+          const hitWidth = 40 / transform.scale;
+          const hitHeight = 40 / transform.scale;
+          
+          // Expand hit area for the wider "hidden nodes" button if collapsed
+          const isCollapsed = collapsedNodeIds.has(node.id);
+          const effectiveHitWidth = isCollapsed ? 120 / transform.scale : hitWidth;
+          
+          if (
+            worldX >= buttonX - effectiveHitWidth/2 &&
+            worldX <= buttonX + effectiveHitWidth/2 &&
+            worldY >= node.y + node.height &&
+            worldY <= node.y + node.height + hitHeight
+          ) {
+            hit = true;
+          }
+        }
+        
+        if (hit) {
+          buttonClicked = true;
+          
+          setCollapsedNodeIds(prev => {
+            const next = new Set(prev);
+            if (next.has(node.id)) {
+              next.delete(node.id);
+            } else {
+              next.add(node.id);
+            }
+            return next;
+          });
+          
+          break; 
         }
       }
       
-      // Check for regular node click
-      const clickedNode = getNodeAtPosition(canvasX, canvasY);
-      if (clickedNode) {
-        openNodeUrl(clickedNode);
+      if (!buttonClicked) {
+        // If we clicked elsewhere on mobile, clear the hover state (though less relevant now with permanent buttons)
+        if (isTouch) {
+          setHoveredLineParentId(null);
+        }
+
+        // Check for edit circle click first - only if we're hovering a node
+        if (hoveredNodeId) {
+          const hoveredNode = getNodeAtPosition(canvasX, canvasY);
+          if (hoveredNode && hoveredNode.id === hoveredNodeId) {
+            // Calculate circle bounds for the hovered node
+            const worldX = (canvasX - transform.x) / transform.scale;
+            const worldY = (canvasY - transform.y) / transform.scale;
+            
+            // Calculate circle position (same logic as in drawNode)
+            const circlePadding = 15; // Consistent padding for circle
+            const maxCircleSize = Math.min(hoveredNode.height - (circlePadding * 2), 60); // Max circle diameter of 60px
+            const circleRadius = maxCircleSize * 0.5;
+            const circleCenterX = hoveredNode.x + circlePadding + circleRadius; // Center based on consistent padding
+            const circleCenterY = hoveredNode.y + hoveredNode.height / 2;
+            
+            // Check if click is within circle bounds
+            const distance = Math.sqrt(
+              Math.pow(worldX - circleCenterX, 2) + 
+              Math.pow(worldY - circleCenterY, 2)
+            );
+            
+            if (distance <= circleRadius) {
+              // Circle clicked - open edit dialog!
+              handleEditNode(hoveredNode.id);
+              setIsDragging(false); // Ensure we reset dragging state
+              return;
+            }
+          }
+        }
+        
+        // Check for regular node click
+        const clickedNode = getNodeAtPosition(canvasX, canvasY);
+        if (clickedNode) {
+          openNodeUrl(clickedNode);
+        }
       }
     }
     

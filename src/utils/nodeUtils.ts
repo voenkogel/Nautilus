@@ -53,3 +53,24 @@ export const normalizeNodeIdentifier = (identifier: string): string => {
   
   return normalized;
 };
+
+/**
+ * Returns a tree structure with children of collapsed nodes removed.
+ * Used for layout calculations.
+ */
+export const getVisibleTree = (nodes: TreeNode[], collapsedIds: Set<string>): TreeNode[] => {
+  return nodes.map(node => {
+    // Create a shallow copy
+    const newNode = { ...node };
+    
+    if (collapsedIds.has(node.id)) {
+      // If collapsed, remove children for layout purposes
+      newNode.children = [];
+    } else if (node.children) {
+      // If not collapsed, recursively process children
+      newNode.children = getVisibleTree(node.children, collapsedIds);
+    }
+    
+    return newNode;
+  });
+};
