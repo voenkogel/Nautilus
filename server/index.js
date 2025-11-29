@@ -471,27 +471,33 @@ async function checkNodeHealth(identifier) {
   // Store using normalized identifier for consistent lookups
   nodeStatuses.set(normalizedIdentifier, finalResult);
   
+  let notification = null;
+  
   if (shouldNotify) {
     const nodeName = nodeData?.title || nodeData?.id || normalizedIdentifier;
     console.log(`📢 [NOTIFICATION] Status change detected for "${nodeName}": ${previousStatus.status} → ${finalResult.status}`);
     
-    // Send webhook notification if configured
+    // Prepare notification object but don't send it yet (batch processing will handle it)
     if (appConfig.webhooks?.statusNotifications) {
       const event = finalResult.status === 'online' ? 'online' : 'offline';
       
-      try {
-        await sendStatusWebhook(
-          appConfig.webhooks.statusNotifications,
-          nodeName,
-          event
-        );
-      } catch (error) {
-        console.error(`❌ [WEBHOOK] Failed to send notification for ${nodeName}:`, error.message);
-      }
+      notification = {
+        identifier: normalizedIdentifier,
+        nodeName: nodeName,
+        event: event,
+        timestamp: new Date().toISOString(),
+        details: {
+          error: finalResult.error,
+          responseTime: finalResult.responseTime,
+          endpoint: finalResult.endpoint,
+          statusCode: finalResult.statusCode
+        }
+      };
     }
   }
   
-  return finalResult;
+  // Return both result and notification
+  return { ...finalResult, notification };
 }
 
 // Helper function to attempt health check for a specific endpoint
@@ -504,22 +510,18 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
   const attemptStart = Date.now();
   
   try {
-    // Use a more aggressive timeout approach with explicit promise handling
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => {
-        reject(new Error('Request timeout (5s)'));
-      }, 5000);
-    });
+    // Use AbortController for proper timeout handling and resource cleanup
+    const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), 5000);
     
-    const fetchPromise = fetch(endpoint, {
+    const response = await fetch(endpoint, {
       method: 'GET',
       headers: {
         'User-Agent': 'Nautilus-Monitor/1.0'
       },
-      agent: endpoint.startsWith('https://') ? httpsAgent : undefined
+      agent: endpoint.startsWith('https://') ? httpsAgent : undefined,
+      signal: controller.signal
     });
-    
-    const response = await Promise.race([fetchPromise, timeoutPromise]);
     
     clearTimeout(timeoutId);
     const responseTime = Date.now() - attemptStart;
@@ -541,7 +543,8 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
     const responseTime = Date.now() - attemptStart;
     
     let errorMessage = 'Unknown error';
-    if (error.message === 'Request timeout (5s)') {
+    
+    if (error.name === 'AbortError' || error.message === 'Request timeout (5s)') {
       errorMessage = 'Request timeout (5s)';
     } else if (error.code === 'ENOTFOUND') {
       errorMessage = 'Host not found (DNS failed)';
@@ -568,24 +571,162 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
   return result;
 }
 
+// Helper to find monitored children for a given node
+function getMonitoredChildren(node) {
+  if (!node.children || !Array.isArray(node.children)) return [];
+  return node.children.filter(child => 
+    child.ip && 
+    child.healthCheckPort && 
+    !child.disableHealthCheck
+  );
+}
+
+// Process notifications with bundling logic
+async function processNotifications(notifications) {
+  if (!notifications || notifications.length === 0) return;
+  
+  const notificationMap = new Map(notifications.map(n => [n.identifier, n]));
+  const consumedIds = new Set();
+  const bundles = [];
+  
+  // Recursive function to find bundles
+  function findBundles(nodes) {
+    if (!nodes || !Array.isArray(nodes)) return;
+
+    for (const node of nodes) {
+      // Construct normalized identifier for this node
+      let nodeIdentifier = null;
+      if (node.ip && node.healthCheckPort) {
+         nodeIdentifier = normalizeNodeIdentifier(`${node.ip}:${node.healthCheckPort}`);
+      }
+      
+      const nodeNotification = nodeIdentifier ? notificationMap.get(nodeIdentifier) : null;
+      
+      // Check if this node is a candidate for being a parent of a bundle
+      if (nodeNotification && !consumedIds.has(nodeIdentifier)) {
+        const monitoredChildren = getMonitoredChildren(node);
+        
+        if (monitoredChildren.length > 0) {
+          // Check if ALL monitored children have the SAME status change
+          const childrenNotifications = [];
+          let allChildrenMatch = true;
+          
+          for (const child of monitoredChildren) {
+            const childId = normalizeNodeIdentifier(`${child.ip}:${child.healthCheckPort}`);
+            const childNotif = notificationMap.get(childId);
+            
+            if (!childNotif || childNotif.event !== nodeNotification.event || consumedIds.has(childId)) {
+              allChildrenMatch = false;
+              break;
+            }
+            childrenNotifications.push({ id: childId, name: child.title || child.id });
+          }
+          
+          if (allChildrenMatch) {
+            // Create Bundle
+            consumedIds.add(nodeIdentifier);
+            childrenNotifications.forEach(c => consumedIds.add(c.id));
+            
+            bundles.push({
+              type: 'bundle',
+              parentName: node.title || node.id,
+              childrenCount: childrenNotifications.length,
+              event: nodeNotification.event,
+              timestamp: nodeNotification.timestamp,
+              baseNotification: nodeNotification
+            });
+          }
+        }
+      }
+      
+      // Recurse into children
+      if (node.children) {
+        findBundles(node.children);
+      }
+    }
+  }
+  
+  // Start traversal from root
+  if (appConfig.tree && appConfig.tree.nodes) {
+    findBundles(appConfig.tree.nodes);
+  }
+  
+  // Send Bundles
+  for (const bundle of bundles) {
+    const emoji = bundle.event === 'online' ? '✅' : '❌';
+    const message = `${emoji} ${bundle.parentName} and its ${bundle.childrenCount} children have gone ${bundle.event}`;
+    
+    console.log(`📦 [BUNDLE] Sending bundled notification: "${message}"`);
+
+    if (appConfig.webhooks?.statusNotifications) {
+       sendStatusWebhook(
+         appConfig.webhooks.statusNotifications,
+         bundle.parentName, 
+         bundle.event,
+         {
+           messageOverride: message,
+           isBundle: true,
+           childrenCount: bundle.childrenCount,
+           ...bundle.baseNotification.details
+         }
+       ).catch(e => console.error(`❌ [WEBHOOK] Bundle send failed: ${e.message}`));
+    }
+  }
+  
+  // Send Remaining Individual Notifications
+  for (const notif of notifications) {
+    if (!consumedIds.has(notif.identifier)) {
+       if (appConfig.webhooks?.statusNotifications) {
+         sendStatusWebhook(
+           appConfig.webhooks.statusNotifications,
+           notif.nodeName,
+           notif.event,
+           notif.details
+         ).catch(e => console.error(`❌ [WEBHOOK] Send failed: ${e.message}`));
+       }
+    }
+  }
+}
+
 // Function to check all nodes
 async function checkAllNodes() {
-  const promises = nodeIdentifiers.map(async (identifier) => {
-    const result = await checkNodeHealth(identifier);
-    const normalizedIdentifier = normalizeNodeIdentifier(identifier);
-    
-    // Only log offline nodes with details
-    if (result.status === 'offline') {
-      const nodeData = findNodeByIdentifier(normalizedIdentifier);
-      const displayName = nodeData?.title || normalizedIdentifier;
-      const errorDetail = result.error ? ` (${result.error})` : '';
-      console.log(`❌ ${displayName} (${normalizedIdentifier}): offline${errorDetail}`);
-    }
-    
-    return result;
-  });
+  // Use batching to control concurrency (Synchronous Asynchronous)
+  // This prevents "thundering herd" issues with 50+ nodes
+  const BATCH_SIZE = 10;
+  const queue = [...nodeIdentifiers];
+  const cycleNotifications = [];
   
-  await Promise.allSettled(promises);
+  while (queue.length > 0) {
+    const batch = queue.splice(0, BATCH_SIZE);
+    
+    const promises = batch.map(async (identifier) => {
+      const { notification, ...result } = await checkNodeHealth(identifier);
+      
+      if (notification) {
+        cycleNotifications.push(notification);
+      }
+
+      const normalizedIdentifier = normalizeNodeIdentifier(identifier);
+      
+      // Only log offline nodes with details
+      if (result.status === 'offline') {
+        const nodeData = findNodeByIdentifier(normalizedIdentifier);
+        const displayName = nodeData?.title || normalizedIdentifier;
+        const errorDetail = result.error ? ` (${result.error})` : '';
+        console.log(`❌ ${displayName} (${normalizedIdentifier}): offline${errorDetail}`);
+      }
+      
+      return result;
+    });
+    
+    // Wait for the current batch to finish before starting the next one
+    await Promise.allSettled(promises);
+  }
+  
+  // Process and send notifications (bundled or individual)
+  if (cycleNotifications.length > 0) {
+    await processNotifications(cycleNotifications);
+  }
   
   const statuses = Array.from(nodeStatuses.entries());
   const onlineCount = statuses.filter(([_, status]) => status.status === 'online').length;
@@ -600,11 +741,20 @@ async function checkAllNodes() {
   }
 }
 
-// Start the health checking interval (from centralized config)
-setInterval(checkAllNodes, appConfig.server.healthCheckInterval);
+// Recursive scheduling function to prevent overlapping checks
+async function scheduleNextCheck() {
+  try {
+    await checkAllNodes();
+  } catch (error) {
+    console.error('❌ Critical error in health check loop:', error);
+  } finally {
+    // Schedule next run only after this one completes
+    setTimeout(scheduleNextCheck, appConfig.server.healthCheckInterval);
+  }
+}
 
-// Initial health check
-checkAllNodes();
+// Start the health checking loop
+scheduleNextCheck();
 
 // API endpoint to get all node statuses
 app.get('/api/status', (req, res) => {

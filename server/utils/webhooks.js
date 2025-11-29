@@ -9,9 +9,10 @@ import fetch from 'node-fetch';
  * @param {boolean} config.notifyOnline - Whether to send notifications when nodes go online
  * @param {string} nodeName - The name of the node that changed status
  * @param {string} event - The event type ('online' or 'offline')
+ * @param {Object} [details] - Optional structured details about the event
  * @returns {Promise<Object>} - The response from the webhook endpoint
  */
-export async function sendStatusWebhook(config, nodeName, event) {
+export async function sendStatusWebhook(config, nodeName, event, details = {}) {
   // Check if webhooks are configured and enabled for this event
   if (!config || !config.endpoint) {
     return { success: false, error: 'Webhook endpoint not configured' };
@@ -27,13 +28,18 @@ export async function sendStatusWebhook(config, nodeName, event) {
   
   // Prepare the payload with emojis
   const emoji = event === 'online' ? '✅' : '❌';
-  const message = event === 'online' 
+  const message = details.messageOverride || (event === 'online' 
     ? `${emoji} ${nodeName} has come online` 
-    : `${emoji} ${nodeName} has gone offline`;
+    : `${emoji} ${nodeName} has gone offline`);
     
   const payload = {
     message,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    data: {
+      node: nodeName,
+      status: event,
+      ...details
+    }
   };
   
   try {

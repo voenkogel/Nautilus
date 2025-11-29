@@ -565,6 +565,7 @@ function install_script() {
   local create_error
   # Create a directory on the host for persistent data
   mkdir -p /var/lib/vz/nautilus-data-$CT_ID
+  chmod 777 /var/lib/vz/nautilus-data-$CT_ID
   
   create_output=$(pct create $CT_ID /var/lib/vz/template/cache/ubuntu-22.04-standard_22.04-1_amd64.tar.zst \
     --arch amd64 \
@@ -985,9 +986,9 @@ fi
       npm ci --only=production 2>&1
       echo \"=== Creating data directory ===\" 
       mkdir -p /data
-      chown nautilus:nautilus /data
+      chown nautilus:nautilus /data || true
       echo \"{}\" > /data/config.json
-      chown nautilus:nautilus /data/config.json
+      chown nautilus:nautilus /data/config.json || chmod 666 /data/config.json
       echo \"=== Verifying build output ===\" 
       ls -la server/public/
       echo \"=== Adding catch-all route for React Router ===\" 
@@ -1339,10 +1340,13 @@ EOF
     
     echo \"=== Ensuring data directory exists with proper permissions ===\" 
     mkdir -p /data
-    chown nautilus:nautilus /data
+    chown nautilus:nautilus /data || true
     if [ ! -f /data/config.json ]; then
       echo \"{}\" > /data/config.json
-      chown nautilus:nautilus /data/config.json
+      chown nautilus:nautilus /data/config.json || chmod 666 /data/config.json
+    else
+      # Ensure existing config is writable
+      chown nautilus:nautilus /data/config.json || chmod 666 /data/config.json
     fi
     
     echo \"=== Enabling services ===\" 
