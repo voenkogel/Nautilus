@@ -181,6 +181,44 @@ try {
   };
 
   console.log('✅ Loaded and merged config from config.json and environment variables.');
+
+  // --- MIGRATION: Convert legacy fields to new address fields ---
+  function migrateNode(node) {
+    let modified = false;
+    
+    // Migrate IP + Port -> internalAddress
+    if (!node.internalAddress && node.ip && node.healthCheckPort) {
+      node.internalAddress = `${node.ip}:${node.healthCheckPort}`;
+      modified = true;
+      console.log(`🔄 [MIGRATION] Migrated node "${node.title}" to internalAddress: ${node.internalAddress}`);
+    }
+    
+    // Migrate URL -> externalAddress
+    if (!node.externalAddress && node.url) {
+      node.externalAddress = node.url;
+      modified = true;
+      console.log(`🔄 [MIGRATION] Migrated node "${node.title}" to externalAddress: ${node.externalAddress}`);
+    }
+    
+    if (node.children && Array.isArray(node.children)) {
+      node.children.forEach(child => {
+        if (migrateNode(child)) modified = true;
+      });
+    }
+    
+    return modified;
+  }
+  
+  if (appConfig.tree && appConfig.tree.nodes) {
+    let treeModified = false;
+    appConfig.tree.nodes.forEach(node => {
+      if (migrateNode(node)) treeModified = true;
+    });
+    
+    if (treeModified) {
+      console.log('✅ Configuration migrated to new address format (in-memory)');
+    }
+  }
 } catch (error) {
   console.log('No config.json found or error reading it. Using environment variables or defaults.');
   appConfig = defaultConfig;
@@ -269,16 +307,24 @@ function extractAllNodeIdentifiers(nodes = appConfig.tree?.nodes) {
     
     for (const node of nodeList) {
       try {
-        // Only monitor nodes with healthCheckPort and ip specified, AND not explicitly disabled
-        if (node.healthCheckPort && node.ip && !node.disableHealthCheck) {
-          const identifier = `${node.ip}:${node.healthCheckPort}`;
-          console.log(`📍 [MONITOR] Node "${node.title || node.id}": ip="${node.ip}", healthCheckPort="${node.healthCheckPort}" → monitoring "${identifier}"`);
+        // Only monitor nodes with internalAddress (or legacy ip+port) specified, AND not explicitly disabled
+        const hasInternal = !!node.internalAddress;
+        const hasLegacy = !!(node.healthCheckPort && node.ip);
+
+        if ((hasInternal || hasLegacy) && !node.disableHealthCheck) {
+          let identifier = node.internalAddress;
+          // Fallback to legacy format if internalAddress is not set
+          if (!identifier && hasLegacy) {
+            identifier = `${node.ip}:${node.healthCheckPort}`;
+          }
+
+          console.log(`📍 [MONITOR] Node "${node.title || node.id}": monitoring "${identifier}"`);
           
           // Normalize the identifier to ensure consistent format
           const normalizedIdentifier = normalizeNodeIdentifier(identifier);
           identifiers.push(normalizedIdentifier);
         } else {
-          const reason = node.disableHealthCheck ? 'explicitly disabled' : 'missing healthCheckPort or ip';
+          const reason = node.disableHealthCheck ? 'explicitly disabled' : 'missing internalAddress (or ip+port)';
           console.log(`⏭️  [SKIP] Node "${node.title || node.id}": ${reason}, excluded from monitoring`);
         }
         
@@ -368,9 +414,13 @@ function findNodeByIdentifier(targetIdentifier) {
   
   function searchNodes(nodes) {
     for (const node of nodes) {
-      // NEW ARCHITECTURE: Generate identifier from ip:healthCheckPort
-      if (node.healthCheckPort && node.ip) {
-        const nodeIdentifier = `${node.ip}:${node.healthCheckPort}`;
+      // NEW ARCHITECTURE: Check internalAddress and legacy
+      let nodeIdentifier = node.internalAddress;
+      if (!nodeIdentifier && node.healthCheckPort && node.ip) {
+        nodeIdentifier = `${node.ip}:${node.healthCheckPort}`;
+      }
+
+      if (nodeIdentifier) {
         const normalizedNodeId = normalizeNodeIdentifier(nodeIdentifier);
         if (normalizedNodeId === normalizedTarget) {
           return node;
@@ -399,17 +449,24 @@ async function checkNodeHealth(identifier) {
   // Only nodes with healthCheckPort should reach this function
   let baseEndpoint;
   
-  if (nodeData && nodeData.healthCheckPort && nodeData.ip) {
-    baseEndpoint = `${nodeData.ip}:${nodeData.healthCheckPort}`;
+  if (nodeData) {
+    if (nodeData.internalAddress) {
+      baseEndpoint = nodeData.internalAddress;
+    } else if (nodeData.healthCheckPort && nodeData.ip) {
+      baseEndpoint = `${nodeData.ip}:${nodeData.healthCheckPort}`;
+    }
+  }
+
+  if (baseEndpoint) {
     console.log(`🎯 [ENDPOINT] Node "${nodeData.title || nodeData.id}": healthCheck="${baseEndpoint}"`);
   } else {
-    console.log(`⚠️  [ENDPOINT] Invalid node data for "${normalizedIdentifier}" - missing healthCheckPort or ip`);
+    console.log(`⚠️  [ENDPOINT] Invalid node data for "${normalizedIdentifier}" - missing internalAddress or (ip+port)`);
     // Return offline for invalid nodes
     return {
       status: 'offline',
       lastChecked: new Date().toISOString(),
       responseTime: 0,
-      error: 'Invalid node configuration - missing healthCheckPort or ip'
+      error: 'Invalid node configuration - missing internalAddress'
     };
   }
   

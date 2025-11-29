@@ -772,26 +772,28 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
         id: `device-${host}-${generateUniqueId()}`,
         title: deviceTitle,
         subtitle: '',
-        ip: host, // CLEAN: Only IP/hostname, no port
+        // ip: host, // CLEAN: Only IP/hostname, no port
         icon: 'server',
         type: 'square', // Will be updated based on embedded GUI status
         children: []
       };
       
-      // NEW ARCHITECTURE: Set healthCheckPort and url based on whether this device has an embedded GUI
+      // NEW ARCHITECTURE: Set internalAddress and externalAddress based on whether this device has an embedded GUI
       if (embeddedGuiUrl) {
         // Extract port from the embedded GUI URL for health checking
         const portMatch = embeddedGuiUrl.match(/:(\d+)/);
         if (portMatch) {
-          deviceNode.healthCheckPort = parseInt(portMatch[1]);
+          // deviceNode.healthCheckPort = parseInt(portMatch[1]);
+          deviceNode.internalAddress = `${host}:${portMatch[1]}`;
         }
         // Set external URL for user access (browser opening)
-        deviceNode.url = embeddedGuiUrl;
+        // deviceNode.url = embeddedGuiUrl;
+        deviceNode.externalAddress = embeddedGuiUrl;
         deviceNode.type = 'square'; // Device-web combos get square cards
       } else {
         // Pure devices get square cards and no health checking
         deviceNode.type = 'square';
-        // No healthCheckPort = no health checks (this is the new way to exclude from monitoring)
+        // No internalAddress = no health checks (this is the new way to exclude from monitoring)
       }
       
       deviceMap.set(host, deviceNode);
@@ -808,8 +810,9 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             id: `port-${host}-${port}-${generateUniqueId()}`,
             title: `Open Port (${host}:${port})`,
             subtitle: '',
-            ip: host, // CLEAN: Only IP/hostname, no port
-            healthCheckPort: parseInt(port), // NEW: Dedicated port field for health checking
+            // ip: host, // CLEAN: Only IP/hostname, no port
+            // healthCheckPort: parseInt(port), // NEW: Dedicated port field for health checking
+            internalAddress: `${host}:${port}`,
             icon: 'network',
             type: 'angular', // Port cards get angular cards
             // No hasWebGui field = excluded from legacy health check logic
@@ -847,9 +850,11 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             id: `web-${webUrl}-${generateUniqueId()}`,
             title: nodeTitle,
             subtitle: '',
-            ip: host, // CLEAN: Only IP/hostname, no port
-            healthCheckPort: parseInt(port), // NEW: Dedicated port field for health checking
-            url: webUrl, // NEW: Set external URL for user access (browser opening)
+            // ip: host, // CLEAN: Only IP/hostname, no port
+            // healthCheckPort: parseInt(port), // NEW: Dedicated port field for health checking
+            internalAddress: `${host}:${port}`,
+            // url: webUrl, // NEW: Set external URL for user access (browser opening)
+            externalAddress: webUrl,
             icon: 'globe',
             type: 'circular' // Web GUIs get circular cards
           };

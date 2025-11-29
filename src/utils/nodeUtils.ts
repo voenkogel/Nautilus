@@ -10,10 +10,20 @@ export const extractMonitoredNodeIdentifiers = (nodes: TreeNode[]): string[] => 
   
   const traverse = (nodeList: TreeNode[]) => {
     for (const node of nodeList) {
-      // Only monitor nodes with healthCheckPort and ip specified, AND not explicitly disabled
-      if (node.healthCheckPort && node.ip && !node.disableHealthCheck) {
-        const identifier = `${node.ip}:${node.healthCheckPort}`;
-        identifiers.push(identifier);
+      // Only monitor nodes with internalAddress (or legacy ip+port) specified, AND not explicitly disabled
+      const hasInternal = !!node.internalAddress;
+      const hasLegacy = !!(node.healthCheckPort && node.ip);
+
+      if ((hasInternal || hasLegacy) && !node.disableHealthCheck) {
+        let identifier = node.internalAddress;
+        // Fallback to legacy format if internalAddress is not set
+        if (!identifier && hasLegacy) {
+          identifier = `${node.ip}:${node.healthCheckPort}`;
+        }
+        
+        if (identifier) {
+          identifiers.push(identifier);
+        }
       }
       
       if (node.children) {

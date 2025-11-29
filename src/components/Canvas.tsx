@@ -964,11 +964,29 @@ const Canvas: React.FC = () => {
   const openNodeUrl = useCallback((node: PositionedNode) => {
     let targetUrl = null;
     
-    // Check for explicit URL first
-    if (node.url) {
-      targetUrl = node.url.includes('://') ? node.url : `https://${node.url}`;
+    // Check for explicit externalAddress or URL first
+    const externalUrl = node.externalAddress || node.url;
+    if (externalUrl) {
+      targetUrl = externalUrl.includes('://') ? externalUrl : `https://${externalUrl}`;
     }
-    // For nodes with healthCheckPort and an IP, create URL from IP:port
+    // For nodes with internalAddress, try to use it
+    else if (node.internalAddress) {
+      if (node.internalAddress.includes('://')) {
+        targetUrl = node.internalAddress;
+      } else {
+        // Try to guess protocol based on port if present
+        const match = node.internalAddress.match(/:(\d+)$/);
+        if (match) {
+          const port = parseInt(match[1]);
+          const commonHttpPorts = [80, 8080, 8989, 7878, 8686, 6767, 5076, 9117];
+          const protocol = commonHttpPorts.includes(port) ? 'http' : 'https';
+          targetUrl = `${protocol}://${node.internalAddress}`;
+        } else {
+          targetUrl = `https://${node.internalAddress}`;
+        }
+      }
+    }
+    // Legacy fallback: For nodes with healthCheckPort and an IP, create URL from IP:port
     else if (node.healthCheckPort && node.ip) {
       // Use HTTP for common HTTP-only ports, HTTPS for others
       const commonHttpPorts = [80, 8080, 8989, 7878, 8686, 6767, 5076, 9117];

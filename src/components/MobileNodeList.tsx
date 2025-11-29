@@ -71,14 +71,19 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
     const { id, title, subtitle, ip, url, icon, type, children } = node;
     
     // Get status for this node using the same identifier logic as desktop
-    const nodeIdentifier = node.healthCheckPort && node.ip 
-      ? `${node.ip}:${node.healthCheckPort}` 
-      : (ip || url);
+    let nodeIdentifier = node.internalAddress;
+    if (!nodeIdentifier && node.healthCheckPort && node.ip) {
+      nodeIdentifier = `${node.ip}:${node.healthCheckPort}`;
+    }
+    if (!nodeIdentifier) {
+      nodeIdentifier = node.ip || node.url || node.externalAddress;
+    }
+
     const status = nodeIdentifier ? statuses[nodeIdentifier] : undefined;
     let statusColor = '#6b7280'; // Default gray
     
-    // Check if node has monitoring disabled (no healthCheckPort)
-    const isMonitoringDisabled = !node.healthCheckPort;
+    // Check if node has monitoring disabled (no internalAddress or healthCheckPort)
+    const isMonitoringDisabled = !node.internalAddress && !node.healthCheckPort;
     
     if (status && !isMonitoringDisabled) {
       if (status.status === 'online') {

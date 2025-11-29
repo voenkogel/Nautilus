@@ -69,49 +69,57 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
           />
         </div>
 
-        {/* IP Address */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">IP Address (optional)</label>
+        {/* Internal Address */}
+        <div className="col-span-1 md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+            Internal Address
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+              Health Check
+            </span>
+          </label>
           <input
             type="text"
-            value={node.ip || ''}
-            onChange={(e) => onChange({ ip: e.target.value || undefined })}
-            placeholder="192.168.1.100 or hostname.local"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <p className="text-xs text-gray-500 mt-1">IP address or hostname for identification (no port)</p>
-        </div>
-
-        {/* Health Check Port */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Health Check Port (optional)</label>
-          <input
-            type="number"
-            min="1"
-            max="65535"
-            value={node.healthCheckPort || ''}
-            onChange={(e) => onChange({ 
-              healthCheckPort: e.target.value ? parseInt(e.target.value) : undefined 
-            })}
-            placeholder="8080"
+            value={node.internalAddress || (node.ip ? (node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : node.ip) : '')}
+            onChange={(e) => {
+              const val = e.target.value;
+              onChange({ 
+                internalAddress: val || undefined,
+                // Clear legacy fields to complete migration for this node
+                ip: undefined,
+                healthCheckPort: undefined
+              });
+            }}
+            placeholder="192.168.1.100:8080 or http://internal-service:3000"
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <p className="text-xs text-gray-500 mt-1">
-            Port for health checks. Leave empty to exclude from monitoring.
+            Address used by the server to check status. Format: <code>ip:port</code> or <code>http://ip:port</code>
           </p>
         </div>
 
-        {/* External URL */}
+        {/* External Address */}
         <div className="col-span-1 md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700 mb-1">External URL (optional)</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
+            External Address
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+              User Access
+            </span>
+          </label>
           <input
             type="text"
-            value={node.url || ''}
-            onChange={(e) => onChange({ url: e.target.value || undefined })}
-            placeholder="https://example.com or radarr.domain.com"
+            value={node.externalAddress || node.url || ''}
+            onChange={(e) => {
+              const val = e.target.value;
+              onChange({ 
+                externalAddress: val || undefined,
+                // Clear legacy field
+                url: undefined
+              });
+            }}
+            placeholder="https://myapp.com"
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
-          <p className="text-xs text-gray-500 mt-1">External URL for opening in browser (user access)</p>
+          <p className="text-xs text-gray-500 mt-1">Public address for opening the service in browser.</p>
         </div>
 
         {/* Toggles */}

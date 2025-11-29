@@ -4,10 +4,15 @@ export interface TreeNode {
   subtitle: string;
   
   // Separated concerns for better architecture
-  ip?: string;          // IP address only (no port) - for display/identification
-  healthCheckPort?: number; // Optional dedicated port for health checks
+  internalAddress?: string; // Internal address for health checking (e.g. "192.168.1.100:8080")
+  externalAddress?: string; // External address for user access (e.g. "https://myapp.com")
+  
+  // Legacy fields (kept for migration)
+  ip?: string;          
+  healthCheckPort?: number; 
+  url?: string;         
+  
   disableHealthCheck?: boolean; // Explicitly disable health checking even if port is provided
-  url?: string;         // External URL for user access (opening in browser)
   disableEmbedded?: boolean; // Force opening in new tab instead of embedded iframe
   
   icon?: string; // Optional icon name from lucide-react
