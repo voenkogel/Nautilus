@@ -1161,10 +1161,7 @@ const Canvas: React.FC = () => {
     let circleColor = '#6b7280'; // Default gray for checking or no identifier
     let circleOpacity = 1.0; // Default full opacity
     
-    if (isExplicitlyDisabled) {
-      // Blue circle for explicitly disabled nodes
-      circleColor = '#3b82f6';
-    } else if (isMissingConfig || !originalIdentifier) {
+    if (isExplicitlyDisabled || isMissingConfig || !originalIdentifier) {
       // Gray circle for disabled nodes or nodes without IP/URL
       circleColor = '#6b7280';
     } else if (nodeStatus.status === 'online') {
