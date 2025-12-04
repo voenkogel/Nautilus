@@ -25,6 +25,7 @@ import {
   type PositionedNode, 
   type Connection
 } from '../utils/layoutUtils';
+import { getNodeTargetUrl } from '../utils/nodeUtils';
 
 const initialAppConfig: AppConfig = {
   general: {
@@ -98,6 +99,7 @@ const Canvas: React.FC = () => {
   const [isHoveringNode, setIsHoveringNode] = useState(false);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [hoveredEditButtonNodeId, setHoveredEditButtonNodeId] = useState<string | null>(null);
+  const [hoveredAddButtonNodeId, setHoveredAddButtonNodeId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   // Check for recent scan results on initialization (only for authenticated users)
@@ -119,6 +121,7 @@ const Canvas: React.FC = () => {
   const transformRef = useRef(transform);
   const hoveredNodeIdRef = useRef(hoveredNodeId);
   const hoveredEditButtonNodeIdRef = useRef(hoveredEditButtonNodeId);
+  const hoveredAddButtonNodeIdRef = useRef(hoveredAddButtonNodeId);
   
   // Sync refs with state changes
   useEffect(() => {
@@ -128,6 +131,10 @@ const Canvas: React.FC = () => {
   useEffect(() => {
     hoveredEditButtonNodeIdRef.current = hoveredEditButtonNodeId;
   }, [hoveredEditButtonNodeId]);
+
+  useEffect(() => {
+    hoveredAddButtonNodeIdRef.current = hoveredAddButtonNodeId;
+  }, [hoveredAddButtonNodeId]);
   
   useEffect(() => {
     transformRef.current = transform;
@@ -672,6 +679,46 @@ const Canvas: React.FC = () => {
     }
   };
 
+  const handleAddChildNode = async (parentNodeId: string) => {
+    // Authenticate first
+    const isAuth = await authenticate();
+    if (!isAuth) return;
+
+    const newNode: TreeNode = {
+      id: `node_${Date.now()}`,
+      title: "New Node",
+      subtitle: "New subtitle",
+      type: "square",
+      children: []
+    };
+
+    // Add to config
+    const newConfig = JSON.parse(JSON.stringify(currentConfig)); // Deep copy
+    const parentNode = findNodeById(newConfig.tree.nodes, parentNodeId);
+    
+    if (parentNode) {
+      if (!parentNode.children) {
+        parentNode.children = [];
+      }
+      parentNode.children.push(newNode);
+      
+      // If parent was collapsed, expand it
+      if (collapsedNodeIds.has(parentNodeId)) {
+        setCollapsedNodeIds(prev => {
+          const next = new Set(prev);
+          next.delete(parentNodeId);
+          return next;
+        });
+      }
+
+      // Save config
+      await handleSaveConfig(newConfig);
+      
+      // Open editor for the new node
+      setEditingNode(newNode);
+    }
+  };
+
   const handleOpenSettings = async () => {
     // Authenticate before allowing settings access
     const isAuth = await authenticate();
@@ -942,6 +989,38 @@ const Canvas: React.FC = () => {
     return null;
   }, [transform, calculateNodePositions, hoveredNodeId, isTouch]);
 
+  const getAddButtonHover = useCallback((canvasX: number, canvasY: number): string | null => {
+    // Don't check for add button hover on mobile/touch
+    if (isTouch) return null;
+    
+    // Convert canvas coordinates to world coordinates
+    const worldX = (canvasX - transform.x) / transform.scale;
+    const worldY = (canvasY - transform.y) / transform.scale;
+    
+    const { nodes } = calculateNodePositions();
+    
+    // Check each node's add button area
+    for (const node of nodes) {
+      if (hoveredNodeId === node.id) { // Only check if node is hovered
+        const buttonRadius = Math.max(12 / transform.scale, 10);
+        const buttonX = node.x + node.width / 2;
+        const buttonY = node.y + node.height;
+        
+        // Check if mouse is within button bounds
+        const distance = Math.sqrt(
+          Math.pow(worldX - buttonX, 2) + 
+          Math.pow(worldY - buttonY, 2)
+        );
+        
+        if (distance <= buttonRadius) {
+          return node.id;
+        }
+      }
+    }
+    
+    return null;
+  }, [transform, calculateNodePositions, hoveredNodeId, isTouch]);
+
   // Function to check if a point is inside a node
   const getNodeAtPosition = useCallback((canvasX: number, canvasY: number): PositionedNode | null => {
     // Convert canvas coordinates to world coordinates
@@ -952,6 +1031,7 @@ const Canvas: React.FC = () => {
     
     // Find the node that contains this point
     for (const node of nodes) {
+      // Check main node body
       if (
         worldX >= node.x &&
         worldX <= node.x + node.width &&
@@ -960,6 +1040,23 @@ const Canvas: React.FC = () => {
       ) {
         return node;
       }
+
+      // Check add button area (bottom edge)
+      // Only if not mobile
+      if (!isTouch) {
+        const buttonRadius = Math.max(12 / transform.scale, 10);
+        const buttonX = node.x + node.width / 2;
+        const buttonY = node.y + node.height;
+        
+        const distance = Math.sqrt(
+          Math.pow(worldX - buttonX, 2) + 
+          Math.pow(worldY - buttonY, 2)
+        );
+        
+        if (distance <= buttonRadius) {
+          return node;
+        }
+      }
     }
     
     return null;
@@ -967,42 +1064,7 @@ const Canvas: React.FC = () => {
 
   // Function to open node URL with debouncing to prevent double-opens
   const openNodeUrl = useCallback((node: PositionedNode) => {
-    // Check if node is interactable
-    if (node.isInteractable === false || node.healthCheckType === 'minecraft') {
-      return;
-    }
-
-    let targetUrl = null;
-    
-    // Check for explicit externalAddress or URL first
-    const externalUrl = node.externalAddress || node.url;
-    if (externalUrl) {
-      targetUrl = externalUrl.includes('://') ? externalUrl : `https://${externalUrl}`;
-    }
-    // For nodes with internalAddress, try to use it
-    else if (node.internalAddress) {
-      if (node.internalAddress.includes('://')) {
-        targetUrl = node.internalAddress;
-      } else {
-        // Try to guess protocol based on port if present
-        const match = node.internalAddress.match(/:(\d+)$/);
-        if (match) {
-          const port = parseInt(match[1]);
-          const commonHttpPorts = [80, 8080, 8989, 7878, 8686, 6767, 5076, 9117];
-          const protocol = commonHttpPorts.includes(port) ? 'http' : 'https';
-          targetUrl = `${protocol}://${node.internalAddress}`;
-        } else {
-          targetUrl = `https://${node.internalAddress}`;
-        }
-      }
-    }
-    // Legacy fallback: For nodes with healthCheckPort and an IP, create URL from IP:port
-    else if (node.healthCheckPort && node.ip) {
-      // Use HTTP for common HTTP-only ports, HTTPS for others
-      const commonHttpPorts = [80, 8080, 8989, 7878, 8686, 6767, 5076, 9117];
-      const protocol = commonHttpPorts.includes(node.healthCheckPort) ? 'http' : 'https';
-      targetUrl = `${protocol}://${node.ip}:${node.healthCheckPort}`;
-    }
+    const targetUrl = getNodeTargetUrl(node);
     
     if (targetUrl) {
       const now = Date.now();
@@ -1075,7 +1137,7 @@ const Canvas: React.FC = () => {
   };
 
   // Draw node (single node drawing)
-  const drawNode = (ctx: CanvasRenderingContext2D, node: PositionedNode, scale: number, _config: AppConfig, isHovered: boolean = false, isEditButtonHovered: boolean = false, isMobile: boolean = false) => {
+  const drawNode = (ctx: CanvasRenderingContext2D, node: PositionedNode, scale: number, _config: AppConfig, isHovered: boolean = false, isEditButtonHovered: boolean = false, isMobile: boolean = false, isAddButtonHovered: boolean = false) => {
     const { x, y, width, type, title, subtitle, ip, url } = node;
     
     // Adjust height for mobile - make it slightly shorter
@@ -1399,6 +1461,33 @@ const Canvas: React.FC = () => {
       
       ctx.fillText(displayUrl, textAreaX + 10 + iconSize + 6, currentY); // Increased gap to 6px
     }
+
+    // Draw Add Child button on hover (bottom edge)
+    if (isHovered && !isMobile) {
+      const buttonRadius = Math.max(12 / scale, 10); // Scale the button size, but keep min size
+      const buttonX = x + width / 2;
+      const buttonY = y + height; // On the bottom edge
+      
+      // Draw button background
+      ctx.beginPath();
+      ctx.arc(buttonX, buttonY, buttonRadius, 0, Math.PI * 2);
+      ctx.fillStyle = isAddButtonHovered ? '#3b82f6' : '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = '#e5e7eb';
+      ctx.lineWidth = 1 / scale;
+      ctx.stroke();
+      
+      // Draw plus icon
+      const iconSize = buttonRadius * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(buttonX - iconSize, buttonY);
+      ctx.lineTo(buttonX + iconSize, buttonY);
+      ctx.moveTo(buttonX, buttonY - iconSize);
+      ctx.lineTo(buttonX, buttonY + iconSize);
+      ctx.strokeStyle = isAddButtonHovered ? '#ffffff' : '#6b7280';
+      ctx.lineWidth = 2 / scale;
+      ctx.stroke();
+    }
   };
 
   const drawConnection = (ctx: CanvasRenderingContext2D, connection: Connection, scale: number) => {
@@ -1528,7 +1617,8 @@ const Canvas: React.FC = () => {
     nodes.forEach(node => {
       const isNodeHovered = hoveredNodeIdRef.current === node.id;
       const isEditButtonHovered = hoveredEditButtonNodeIdRef.current === node.id;
-      drawNode(ctx, node, transform.scale, currentConfig, isNodeHovered, isEditButtonHovered, isTouch);
+      const isAddButtonHovered = hoveredAddButtonNodeIdRef.current === node.id;
+      drawNode(ctx, node, transform.scale, currentConfig, isNodeHovered, isEditButtonHovered, isTouch, isAddButtonHovered);
 
       // Draw collapse/expand buttons
       const isCollapsed = collapsedNodeIds.has(node.id);
@@ -1810,17 +1900,29 @@ const Canvas: React.FC = () => {
     
     // Check if hovering over a node for cursor management
     const hoveredNode = getNodeAtPosition(canvasX, canvasY);
-    setIsHoveringNode(!!hoveredNode && !!hoveredNode.url); // Only show pointer cursor if node has URL
     setHoveredNodeId(hoveredNode ? hoveredNode.id : null); // Track which node is hovered for edit button
     
     // Check if hovering over an edit button specifically
     const editButtonHovered = getEditButtonHover(canvasX, canvasY);
     setHoveredEditButtonNodeId(editButtonHovered);
+
+    // Check if hovering over an add button specifically
+    const addButtonHovered = getAddButtonHover(canvasX, canvasY);
+    setHoveredAddButtonNodeId(addButtonHovered);
+    
+    // Update cursor state
+    setIsHoveringNode((!!hoveredNode && !!hoveredNode.url) || !!editButtonHovered || !!addButtonHovered);
     
     // Handle tooltip for edit circle hover
     if (editButtonHovered && !isTouch) {
       setTooltip({
         text: 'Edit node',
+        x: e.clientX + 10,
+        y: e.clientY - 30
+      });
+    } else if (addButtonHovered && !isTouch) {
+      setTooltip({
+        text: 'Add child node',
         x: e.clientX + 10,
         y: e.clientY - 30
       });
@@ -1955,6 +2057,13 @@ const Canvas: React.FC = () => {
       }
       
       if (!buttonClicked) {
+        // Check for add button click
+        if (!isTouch && hoveredAddButtonNodeId) {
+          handleAddChildNode(hoveredAddButtonNodeId);
+          setIsDragging(false);
+          return;
+        }
+
         // If we clicked elsewhere on mobile, clear the hover state (though less relevant now with permanent buttons)
         if (isTouch) {
           setHoveredLineParentId(null);
@@ -2112,17 +2221,7 @@ const Canvas: React.FC = () => {
 
   // Handle node click in mobile view
   const handleMobileNodeClick = useCallback((node: TreeNode) => {
-    let targetUrl = null;
-    
-    // Check for explicit URL first
-    if (node.url) {
-      targetUrl = node.url.includes('://') ? node.url : `https://${node.url}`;
-    }
-    // For nodes with healthCheckPort and an IP, create URL from IP:port
-    else if (node.healthCheckPort && node.ip) {
-      // Try HTTPS first, fallback will be handled by the browser
-      targetUrl = `https://${node.ip}:${node.healthCheckPort}`;
-    }
+    const targetUrl = getNodeTargetUrl(node);
     
     if (targetUrl) {
       // Show iframe overlay instead of opening externally

@@ -1,30 +1,7 @@
 import React, { useCallback } from 'react';
 import type { TreeNode } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
-import { getIconSvg } from '../utils/iconUtils';
-
-// Utility function to format time duration since status change
-const formatTimeSince = (timestamp: string): string => {
-  const now = new Date();
-  const then = new Date(timestamp);
-  const diffMs = now.getTime() - then.getTime();
-  const diffSeconds = Math.floor(diffMs / 1000);
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  const diffHours = Math.floor(diffMinutes / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffDays > 0) {
-    return `${diffDays}d`;
-  } else if (diffHours > 0) {
-    return `${diffHours}h`;
-  } else if (diffMinutes > 0) {
-    return `${diffMinutes}m`;
-  } else {
-    // For anything less than a minute, show "<1m" instead of seconds
-    return `<1m`;
-  }
-};
-
+import NodeCard from './NodeCard';
 import type { AppConfig } from '../types/config';
 
 interface MobileNodeListProps {
@@ -42,33 +19,9 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
   appConfig,
   statusCard
 }) => {
-  // Get node card style based on type
-  const getNodeCardStyle = (nodeType?: string) => {
-    switch (nodeType) {
-      case 'circular':
-        return 'rounded-full';
-      case 'angular':
-        // Use CSS clip-path for angular/diamond shape
-        return 'rounded-none';
-      case 'square':
-      default:
-        return 'rounded-lg';
-    }
-  };
-
-  // Get custom style for angular cards with more subtle design
-  const getAngularStyle = (nodeType?: string) => {
-    if (nodeType === 'angular') {
-      return {
-        clipPath: 'polygon(5% 0%, 95% 0%, 100% 15%, 100% 85%, 95% 100%, 5% 100%, 0% 85%, 0% 15%)'
-      };
-    }
-    return {};
-  };
-
   // Render a node and its children recursively
   const renderNode = useCallback((node: TreeNode, level: number = 0, isLastChild: boolean = true, parentPath: boolean[] = [], childIndex: number = 0) => {
-    const { id, title, subtitle, ip, url, icon, type, children } = node;
+    const { id, children } = node;
     
     // Get status for this node using the same identifier logic as desktop
     let nodeIdentifier = node.internalAddress;
@@ -80,29 +33,6 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
     }
 
     const status = nodeIdentifier ? statuses[nodeIdentifier] : undefined;
-    let statusColor = '#6b7280'; // Default gray
-    
-    // Check if node has monitoring disabled (no internalAddress or healthCheckPort)
-    const isMonitoringDisabled = !node.internalAddress && !node.healthCheckPort;
-    
-    if (status && !isMonitoringDisabled) {
-      if (status.status === 'online') {
-        statusColor = '#10b981'; // Green
-      } else if (status.status === 'offline') {
-        statusColor = '#ef4444'; // Red
-      }
-    } else {
-      // Gray color for disabled nodes or nodes without status
-      statusColor = '#6b7280';
-    }
-    
-    // Get SVG for the icon if available
-    const iconSvg = icon 
-      ? getIconSvg(icon, '#ffffff')
-      : getIconSvg('server', '#ffffff'); // Default to server icon
-    
-    // Card border radius based on node type
-    const cardStyle = getNodeCardStyle(type);
     
     // Calculate connection line offset
     const connectionOffset = 16; // Base indentation per level
@@ -110,7 +40,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
     // Determine if this is first or last child (for rounded corners)
     const isFirstChild = childIndex === 0;
     const isFirstOrLastChild = isFirstChild || isLastChild;
-    
+
     return (
       <div key={id} className="relative">
         {/* Connection lines for tree structure */}
@@ -178,77 +108,17 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
           </div>
         )}
         
-        <div 
-          className={`relative flex items-center p-3 bg-white/90 shadow-lg border border-gray-100 h-[88px] z-10 ${cardStyle}`}
+        <NodeCard 
+          node={node}
+          status={status}
+          onClick={onNodeClick}
+          className="z-10"
           style={{ 
             marginLeft: `${level * connectionOffset}px`,
-            marginBottom: '12px', // Reduced from 16px to 12px
-            ...getAngularStyle(type)
+            marginBottom: '12px',
+            height: '88px'
           }}
-        >
-          {/* Status indicator - slightly larger size for better visibility */}
-          <div 
-            className="w-12 h-12 rounded-full flex items-center justify-center mr-3 flex-shrink-0"
-            style={{ backgroundColor: statusColor }}
-            dangerouslySetInnerHTML={{ __html: iconSvg }}
-          />
-
-          {/* Content area with vertical centering */}
-          <div className="flex-1 min-w-0 flex items-center h-full" onClick={() => onNodeClick(node)}>
-            {/* Text content - fixed height container */}
-            <div className="flex-1 flex flex-col justify-center h-full">
-              {/* Title row with status badge */}
-              <div className="flex items-center gap-2 mb-1">
-                <div className="font-semibold text-gray-900 truncate text-base leading-tight">{title}</div>
-                {/* Status duration badge inline with title - only for nodes with monitoring enabled */}
-                {status && status.statusChangedAt && !isMonitoringDisabled && nodeIdentifier && (
-                  <div
-                    className={`px-2 py-0.5 rounded text-xs font-medium shadow-sm flex-shrink-0 ${
-                      status.status === 'online' 
-                        ? 'bg-green-200 text-green-800' 
-                        : status.status === 'offline' 
-                          ? 'bg-red-200 text-red-800' 
-                          : 'bg-gray-200 text-gray-600'
-                    }`}
-                  >
-                    {status.status} for {formatTimeSince(status.statusChangedAt || status.lastChecked)}
-                  </div>
-                )}
-              </div>
-              <div className="text-sm text-gray-600 truncate">{subtitle}</div>
-              
-              {/* Details - fixed height to maintain consistent card height */}
-              <div className="mt-2 h-4 flex items-center">
-                {(ip || url) ? (
-                  <div className="flex items-center text-xs text-gray-500">
-                    {ip && (
-                      <div className="flex items-center mr-3">
-                        <svg className="mr-1" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M6 2h12a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" />
-                          <path d="M12 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
-                          <path d="M12 14v4" />
-                        </svg>
-                        <span>{ip}</span>
-                      </div>
-                    )}
-                    {url && (
-                      <div className="flex items-center">
-                        <svg className="mr-1" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="12" r="10" />
-                          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                          <path d="M2 12h20" />
-                        </svg>
-                        <span>{url}</span>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-xs text-gray-400">No network details</div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        />
         
         {/* Render children recursively */}
         {children && children.length > 0 && (

@@ -74,3 +74,62 @@ export const getVisibleTree = (nodes: TreeNode[], collapsedIds: Set<string>): Tr
     return newNode;
   });
 };
+
+/**
+ * Determines the display text for a node's address/network details.
+ * Handles special cases like Minecraft nodes.
+ */
+export const getNodeAddressDisplay = (node: TreeNode): string | null => {
+  if (node.healthCheckType === 'minecraft' && node.internalAddress) {
+    return node.internalAddress;
+  }
+  
+  if (node.ip) {
+    return node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : node.ip;
+  }
+  
+  return null;
+};
+
+/**
+ * Determines the target URL for a node when clicked.
+ * Returns null if the node is not interactable or has no valid URL.
+ */
+export const getNodeTargetUrl = (node: TreeNode): string | null => {
+  // Check if node is interactable
+  if (node.isInteractable === false || node.healthCheckType === 'minecraft') {
+    return null;
+  }
+
+  let targetUrl = null;
+  
+  // Check for explicit externalAddress or URL first
+  const externalUrl = node.externalAddress || node.url;
+  if (externalUrl) {
+    targetUrl = externalUrl.includes('://') ? externalUrl : `https://${externalUrl}`;
+  }
+  // For nodes with internalAddress, try to use it
+  else if (node.internalAddress) {
+    if (node.internalAddress.includes('://')) {
+      targetUrl = node.internalAddress;
+    } else {
+      // Try to guess protocol based on port if present
+      const match = node.internalAddress.match(/:(\d+)$/);
+      if (match) {
+        const port = parseInt(match[1]);
+        const commonHttpPorts = [80, 8080, 8989, 7878, 8686, 6767, 5076, 9117];
+        const protocol = commonHttpPorts.includes(port) ? 'http' : 'https';
+        targetUrl = `${protocol}://${node.internalAddress}`;
+      } else {
+        targetUrl = `https://${node.internalAddress}`;
+      }
+    }
+  }
+  // Legacy fallback: For nodes with healthCheckPort and an IP, create URL from IP:port
+  else if (node.healthCheckPort && node.ip) {
+    // Try HTTPS first, fallback will be handled by the browser
+    targetUrl = `https://${node.ip}:${node.healthCheckPort}`;
+  }
+  
+  return targetUrl;
+};
