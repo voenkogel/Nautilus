@@ -13,7 +13,9 @@ export interface TreeNode {
   url?: string;         
   
   disableHealthCheck?: boolean; // Explicitly disable health checking even if port is provided
+  healthCheckType?: 'http' | 'minecraft' | 'disabled'; // Type of health check to perform
   disableEmbedded?: boolean; // Force opening in new tab instead of embedded iframe
+  isInteractable?: boolean; // Whether the node can be clicked to open a URL
   
   icon?: string; // Optional icon name from lucide-react
   type?: 'square' | 'circular' | 'angular'; // Square (normal cards), circular (pill-shaped cards), or angular (diamond-sided cards)

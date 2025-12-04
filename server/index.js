@@ -11,6 +11,7 @@ import crypto from 'crypto';
 
 // Import the webhook utility
 import { sendStatusWebhook } from './utils/webhooks.js';
+import { queryJavaServer, queryBedrockServer } from './utils/minecraft.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -448,17 +449,24 @@ async function checkNodeHealth(identifier) {
   
   // Only nodes with healthCheckPort should reach this function
   let baseEndpoint;
+  let host, port;
   
   if (nodeData) {
     if (nodeData.internalAddress) {
       baseEndpoint = nodeData.internalAddress;
+      // Parse host/port for Minecraft
+      const parts = nodeData.internalAddress.split(':');
+      host = parts[0];
+      port = parts[1] ? parseInt(parts[1]) : undefined;
     } else if (nodeData.healthCheckPort && nodeData.ip) {
       baseEndpoint = `${nodeData.ip}:${nodeData.healthCheckPort}`;
+      host = nodeData.ip;
+      port = nodeData.healthCheckPort;
     }
   }
 
   if (baseEndpoint) {
-    console.log(`🎯 [ENDPOINT] Node "${nodeData.title || nodeData.id}": healthCheck="${baseEndpoint}"`);
+    console.log(`🎯 [ENDPOINT] Node "${nodeData.title || nodeData.id}": healthCheck="${baseEndpoint}" type=${nodeData.healthCheckType || 'http'}`);
   } else {
     console.log(`⚠️  [ENDPOINT] Invalid node data for "${normalizedIdentifier}" - missing internalAddress or (ip+port)`);
     // Return offline for invalid nodes
@@ -471,36 +479,84 @@ async function checkNodeHealth(identifier) {
   }
   
   let finalResult;
-  
-  // If protocol is already specified, use it directly
-  if (baseEndpoint.includes('://')) {
-    finalResult = await attemptHealthCheck(baseEndpoint, normalizedIdentifier, nodeData);
-  } else {
-    // Always try HTTPS first, then HTTP fallback
-    
-    // Try HTTPS first
-    let result = await attemptHealthCheck(`https://${baseEndpoint}`, normalizedIdentifier, nodeData);
-    
-    // If HTTPS failed with connection errors, try HTTP
-    if (result.status === 'offline' && result.error && 
-        (result.error.includes('Connection refused') || 
-         result.error.includes('Connection timeout') ||
-         result.error.includes('ECONNREFUSED') ||
-         result.error.includes('ETIMEDOUT') ||
-         result.error.includes('EPROTO') ||
-         result.error.includes('SSL routines') ||
-         result.error.includes('wrong version number') ||
-         result.error.includes('certificate'))) {
-      const httpResult = await attemptHealthCheck(`http://${baseEndpoint}`, normalizedIdentifier, nodeData);
+
+  // Check based on type
+  if (nodeData.healthCheckType === 'minecraft') {
+    try {
+      const startTime = Date.now();
+      // Default ports if not specified
+      const mcPort = port || 25565;
+      const result = await queryJavaServer(host, mcPort);
       
-      // Use HTTP result if it's successful
-      if (httpResult.status === 'online') {
-        finalResult = httpResult;
-      } else {
-        finalResult = result; // Keep original HTTPS error if HTTP also failed
-      }
+      finalResult = {
+        status: 'online',
+        lastChecked: new Date().toISOString(),
+        responseTime: Date.now() - startTime,
+        players: result.players,
+        version: result.version,
+        motd: result.motd,
+        favicon: result.favicon
+      };
+    } catch (err) {
+      finalResult = {
+        status: 'offline',
+        lastChecked: new Date().toISOString(),
+        responseTime: 0,
+        error: err.message
+      };
+    }
+  } else if (nodeData.healthCheckType === 'disabled' || nodeData.disableHealthCheck) {
+     // Skip check for disabled nodes, but we need to return something to preserve state or show as disabled
+     // Actually, the frontend handles the "disabled" visual state based on config.
+     // But we should probably return a status that indicates it wasn't checked?
+     // Or just return the previous status?
+     // For now, let's return a "checking" or "unknown" status, or just skip updating?
+     // If we return "offline", it might trigger notifications.
+     // Let's return a special status or just 'offline' but with a flag?
+     // Actually, if it's disabled, we shouldn't be here ideally, but the loop calls us.
+     // Let's return a dummy "online" or "offline" that doesn't trigger alerts?
+     // Or better, just return what we have.
+     // If I return { status: 'disabled' }, the frontend might break if it expects 'online'/'offline'.
+     // The frontend `NodeStatus` type is 'online' | 'offline' | 'checking'.
+     // Let's just return 'offline' but with error 'Monitoring disabled'.
+     finalResult = {
+       status: 'offline',
+       lastChecked: new Date().toISOString(),
+       responseTime: 0,
+       error: 'Monitoring disabled'
+     };
+  } else {
+    // HTTP/TCP Check (Existing Logic)
+    // If protocol is already specified, use it directly
+    if (baseEndpoint.includes('://')) {
+      finalResult = await attemptHealthCheck(baseEndpoint, normalizedIdentifier, nodeData);
     } else {
-      finalResult = result;
+      // Always try HTTPS first, then HTTP fallback
+      
+      // Try HTTPS first
+      let result = await attemptHealthCheck(`https://${baseEndpoint}`, normalizedIdentifier, nodeData);
+      
+      // If HTTPS failed with connection errors, try HTTP
+      if (result.status === 'offline' && result.error && 
+          (result.error.includes('Connection refused') || 
+           result.error.includes('Connection timeout') ||
+           result.error.includes('ECONNREFUSED') ||
+           result.error.includes('ETIMEDOUT') ||
+           result.error.includes('EPROTO') ||
+           result.error.includes('SSL routines') ||
+           result.error.includes('wrong version number') ||
+           result.error.includes('certificate'))) {
+        const httpResult = await attemptHealthCheck(`http://${baseEndpoint}`, normalizedIdentifier, nodeData);
+        
+        // Use HTTP result if it's successful
+        if (httpResult.status === 'online') {
+          finalResult = httpResult;
+        } else {
+          finalResult = result; // Keep original HTTPS error if HTTP also failed
+        }
+      } else {
+        finalResult = result;
+      }
     }
   }
   
@@ -1065,6 +1121,12 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     try {
       nodeIdentifiers = initializeNodeStatuses(true);
       console.log('🔄 Node monitoring reinitialized successfully');
+      
+      // Force an immediate health check for all nodes to update status
+      // Run in background so we don't block the response
+      console.log('⚡ Triggering immediate health check for updated configuration');
+      checkAllNodes().catch(err => console.error('❌ Error in forced health check:', err));
+      
     } catch (nodeError) {
       console.warn('⚠️  Warning: Node monitoring reinitialization failed:', nodeError.message);
       // Don't fail the entire operation if node monitoring fails
@@ -1082,6 +1144,34 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     res.status(500).json({ 
       success: false, 
       message: `Failed to update configuration: ${error.message}` 
+    });
+  }
+});
+
+// API endpoint to get Minecraft server status
+app.get('/api/minecraft/status', async (req, res) => {
+  const { host, port, type } = req.query;
+
+  if (!host) {
+    return res.status(400).json({ error: 'Host is required' });
+  }
+
+  const serverPort = parseInt(port) || (type === 'bedrock' ? 19132 : 25565);
+  const serverType = type || 'java';
+
+  try {
+    let status;
+    if (serverType === 'bedrock') {
+      status = await queryBedrockServer(host, serverPort);
+    } else {
+      status = await queryJavaServer(host, serverPort);
+    }
+    res.json(status);
+  } catch (error) {
+    // Don't log every failed query as an error, just return 500
+    res.status(500).json({ 
+      error: 'Failed to query server', 
+      details: error.message 
     });
   }
 });

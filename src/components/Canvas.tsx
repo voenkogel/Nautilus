@@ -967,6 +967,11 @@ const Canvas: React.FC = () => {
 
   // Function to open node URL with debouncing to prevent double-opens
   const openNodeUrl = useCallback((node: PositionedNode) => {
+    // Check if node is interactable
+    if (node.isInteractable === false || node.healthCheckType === 'minecraft') {
+      return;
+    }
+
     let targetUrl = null;
     
     // Check for explicit externalAddress or URL first
@@ -1107,10 +1112,13 @@ const Canvas: React.FC = () => {
     // Determine border radius based on node type
     const borderRadius = type === 'circular' ? height / 2 : (type === 'angular' ? 0 : 12); // Perfect pill for circular, no radius for angular, normal radius for square
     
-    // Get the current status for this node (use NEW ARCHITECTURE: ip:healthCheckPort format)
-    const originalIdentifier = node.healthCheckPort && node.ip 
-      ? `${node.ip}:${node.healthCheckPort}` 
-      : (ip || url);
+    // Get the current status for this node (use NEW ARCHITECTURE: internalAddress or legacy ip:healthCheckPort format)
+    let originalIdentifier = node.internalAddress;
+    if (!originalIdentifier) {
+      originalIdentifier = node.healthCheckPort && node.ip 
+        ? `${node.ip}:${node.healthCheckPort}` 
+        : (ip || url);
+    }
     
     // Get status using the original identifier to match the API response format
     const nodeStatus = originalIdentifier 
@@ -1119,7 +1127,8 @@ const Canvas: React.FC = () => {
     
     // Check if node has health monitoring disabled
     const isExplicitlyDisabled = node.disableHealthCheck;
-    const isMissingConfig = !node.healthCheckPort;
+    // For missing config, check if we have internalAddress OR (ip + healthCheckPort)
+    const isMissingConfig = !node.internalAddress && !node.healthCheckPort;
     const isMonitoringDisabled = isExplicitlyDisabled || isMissingConfig;
 
     // Apply soft shadow using blur (save context to restore after shadow drawing)
@@ -1297,8 +1306,50 @@ const Canvas: React.FC = () => {
     let currentY = subtitleY + subtitleFontSize + 8;
     const iconSize = Math.min(Math.max(16 / scale, 12), 24); // Larger minimum size, scales better with zoom
     
+    // Draw Minecraft Player Count if available - Prominently on the right
+    if ('players' in nodeStatus && nodeStatus.players) {
+      // Position on the right side of the card
+      const rightPadding = 25;
+      const rightX = x + width - rightPadding;
+      const centerY = y + height / 2;
+      
+      // Draw "X / Y" large
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = '#dc2626'; // Red color as per mockup (or maybe just dark? Mockup had red circle, text was red)
+      // Wait, the mockup had red text "1/20 players". I'll use a prominent color.
+      // The user said "make the toggles... adhere to accent color". Maybe this should too?
+      // But the mockup had red. I'll stick to a dark color or accent color.
+      // Actually, the mockup text "1/20 players" was written in red marker by the user on the screenshot, not the UI itself.
+      // The UI text should probably be standard dark text.
+      ctx.fillStyle = '#1f2937'; 
+      
+      // Use a large font, but scale it
+      const largeFontSize = Math.min(Math.max(28 / scale, 18), 36);
+      ctx.font = `700 ${largeFontSize}px Roboto, sans-serif`; // Bold
+      
+      const countText = `${nodeStatus.players.online}/${nodeStatus.players.max}`;
+      ctx.fillText(countText, rightX, centerY + 2); 
+      
+      // Draw "players" small below
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = '#6b7280'; // Gray text
+      const labelFontSize = Math.min(Math.max(12 / scale, 9), 16);
+      ctx.font = `500 ${labelFontSize}px Roboto, sans-serif`;
+      ctx.fillText('players', rightX, centerY + 4);
+      
+      // Reset alignment
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      
+      // Don't increment currentY so the IP address stays below the subtitle
+    }
+    
     // Draw IP with network icon (only if IP is provided, otherwise show "No IP" if URL exists)
-    if (ip || url) {
+    // For Minecraft nodes, we always want to show the address if available
+    const showAddress = ip || url || (node.healthCheckType === 'minecraft' && node.internalAddress);
+    
+    if (showAddress) {
       // Calculate vertical center alignment
       const textHeight = detailFontSize;
       const iconCenterY = currentY + textHeight / 2;
@@ -1309,9 +1360,14 @@ const Canvas: React.FC = () => {
       // Draw IP text with port (if healthCheckPort available) or "No IP" if only URL is available
       ctx.fillStyle = '#6b7280';
       ctx.font = `400 ${detailFontSize}px Roboto, sans-serif`;
-      const displayText = ip 
-        ? (node.healthCheckPort ? `${ip}:${node.healthCheckPort}` : ip)
-        : 'No IP';
+      
+      let displayText = 'No IP';
+      if (node.healthCheckType === 'minecraft' && node.internalAddress) {
+        displayText = node.internalAddress;
+      } else if (ip) {
+        displayText = node.healthCheckPort ? `${ip}:${node.healthCheckPort}` : ip;
+      }
+      
       ctx.fillText(displayText, textAreaX + 10 + iconSize + 6, currentY); // Increased gap to 6px
       
       currentY += detailFontSize + 6;

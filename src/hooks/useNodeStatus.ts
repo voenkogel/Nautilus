@@ -8,6 +8,13 @@ export interface NodeStatus {
   statusChangedAt?: string; // Timestamp when status last changed
   responseTime?: number;
   error?: string;
+  players?: {
+    online: number;
+    max: number;
+  };
+  version?: string;
+  motd?: string;
+  favicon?: string;
 }
 
 export interface StatusResponse {
