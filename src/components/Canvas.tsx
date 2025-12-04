@@ -159,7 +159,8 @@ const Canvas: React.FC = () => {
     nextCheckCountdown, 
     totalInterval,
     isQuerying,
-    getNodeStatus 
+    getNodeStatus,
+    forceRefresh
   } = useNodeStatus(currentConfig);
 
   // Apply appearance settings
@@ -714,6 +715,9 @@ const Canvas: React.FC = () => {
       // Save config
       await handleSaveConfig(newConfig);
       
+      // Trigger immediate status check for the new node
+      forceRefresh();
+      
       // Open editor for the new node
       setEditingNode(newNode);
     }
@@ -757,6 +761,8 @@ const Canvas: React.FC = () => {
     try {
       await handleSaveConfig(newConfig);
       setEditingNode(null);
+      // Trigger immediate status check for the updated node
+      forceRefresh();
     } catch (error) {
       console.error('Error saving node:', error);
       // The error will be handled by the component that calls this
@@ -790,6 +796,8 @@ const Canvas: React.FC = () => {
     try {
       await handleSaveConfig(newConfig);
       setEditingNode(null);
+      // Trigger immediate status check to update removed node
+      forceRefresh();
     } catch (error) {
       console.error('Error deleting node:', error);
       // The error will be handled by the component that calls this
@@ -815,6 +823,9 @@ const Canvas: React.FC = () => {
       };
 
       await handleSaveConfig(newConfig);
+      
+      // Trigger immediate status check for the new node
+      forceRefresh();
       
       // Open the edit window for the newly created node
       setEditingNode(startingNode);
@@ -1240,13 +1251,21 @@ const Canvas: React.FC = () => {
     } else if (nodeStatus.status === 'offline') {
       circleColor = '#ef4444'; // Red for offline
     } else if (nodeStatus.status === 'checking') {
-      // Create subtle shimmer effect for loading state
+      // Create visible pulsing effect for loading state
       const time = Date.now() / 1000; // Get current time in seconds
-      const pulseSpeed = 1.2; // Medium speed animation - 1.2 cycles per second
-      const minOpacity = 0.55; // Lower minimum opacity for more noticeable effect
-      const maxOpacity = 0.8; // Higher maximum opacity for more pronounced effect
+      const pulseSpeed = 2.0; // Faster animation - 2 cycles per second
       const pulse = Math.sin(time * pulseSpeed * Math.PI * 2) * 0.5 + 0.5; // Normalized sine wave (0-1)
-      circleOpacity = minOpacity + (maxOpacity - minOpacity) * pulse;
+      
+      // Pulse between blue and gray colors
+      const blueColor = { r: 59, g: 130, b: 246 }; // #3b82f6
+      const grayColor = { r: 107, g: 114, b: 128 }; // #6b7280
+      
+      const r = Math.round(grayColor.r + (blueColor.r - grayColor.r) * pulse);
+      const g = Math.round(grayColor.g + (blueColor.g - grayColor.g) * pulse);
+      const b = Math.round(grayColor.b + (blueColor.b - grayColor.b) * pulse);
+      
+      circleColor = `rgb(${r}, ${g}, ${b})`;
+      circleOpacity = 0.85 + 0.15 * pulse; // Subtle opacity variation on top of color change
     }
     
     ctx.save();

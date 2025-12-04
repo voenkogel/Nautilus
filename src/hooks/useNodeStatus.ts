@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { AppConfig } from '../types/config';
 import { extractMonitoredNodeIdentifiers } from '../utils/nodeUtils';
 
@@ -29,6 +29,9 @@ export const useNodeStatus = (appConfig: AppConfig) => {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [nextCheckCountdown, setNextCheckCountdown] = useState<number>(0);
   const [isQuerying, setIsQuerying] = useState<boolean>(false);
+  
+  // Use a ref to store the performFetch function so it can be called externally
+  const performFetchRef = useRef<(() => Promise<void>) | null>(null);
 
   const fetchStatuses = useCallback(async () => {
     if (!appConfig || !appConfig.tree.nodes) return;
@@ -133,6 +136,9 @@ export const useNodeStatus = (appConfig: AppConfig) => {
       }
     };
     
+    // Store the performFetch function in ref so it can be called externally
+    performFetchRef.current = performFetch;
+    
     // Function to handle the countdown
     const runCountdown = () => {
       // Create a precise timer using performance.now()
@@ -210,6 +216,13 @@ export const useNodeStatus = (appConfig: AppConfig) => {
     };
   }, [statuses]);
 
+  const forceRefresh = useCallback(async () => {
+    // Call performFetch directly for immediate status update
+    if (performFetchRef.current) {
+      await performFetchRef.current();
+    }
+  }, []);
+
   return { 
     statuses, 
     isLoading, 
@@ -218,6 +231,7 @@ export const useNodeStatus = (appConfig: AppConfig) => {
     nextCheckCountdown, 
     totalInterval: appConfig.server?.healthCheckInterval || 20000,
     isQuerying,
-    getNodeStatus 
+    getNodeStatus,
+    forceRefresh
   };
 };
