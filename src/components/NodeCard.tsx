@@ -67,6 +67,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
 
   // Determine status color
   let statusColor = '#6b7280'; // Default gray
+  let isChecking = false;
   const isMonitoringDisabled = !node.internalAddress && !node.healthCheckPort;
   
   if (status && !isMonitoringDisabled) {
@@ -74,6 +75,9 @@ const NodeCard: React.FC<NodeCardProps> = ({
       statusColor = '#10b981'; // Green
     } else if (status.status === 'offline') {
       statusColor = '#ef4444'; // Red
+    } else if (status.status === 'checking') {
+      statusColor = '#3b82f6'; // Blue
+      isChecking = true;
     }
   }
 
@@ -99,7 +103,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
     >
       {/* Status indicator / Icon */}
       <div 
-        className="w-12 h-12 rounded-full flex items-center justify-center mr-3 flex-shrink-0 transition-colors duration-300"
+        className={`w-12 h-12 rounded-full flex items-center justify-center mr-3 flex-shrink-0 transition-colors duration-300 ${isChecking ? 'animate-pulse' : ''}`}
         style={{ backgroundColor: statusColor }}
         dangerouslySetInnerHTML={{ __html: iconSvg }}
       />

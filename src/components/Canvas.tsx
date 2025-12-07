@@ -17,15 +17,15 @@ import {
   iconImageCache, 
   iconSvgCache, 
   getIconSvg, 
-  extractIconsFromConfig,
-  drawIconOnCanvas
+  extractIconsFromConfig
 } from '../utils/iconUtils';
 import { 
   calculateTreeLayout, 
   type PositionedNode, 
   type Connection
 } from '../utils/layoutUtils';
-import { getNodeTargetUrl, getNodeAddressDisplay } from '../utils/nodeUtils';
+import { getNodeTargetUrl } from '../utils/nodeUtils';
+import CanvasNode from './CanvasNode';
 
 const initialAppConfig: AppConfig = {
   general: {
@@ -51,33 +51,9 @@ const initialAppConfig: AppConfig = {
   }
 };
 
-// Utility function to format time duration since status change
-const formatTimeSince = (timestamp: string): string => {
-  const now = new Date();
-  const then = new Date(timestamp);
-  const diffMs = now.getTime() - then.getTime();
-  const diffSeconds = Math.floor(diffMs / 1000);
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  const diffHours = Math.floor(diffMinutes / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffDays > 0) {
-    return `${diffDays}d`;
-  } else if (diffHours > 0) {
-    return `${diffHours}h`;
-  } else if (diffMinutes > 0) {
-    return `${diffMinutes}m`;
-  } else {
-    // For anything less than a minute, show "<1m" instead of seconds
-    return `<1m`;
-  }
-};
-
 const Canvas: React.FC = () => {
   const { addToast } = useToast();
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const backgroundImageRef = useRef<HTMLImageElement | null>(null);
   
   const [transform, setTransform] = useState({
     x: 0,
@@ -93,13 +69,7 @@ const Canvas: React.FC = () => {
   
   const [isDragging, setIsDragging] = useState(false);
   const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
-  const [backgroundLoaded, setBackgroundLoaded] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [mouseDownPos, setMouseDownPos] = useState({ x: 0, y: 0 });
-  const [isHoveringNode, setIsHoveringNode] = useState(false);
-  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const [hoveredEditButtonNodeId, setHoveredEditButtonNodeId] = useState<string | null>(null);
-  const [hoveredAddButtonNodeId, setHoveredAddButtonNodeId] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   // Check for recent scan results on initialization (only for authenticated users)
@@ -111,38 +81,10 @@ const Canvas: React.FC = () => {
   const [focusNodeId, setFocusNodeId] = useState<string | undefined>(undefined);
   const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
   const [currentConfig, setCurrentConfig] = useState<AppConfig>(initialAppConfig);
-  const [iconLoadCounter, setIconLoadCounter] = useState(0); // Track icon loading to trigger redraws
-  const [iconsPreloaded, setIconsPreloaded] = useState(false); // Track icon preloading status
-  const [tooltip, setTooltip] = useState<{text: string, x: number, y: number} | null>(null);
   const [collapsedNodeIds, setCollapsedNodeIds] = useState<Set<string>>(new Set());
-  const [hoveredLineParentId, setHoveredLineParentId] = useState<string | null>(null);
-  
-  // Use refs for values that should not trigger draw function recreation
-  const transformRef = useRef(transform);
-  const hoveredNodeIdRef = useRef(hoveredNodeId);
-  const hoveredEditButtonNodeIdRef = useRef(hoveredEditButtonNodeId);
-  const hoveredAddButtonNodeIdRef = useRef(hoveredAddButtonNodeId);
-  
-  // Sync refs with state changes
-  useEffect(() => {
-    hoveredNodeIdRef.current = hoveredNodeId;
-  }, [hoveredNodeId]);
-  
-  useEffect(() => {
-    hoveredEditButtonNodeIdRef.current = hoveredEditButtonNodeId;
-  }, [hoveredEditButtonNodeId]);
-
-  useEffect(() => {
-    hoveredAddButtonNodeIdRef.current = hoveredAddButtonNodeId;
-  }, [hoveredAddButtonNodeId]);
-  
-  useEffect(() => {
-    transformRef.current = transform;
-  }, [transform]);
   
   // Use device detection
-  const { isMobile, isTablet } = useDeviceDetection();
-  const isTouch = isMobile || isTablet;
+  const { isMobile } = useDeviceDetection();
   
   // State for mobile iframe overlay
   const [iframeOverlay, setIframeOverlay] = useState<{ url: string; title: string } | null>(null);
@@ -471,23 +413,10 @@ const Canvas: React.FC = () => {
       });
       
       await Promise.all(preloadPromises);
-      setIconsPreloaded(true);
     };
     
     preloadIcons();
   }, [currentConfig.tree.nodes, currentConfig.appearance?.accentColor]);
-
-  // Debug: Log preload status
-  useEffect(() => {
-    if (iconsPreloaded) {
-
-    }
-  }, [iconsPreloaded]);
-
-  // Icon loading callback to trigger redraws
-  const handleIconLoaded = useCallback(() => {
-    setIconLoadCounter(prev => prev + 1);
-  }, []);
 
   // Helper function to find a node by ID in the tree
   const findNodeById = useCallback((nodes: TreeNode[], nodeId: string): TreeNode | null => {
@@ -533,7 +462,6 @@ const Canvas: React.FC = () => {
       // Clear icon caches when config changes to force reload of icons with new colors/content
       iconImageCache.clear();
       iconSvgCache.clear();
-      setIconsPreloaded(false);
     }
   };
 
@@ -568,7 +496,6 @@ const Canvas: React.FC = () => {
       // Clear icon caches when config changes to force reload of icons with new colors/content
       iconImageCache.clear();
       iconSvgCache.clear();
-      setIconsPreloaded(false);
     }
   };
 
@@ -835,243 +762,11 @@ const Canvas: React.FC = () => {
     }
   };
   
-  // Load background image from config
-  useEffect(() => {
-    // Always try to load a background image (use default if config is empty)
-    const configBackgroundImage = currentConfig.appearance?.backgroundImage;
-    const backgroundImageToUse = configBackgroundImage || '/background.png';
-    
-    // Try multiple approaches to load the background image
-    const tryLoadImage = (imagePath: string) => {
-      // Create a new image
-      const img = new Image();
-      img.crossOrigin = "anonymous"; // Try with CORS
-      
-      // Set up onload handler
-      img.onload = () => {
-        backgroundImageRef.current = img;
-        setBackgroundLoaded(true);
-      };
-      
-      // Set up error handler
-      img.onerror = () => {
-        console.warn('Failed to load background image from:', imagePath);
-      };
-      
-      // Start loading the image
-      img.src = imagePath;
-      
-      // Return the image for immediate check
-      return img;
-    };
-    
-    // List of paths to try, in order of preference
-    const imagePaths = [
-      backgroundImageToUse, // Either config image or default
-      window.location.origin + backgroundImageToUse, // Absolute URL
-      '/background.png', // Fallback to default
-      window.location.origin + '/background.png', // Absolute URL of default
-      'public/background.png', // Try public folder directly
-      'public/nautilusIcon.png' // Last resort, try icon instead
-    ];
-    
-    // Try each path in sequence, with a small delay between attempts
-    let index = 0;
-    
-    const tryNextPath = () => {
-      if (index >= imagePaths.length) {
-        console.error('All attempts to load background image failed');
-        setBackgroundLoaded(false);
-        backgroundImageRef.current = null;
-        return;
-      }
-      
-      const img = tryLoadImage(imagePaths[index]);
-      
-      // Check if already loaded (happens with cached images)
-      if (img.complete && img.naturalHeight !== 0) {
-        backgroundImageRef.current = img;
-        setBackgroundLoaded(true);
-      } else {
-        // Try next path after a short delay
-        index++;
-        setTimeout(tryNextPath, 300);
-      }
-    };
-    
-    tryNextPath();
-  }, [currentConfig.appearance?.backgroundImage]);
-
-  // Aggressive icon preloading on config change
-  useEffect(() => {
-    iconImageCache.clear();
-    
-    // Collect all icons that need to be preloaded
-    const iconsToPreload = new Set<string>();
-    
-    // Essential UI icons
-    ['network', 'globe', 'wrench'].forEach(icon => {
-      iconsToPreload.add(`${icon}-#6b7280`);
-    });
-    
-    // Node icons (both white for main circle and grey for UI elements)
-    const processNodes = (nodes: TreeNode[]) => {
-      nodes.forEach(node => {
-        if (node.icon) {
-          iconsToPreload.add(`${node.icon}-#ffffff`); // White for node circles
-          iconsToPreload.add(`${node.icon}-#6b7280`); // Grey for UI elements
-        }
-        if (node.children) {
-          processNodes(node.children);
-        }
-      });
-    };
-    
-    processNodes(currentConfig.tree.nodes);
-    
-    // Preload all icons immediately
-    const preloadPromises = Array.from(iconsToPreload).map(cacheKey => {
-      return new Promise<void>((resolve) => {
-        const [iconName, color] = cacheKey.split('-');
-        const svgContent = getIconSvg(iconName, color);
-        const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
-        const url = URL.createObjectURL(svgBlob);
-        
-        const img = new Image();
-        img.onload = () => {
-          iconImageCache.set(cacheKey, img);
-          URL.revokeObjectURL(url);
-          resolve();
-        };
-        img.onerror = () => {
-          URL.revokeObjectURL(url);
-          resolve(); // Resolve even on error to not block
-        };
-        img.src = url;
-      });
-    });
-    
-    // Trigger a redraw once all icons are loaded
-    Promise.all(preloadPromises).then(() => {
-      setIconLoadCounter(prev => prev + 1);
-    });
-    
-  }, [currentConfig, handleIconLoaded]);
-
   // Calculate positions for tree nodes in a proper vertical tree layout
   const calculateNodePositions = useCallback((): { nodes: PositionedNode[], connections: Connection[] } => {
     const visibleTree = getVisibleTree(currentConfig.tree.nodes, collapsedNodeIds);
     return calculateTreeLayout(visibleTree);
   }, [currentConfig, collapsedNodeIds]);
-
-  // Function to check if mouse is over a status circle for editing
-  const getEditButtonHover = useCallback((canvasX: number, canvasY: number): string | null => {
-    // Don't check for edit circle hover on mobile/touch
-    if (isTouch) return null;
-    
-    // Convert canvas coordinates to world coordinates
-    const worldX = (canvasX - transform.x) / transform.scale;
-    const worldY = (canvasY - transform.y) / transform.scale;
-    
-    const { nodes } = calculateNodePositions();
-    
-    // Check each node's status circle area
-    for (const node of nodes) {
-      if (hoveredNodeId === node.id) { // Only check if node is hovered
-        // Calculate circle position (same logic as in drawNode)
-        const circlePadding = 15; // Consistent padding for circle
-        const maxCircleSize = Math.min(node.height - (circlePadding * 2), 60); // Max circle diameter of 60px
-        const circleRadius = maxCircleSize * 0.5;
-        const circleCenterX = node.x + circlePadding + circleRadius; // Center based on consistent padding
-        const circleCenterY = node.y + node.height / 2;
-        
-        // Check if mouse is within circle bounds
-        const distance = Math.sqrt(
-          Math.pow(worldX - circleCenterX, 2) + 
-          Math.pow(worldY - circleCenterY, 2)
-        );
-        
-        if (distance <= circleRadius) {
-          return node.id;
-        }
-      }
-    }
-    
-    return null;
-  }, [transform, calculateNodePositions, hoveredNodeId, isTouch]);
-
-  const getAddButtonHover = useCallback((canvasX: number, canvasY: number): string | null => {
-    // Don't check for add button hover on mobile/touch
-    if (isTouch) return null;
-    
-    // Convert canvas coordinates to world coordinates
-    const worldX = (canvasX - transform.x) / transform.scale;
-    const worldY = (canvasY - transform.y) / transform.scale;
-    
-    const { nodes } = calculateNodePositions();
-    
-    // Check each node's add button area
-    for (const node of nodes) {
-      if (hoveredNodeId === node.id) { // Only check if node is hovered
-        const buttonRadius = Math.max(12 / transform.scale, 10);
-        const buttonX = node.x + node.width / 2;
-        const buttonY = node.y + node.height;
-        
-        // Check if mouse is within button bounds
-        const distance = Math.sqrt(
-          Math.pow(worldX - buttonX, 2) + 
-          Math.pow(worldY - buttonY, 2)
-        );
-        
-        if (distance <= buttonRadius) {
-          return node.id;
-        }
-      }
-    }
-    
-    return null;
-  }, [transform, calculateNodePositions, hoveredNodeId, isTouch]);
-
-  // Function to check if a point is inside a node
-  const getNodeAtPosition = useCallback((canvasX: number, canvasY: number): PositionedNode | null => {
-    // Convert canvas coordinates to world coordinates
-    const worldX = (canvasX - transform.x) / transform.scale;
-    const worldY = (canvasY - transform.y) / transform.scale;
-    
-    const { nodes } = calculateNodePositions();
-    
-    // Find the node that contains this point
-    for (const node of nodes) {
-      // Check main node body
-      if (
-        worldX >= node.x &&
-        worldX <= node.x + node.width &&
-        worldY >= node.y &&
-        worldY <= node.y + node.height
-      ) {
-        return node;
-      }
-
-      // Check add button area (bottom edge)
-      // Only if not mobile
-      if (!isTouch) {
-        const buttonRadius = Math.max(12 / transform.scale, 10);
-        const buttonX = node.x + node.width / 2;
-        const buttonY = node.y + node.height;
-        
-        const distance = Math.sqrt(
-          Math.pow(worldX - buttonX, 2) + 
-          Math.pow(worldY - buttonY, 2)
-        );
-        
-        if (distance <= buttonRadius) {
-          return node;
-        }
-      }
-    }
-    
-    return null;
-  }, [transform, calculateNodePositions]);
 
   // Function to open node URL with debouncing to prevent double-opens
   const openNodeUrl = useCallback((node: PositionedNode) => {
@@ -1093,725 +788,9 @@ const Canvas: React.FC = () => {
     // If no URL or IP with web GUI, do nothing (node is not clickable)
   }, [currentConfig, appTitle]);
 
-  // ...existing code...
-
-  const drawRoundedRect = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) => {
-    ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-    ctx.closePath();
-  };
-
-  // Function to draw a perfect pill shape with circular ends
-  const drawPillShape = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) => {
-    const radius = height / 2;
-    ctx.beginPath();
-    // Left semicircle
-    ctx.arc(x + radius, y + radius, radius, Math.PI / 2, 3 * Math.PI / 2);
-    // Top line
-    ctx.lineTo(x + width - radius, y);
-    // Right semicircle
-    ctx.arc(x + width - radius, y + radius, radius, 3 * Math.PI / 2, Math.PI / 2);
-    // Bottom line
-    ctx.lineTo(x + radius, y + height);
-    ctx.closePath();
-  };
-
-  // Function to draw an angular shape with diamond-like sides
-  const drawAngularShape = (ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) => {
-    const cornerSize = Math.min(width * 0.1, height * 0.3); // Diamond corner size
-    ctx.beginPath();
-    // Start from top-left corner
-    ctx.moveTo(x + cornerSize, y);
-    // Top edge
-    ctx.lineTo(x + width - cornerSize, y);
-    // Top-right diamond corner
-    ctx.lineTo(x + width, y + cornerSize);
-    ctx.lineTo(x + width, y + height - cornerSize);
-    // Bottom-right diamond corner
-    ctx.lineTo(x + width - cornerSize, y + height);
-    // Bottom edge
-    ctx.lineTo(x + cornerSize, y + height);
-    // Bottom-left diamond corner
-    ctx.lineTo(x, y + height - cornerSize);
-    ctx.lineTo(x, y + cornerSize);
-    // Top-left diamond corner
-    ctx.lineTo(x + cornerSize, y);
-    ctx.closePath();
-  };
-
-  // Draw node (single node drawing)
-  const drawNode = (ctx: CanvasRenderingContext2D, node: PositionedNode, scale: number, _config: AppConfig, isHovered: boolean = false, isEditButtonHovered: boolean = false, isMobile: boolean = false, isAddButtonHovered: boolean = false) => {
-    const { x, y, width, type, title, subtitle, ip, url } = node;
-    
-    // Adjust height for mobile - make it slightly shorter
-    const height = isMobile ? node.height - 10 : node.height;
-    
-    // Pre-calculate layout values with consistent circle padding
-    const circlePadding = 15; // Consistent padding for circle on left, top, and bottom
-    const maxCircleSize = Math.min(height - (circlePadding * 2), 60); // Max circle diameter of 60px
-    const circleRadius = maxCircleSize * 0.5;
-    const circleCenterX = x + circlePadding + circleRadius; // Center based on consistent padding
-    const circleCenterY = y + height / 2; // Centered vertically
-    
-    // Text area starts after circle with some spacing
-    const textAreaX = circleCenterX + circleRadius + 10; // 10px gap after circle
-    const textAreaWidth = width - (textAreaX - x);
-    
-    // Calculate font sizes with clamping to prevent overflow when zoomed out
-    // We want text to stay readable (inverse to scale) but not grow larger than the node can handle
-    // Max sizes ensure text fits within the node width (280px) and height (90px)
-    const maxTitleSize = 24; 
-    const maxSubtitleSize = 18;
-    const maxDetailSize = 16;
-    
-    const titleFontSize = Math.min(Math.max(14 / scale, 10), maxTitleSize);
-    const subtitleFontSize = Math.min(Math.max(11 / scale, 8), maxSubtitleSize);
-    const detailFontSize = Math.min(Math.max(10 / scale, 7), maxDetailSize);
-    
-    const titleX = textAreaX + 10;
-    const titleY = y + 8;
-    
-    // Calculate title coordinates and measurements
-    ctx.font = `500 ${titleFontSize}px Roboto, sans-serif`;
-    
-    // Determine border radius based on node type
-    const borderRadius = type === 'circular' ? height / 2 : (type === 'angular' ? 0 : 12); // Perfect pill for circular, no radius for angular, normal radius for square
-    
-    // Get the current status for this node (use NEW ARCHITECTURE: internalAddress or legacy ip:healthCheckPort format)
-    let originalIdentifier = node.internalAddress;
-    if (!originalIdentifier) {
-      originalIdentifier = node.healthCheckPort && node.ip 
-        ? `${node.ip}:${node.healthCheckPort}` 
-        : (ip || url);
-    }
-    
-    // Get status using the original identifier to match the API response format
-    const nodeStatus = originalIdentifier 
-      ? getNodeStatus(originalIdentifier) 
-      : { status: 'checking' as const, lastChecked: new Date().toISOString(), statusChangedAt: new Date().toISOString(), progress: 0 };
-    
-    // Check if node has health monitoring disabled
-    const isExplicitlyDisabled = node.disableHealthCheck;
-    // For missing config, check if we have internalAddress OR (ip + healthCheckPort)
-    const isMissingConfig = !node.internalAddress && !node.healthCheckPort;
-    const isMonitoringDisabled = isExplicitlyDisabled || isMissingConfig;
-
-    // Apply soft shadow using blur (save context to restore after shadow drawing)
-    ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.18)';
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetX = 2;
-    ctx.shadowOffsetY = 2;
-    
-    // Draw node background with shadow (normal styling regardless of hasWebGui)
-    ctx.fillStyle = '#ffffff';
-    if (type === 'circular') {
-      drawPillShape(ctx, x, y, width, height);
-    } else if (type === 'angular') {
-      drawAngularShape(ctx, x, y, width, height);
-    } else {
-      drawRoundedRect(ctx, x, y, width, height, borderRadius);
-    }
-    ctx.fill();
-    
-    // Reset shadow
-    ctx.restore();
-
-    // Draw node border (normal styling regardless of hasWebGui)
-    ctx.strokeStyle = '#e5e7eb';
-    ctx.lineWidth = 1 / scale;
-    if (type === 'circular') {
-      drawPillShape(ctx, x, y, width, height);
-    } else if (type === 'angular') {
-      drawAngularShape(ctx, x, y, width, height);
-    } else {
-      drawRoundedRect(ctx, x, y, width, height, borderRadius);
-    }
-    ctx.stroke();
-    
-    // Use the pre-calculated circle values from the top of the function
-    
-    // Set circle color based on node status - gray if no IP/URL provided or monitoring is disabled
-    let circleColor = '#6b7280'; // Default gray for checking or no identifier
-    let circleOpacity = 1.0; // Default full opacity
-    
-    if (isExplicitlyDisabled || isMissingConfig || !originalIdentifier) {
-      // Gray circle for disabled nodes or nodes without IP/URL
-      circleColor = '#6b7280';
-    } else if (nodeStatus.status === 'online') {
-      circleColor = '#10b981'; // Green for online
-    } else if (nodeStatus.status === 'offline') {
-      circleColor = '#ef4444'; // Red for offline
-    } else if (nodeStatus.status === 'checking') {
-      // Create visible pulsing effect for loading state
-      const time = Date.now() / 1000; // Get current time in seconds
-      const pulseSpeed = 2.0; // Faster animation - 2 cycles per second
-      const pulse = Math.sin(time * pulseSpeed * Math.PI * 2) * 0.5 + 0.5; // Normalized sine wave (0-1)
-      
-      // Pulse between blue and gray colors
-      const blueColor = { r: 59, g: 130, b: 246 }; // #3b82f6
-      const grayColor = { r: 107, g: 114, b: 128 }; // #6b7280
-      
-      const r = Math.round(grayColor.r + (blueColor.r - grayColor.r) * pulse);
-      const g = Math.round(grayColor.g + (blueColor.g - grayColor.g) * pulse);
-      const b = Math.round(grayColor.b + (blueColor.b - grayColor.b) * pulse);
-      
-      circleColor = `rgb(${r}, ${g}, ${b})`;
-      circleOpacity = 0.85 + 0.15 * pulse; // Subtle opacity variation on top of color change
-    }
-    
-    ctx.save();
-    ctx.globalAlpha = circleOpacity;
-    ctx.fillStyle = circleColor;
-    ctx.beginPath();
-    ctx.arc(circleCenterX, circleCenterY, circleRadius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    
-    // Draw normal node icon first
-    if (node.icon) {
-      const iconSize = circleRadius * 1.2; // Icon size relative to circle
-      drawIconOnCanvas(ctx, node.icon, circleCenterX, circleCenterY, iconSize, '#ffffff', handleIconLoaded);
-    }
-    
-    // Draw edit overlay when hovering over the node (not just the circle)
-    if (isHovered && !isMobile) {
-      // Dark transparent overlay
-      ctx.save();
-      ctx.globalAlpha = 0.7;
-      ctx.fillStyle = '#000000';
-      ctx.beginPath();
-      ctx.arc(circleCenterX, circleCenterY, circleRadius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      
-      // Smaller pencil icon on top
-      const pencilIconSize = circleRadius * 0.8; // Smaller than the normal icon
-      drawIconOnCanvas(ctx, 'pencil', circleCenterX, circleCenterY, pencilIconSize, '#ffffff', handleIconLoaded);
-      
-      // Additional hover ring when specifically hovering over the circle
-      if (isEditButtonHovered) {
-        ctx.strokeStyle = '#3b82f6'; // Blue edit hover color
-        ctx.lineWidth = 2 / scale;
-        ctx.beginPath();
-        ctx.arc(circleCenterX, circleCenterY, circleRadius + 3, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    }
-    
-    // Set font for text (Roboto)
-    // Use the pre-calculated font sizes from the top of the function
-    
-    // Draw title in the right 2/3 area
-    ctx.fillStyle = '#1f2937';
-    ctx.font = `500 ${titleFontSize}px Roboto, sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    
-    // Use the pre-calculated titleX and titleY values
-    ctx.fillText(title, titleX, titleY);
-    
-    // Draw status duration badge next to title - only for nodes with monitoring enabled
-    if (nodeStatus && (nodeStatus.statusChangedAt || nodeStatus.lastChecked) && !isMonitoringDisabled && originalIdentifier) {
-      const duration = formatTimeSince(nodeStatus.statusChangedAt || nodeStatus.lastChecked);
-      const statusText = `${nodeStatus.status} for ${duration}`;
-      
-      // Calculate badge position next to title
-      const titleWidth = ctx.measureText(title).width;
-      const badgeMargin = Math.max(8 / scale, 6);
-      const badgeX = titleX + titleWidth + badgeMargin;
-      
-      // Badge styling
-      const badgeFontSize = Math.min(Math.max(9 / scale, 7), 14);
-      const badgePadding = Math.min(Math.max(4 / scale, 2), 6);
-      const badgeHeight = badgeFontSize + (badgePadding * 2);
-      
-      ctx.font = `500 ${badgeFontSize}px Roboto, sans-serif`;
-      const badgeTextWidth = ctx.measureText(statusText).width;
-      const badgeWidth = badgeTextWidth + (badgePadding * 2);
-      
-      // Align badge vertically with title
-      const badgeY = titleY + (titleFontSize - badgeHeight) / 2;
-      
-      // Badge colors based on status - using same colors as mobile for consistency
-      const badgeColors = {
-        online: { bg: '#bbf7d0', text: '#166534' }, // Light green (green-200), dark green text (green-800)
-        offline: { bg: '#fecaca', text: '#991b1b' }, // Light red (red-200), dark red text (red-800)
-        checking: { bg: '#e5e7eb', text: '#4b5563' } // Light gray (gray-200), dark gray text (gray-600)
-      };
-      
-      const colors = badgeColors[nodeStatus.status] || badgeColors.checking;
-      
-      // Draw badge background with rounded corners
-      ctx.fillStyle = colors.bg;
-      ctx.beginPath();
-      const badgeRadius = Math.min(badgeHeight / 2, 6);
-      ctx.moveTo(badgeX + badgeRadius, badgeY);
-      ctx.lineTo(badgeX + badgeWidth - badgeRadius, badgeY);
-      ctx.quadraticCurveTo(badgeX + badgeWidth, badgeY, badgeX + badgeWidth, badgeY + badgeRadius);
-      ctx.lineTo(badgeX + badgeWidth, badgeY + badgeHeight - badgeRadius);
-      ctx.quadraticCurveTo(badgeX + badgeWidth, badgeY + badgeHeight, badgeX + badgeWidth - badgeRadius, badgeY + badgeHeight);
-      ctx.lineTo(badgeX + badgeRadius, badgeY + badgeHeight);
-      ctx.quadraticCurveTo(badgeX, badgeY + badgeHeight, badgeX, badgeY + badgeHeight - badgeRadius);
-      ctx.lineTo(badgeX, badgeY + badgeRadius);
-      ctx.quadraticCurveTo(badgeX, badgeY, badgeX + badgeRadius, badgeY);
-      ctx.fill();
-      
-      // Draw badge text
-      ctx.fillStyle = colors.text;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(statusText, badgeX + badgeWidth / 2, badgeY + badgeHeight / 2);
-      
-      // Reset text alignment
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-    }
-    
-    // Draw subtitle - Only if it exists
-    let currentY = titleY + titleFontSize + 4;
-    
-    if (subtitle) {
-      ctx.fillStyle = '#6b7280';
-      ctx.font = `400 ${subtitleFontSize}px Roboto, sans-serif`;
-      
-      const subtitleX = textAreaX + 10;
-      ctx.fillText(subtitle, subtitleX, currentY);
-      
-      currentY += subtitleFontSize + 8;
-    } else {
-      // Small gap if no subtitle
-      currentY += 4;
-    }
-    
-    const iconSize = Math.min(Math.max(16 / scale, 12), 24); // Larger minimum size, scales better with zoom
-    
-    // Draw Minecraft Player Count if available - Prominently on the right
-    if ('players' in nodeStatus && nodeStatus.players) {
-      // Position on the right side of the card
-      const rightPadding = 25;
-      const rightX = x + width - rightPadding;
-      const centerY = y + height / 2;
-      
-      // Draw "X / Y" large
-      ctx.textAlign = 'right';
-      ctx.textBaseline = 'bottom';
-      ctx.fillStyle = '#1f2937'; 
-      
-      // Use a large font, but scale it
-      const largeFontSize = Math.min(Math.max(28 / scale, 18), 36);
-      ctx.font = `700 ${largeFontSize}px Roboto, sans-serif`; // Bold
-      
-      const countText = `${nodeStatus.players.online}/${nodeStatus.players.max}`;
-      ctx.fillText(countText, rightX, centerY + 2); 
-      
-      // Draw "players" small below
-      ctx.textBaseline = 'top';
-      ctx.fillStyle = '#6b7280'; // Gray text
-      const labelFontSize = Math.min(Math.max(12 / scale, 9), 16);
-      ctx.font = `500 ${labelFontSize}px Roboto, sans-serif`;
-      ctx.fillText('players', rightX, centerY + 4);
-      
-      // Reset alignment
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      
-      // Don't increment currentY so the IP address stays below the subtitle
-    }
-    
-    // Draw External Address - Only if configured (externalAddress or legacy url)
-    // Internal addresses are never shown on canvas
-    const displayAddress = getNodeAddressDisplay(node);
-    
-    if (displayAddress) {
-      // Calculate vertical center alignment
-      const textHeight = detailFontSize;
-      const iconCenterY = currentY + textHeight / 2;
-      
-      // Draw globe icon for external address
-      drawIconOnCanvas(ctx, 'globe', textAreaX + 10 + iconSize/2, iconCenterY, iconSize * 0.8, '#6b7280', handleIconLoaded);
-      
-      // Draw address text (truncate if too long)
-      ctx.fillStyle = '#6b7280';
-      ctx.font = `400 ${detailFontSize}px Roboto, sans-serif`;
-      
-      const maxUrlWidth = textAreaWidth - 20 - iconSize - 2; // Account for increased gap
-      let displayText = displayAddress;
-      
-      // Simple truncation
-      if (ctx.measureText(displayText).width > maxUrlWidth) {
-        while (ctx.measureText(displayText + '...').width > maxUrlWidth && displayText.length > 10) {
-          displayText = displayText.slice(0, -1);
-        }
-        displayText += '...';
-      }
-      
-      ctx.fillText(displayText, textAreaX + 10 + iconSize + 6, currentY); // Increased gap to 6px
-    }
-
-    // Draw Add Child button on hover (bottom edge)
-    if (isHovered && !isMobile) {
-      const buttonRadius = Math.max(12 / scale, 10); // Scale the button size, but keep min size
-      const buttonX = x + width / 2;
-      const buttonY = y + height; // On the bottom edge
-      
-      // Draw button background
-      ctx.beginPath();
-      ctx.arc(buttonX, buttonY, buttonRadius, 0, Math.PI * 2);
-      ctx.fillStyle = isAddButtonHovered ? '#3b82f6' : '#ffffff';
-      ctx.fill();
-      ctx.strokeStyle = '#e5e7eb';
-      ctx.lineWidth = 1 / scale;
-      ctx.stroke();
-      
-      // Draw plus icon
-      const iconSize = buttonRadius * 0.5;
-      ctx.beginPath();
-      ctx.moveTo(buttonX - iconSize, buttonY);
-      ctx.lineTo(buttonX + iconSize, buttonY);
-      ctx.moveTo(buttonX, buttonY - iconSize);
-      ctx.lineTo(buttonX, buttonY + iconSize);
-      ctx.strokeStyle = isAddButtonHovered ? '#ffffff' : '#6b7280';
-      ctx.lineWidth = 2 / scale;
-      ctx.stroke();
-    }
-  };
-
-  const drawConnection = (ctx: CanvasRenderingContext2D, connection: Connection, scale: number) => {
-    const { from, to, isFirstChild, isLastChild } = connection;
-    
-    // Calculate connection points (bottom center of parent to top center of child)
-    const startX = from.x + from.width / 2;
-    const startY = from.y + from.height;
-    const endX = to.x + to.width / 2;
-    const endY = to.y;
-    
-    // Draw connection line with proper T-junction and X-crossing corner rounding
-    ctx.strokeStyle = '#6b7280';
-    ctx.lineWidth = Math.min(Math.max(5 / scale, 3), 12);
-    ctx.setLineDash([]);
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    
-    const midY = startY + (endY - startY) / 2;
-    const cornerRadius = Math.min(Math.max(6 / scale, 3), 20);
-    
-    ctx.beginPath();
-    ctx.moveTo(startX, startY);
-    
-    if (startX === endX) {
-      // Straight down - no horizontal component, no rounding needed
-      ctx.lineTo(endX, endY);
-    } else {
-      // We have a turn - only round corners that are truly "inside" corners
-      const isMovingRight = endX > startX;
-      
-      // Only round corners for edge children (first or last), and only the corners
-      // that don't interfere with potential sibling connections
-      if (isFirstChild || isLastChild) {
-        // For edge children, we can safely round both corners since there's no 
-        // interference with sibling connections on the "outside" of the turn
-        
-        // Draw vertical line down to turn point
-        ctx.lineTo(startX, midY - cornerRadius);
-        
-        // Round the corner where we turn horizontally
-        if (isMovingRight) {
-          ctx.arcTo(startX, midY, startX + cornerRadius, midY, cornerRadius);
-        } else {
-          ctx.arcTo(startX, midY, startX - cornerRadius, midY, cornerRadius);
-        }
-        
-        // Draw horizontal line
-        ctx.lineTo(endX + (isMovingRight ? -cornerRadius : cornerRadius), midY);
-        
-        // Round the corner where we turn down to child
-        ctx.arcTo(endX, midY, endX, midY + cornerRadius, cornerRadius);
-        
-        // Draw final vertical line to child
-        ctx.lineTo(endX, endY);
-      } else {
-        // For middle children, we're creating a T-junction where the vertical line
-        // from the parent continues through to other siblings. We should NOT round
-        // the corner at the parent's vertical line (that would break the T-junction),
-        // but we CAN round the corner where we turn down to the child.
-        
-        // Draw straight vertical line to horizontal level (no rounding here)
-        ctx.lineTo(startX, midY);
-        
-        // Draw horizontal line to child position, but leave space for corner rounding
-        ctx.lineTo(endX + (isMovingRight ? -cornerRadius : cornerRadius), midY);
-        
-        // Round only the corner where we turn down to the child
-        ctx.arcTo(endX, midY, endX, midY + cornerRadius, cornerRadius);
-        
-        // Draw final vertical line to child
-        ctx.lineTo(endX, endY);
-      }
-    }
-    
-    ctx.stroke();
-  };
-
-  const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    // Draw static background image (not affected by transform) with cover behavior
-    // Only draw if background is not disabled
-    if (backgroundLoaded && backgroundImageRef.current) {
-      const img = backgroundImageRef.current;
-      const canvasAspect = canvas.width / canvas.height;
-      const imgAspect = img.width / img.height;
-      let drawWidth, drawHeight, drawX, drawY;
-      // Object-fit: cover behavior - scale image to completely fill canvas
-      if (canvasAspect > imgAspect) {
-        drawWidth = canvas.width;
-        drawHeight = canvas.width / imgAspect;
-        drawX = 0;
-        drawY = (canvas.height - drawHeight) / 2;
-      } else {
-        drawHeight = canvas.height;
-        drawWidth = canvas.height * imgAspect;
-        drawY = 0;
-        drawX = (canvas.width - drawWidth) / 2;
-      }
-      ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
-    }
-    
-    // Save context state for transformed content
-    ctx.save();
-    
-    // Apply transform only to content (nodes and connections), not background
-    ctx.translate(transform.x, transform.y);
-    ctx.scale(transform.scale, transform.scale);
-    
-    // Calculate node positions and connections
-    const { nodes, connections } = calculateNodePositions();
-    
-    // Draw connections first (so they appear behind the nodes)
-    connections.forEach(connection => {
-      drawConnection(ctx, connection, transform.scale);
-    });
-    
-    // Draw the nodes
-    nodes.forEach(node => {
-      const isNodeHovered = hoveredNodeIdRef.current === node.id;
-      const isEditButtonHovered = hoveredEditButtonNodeIdRef.current === node.id;
-      const isAddButtonHovered = hoveredAddButtonNodeIdRef.current === node.id;
-      drawNode(ctx, node, transform.scale, currentConfig, isNodeHovered, isEditButtonHovered, isTouch, isAddButtonHovered);
-
-      // Draw collapse/expand buttons
-      const isCollapsed = collapsedNodeIds.has(node.id);
-      const originalNode = findNodeById(currentConfig.tree.nodes, node.id);
-      const hasChildren = originalNode && originalNode.children && originalNode.children.length > 0;
-      
-      if (hasChildren) {
-        // Mobile/Touch: Draw permanent button on the left side
-        if (isTouch) {
-          const buttonSize = 36 / transform.scale;
-          const buttonX = node.x; // Left edge of node
-          const buttonY = node.y + node.height / 2;
-          
-          // Draw circle button (half overlapping)
-          ctx.fillStyle = '#ffffff';
-          ctx.strokeStyle = '#e5e7eb'; // Light gray border
-          ctx.lineWidth = 1 / transform.scale;
-          
-          // Add shadow
-          ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
-          ctx.shadowBlur = 4 / transform.scale;
-          ctx.shadowOffsetY = 2 / transform.scale;
-
-          ctx.beginPath();
-          ctx.arc(buttonX, buttonY, buttonSize/2, 0, Math.PI * 2); // Full circle
-          ctx.fill();
-          
-          ctx.shadowColor = 'transparent';
-          ctx.shadowBlur = 0;
-          ctx.shadowOffsetY = 0;
-          ctx.stroke();
-          
-          // Draw Icon (Chevron Left/Right or Minus/Plus)
-          const iconSize = buttonSize * 0.4;
-          const iconX = buttonX; // Center of button
-          const iconY = buttonY;
-          
-          ctx.beginPath();
-          ctx.strokeStyle = '#6b7280';
-          ctx.lineWidth = 2 / transform.scale;
-          ctx.lineCap = 'round';
-          ctx.lineJoin = 'round';
-          
-          if (isCollapsed) {
-            // Chevron Right (Expand)
-            ctx.moveTo(iconX - iconSize/4, iconY - iconSize/2);
-            ctx.lineTo(iconX + iconSize/4, iconY);
-            ctx.lineTo(iconX - iconSize/4, iconY + iconSize/2);
-          } else {
-            // Chevron Left (Collapse)
-            ctx.moveTo(iconX + iconSize/4, iconY - iconSize/2);
-            ctx.lineTo(iconX - iconSize/4, iconY);
-            ctx.lineTo(iconX + iconSize/4, iconY + iconSize/2);
-          }
-          ctx.stroke();
-        } 
-        // Desktop: Draw hover buttons on the line
-        else {
-          const buttonSize = Math.min(Math.max(20 / transform.scale, 16), 30);
-          const buttonX = node.x + node.width / 2;
-          const buttonY = node.y + node.height + (12 / transform.scale);
-          
-          if (isCollapsed) {
-            // Draw Expand Button
-            ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = '#e5e7eb';
-            ctx.lineWidth = 1 / transform.scale;
-            
-            const childCount = originalNode!.children!.length;
-            const countText = `${childCount} hidden nodes`;
-            ctx.font = `500 ${12 / transform.scale}px Roboto, sans-serif`;
-            const textWidth = ctx.measureText(countText).width;
-            const padding = 12 / transform.scale;
-            const pillWidth = textWidth + buttonSize + padding;
-            const pillHeight = Math.max(24 / transform.scale, 20);
-            
-            // Draw pill background with shadow
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
-            ctx.shadowBlur = 4 / transform.scale;
-            ctx.shadowOffsetY = 2 / transform.scale;
-            
-            ctx.beginPath();
-            if (ctx.roundRect) {
-              ctx.roundRect(buttonX - pillWidth/2, buttonY, pillWidth, pillHeight, pillHeight/2);
-            } else {
-              // Fallback for older browsers
-              ctx.moveTo(buttonX - pillWidth/2 + pillHeight/2, buttonY);
-              ctx.lineTo(buttonX + pillWidth/2 - pillHeight/2, buttonY);
-              ctx.arc(buttonX + pillWidth/2 - pillHeight/2, buttonY + pillHeight/2, pillHeight/2, -Math.PI/2, Math.PI/2);
-              ctx.lineTo(buttonX - pillWidth/2 + pillHeight/2, buttonY + pillHeight);
-              ctx.arc(buttonX - pillWidth/2 + pillHeight/2, buttonY + pillHeight/2, pillHeight/2, Math.PI/2, -Math.PI/2);
-            }
-            ctx.fill();
-            
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetY = 0;
-            ctx.stroke();
-            
-            // Draw Chevron Down
-            const iconX = buttonX - pillWidth/2 + pillHeight/2;
-            const iconY = buttonY + pillHeight/2;
-            const iconSize = pillHeight * 0.4;
-            
-            ctx.beginPath();
-            ctx.moveTo(iconX - iconSize/2, iconY - iconSize/4);
-            ctx.lineTo(iconX, iconY + iconSize/4);
-            ctx.lineTo(iconX + iconSize/2, iconY - iconSize/4);
-            ctx.strokeStyle = '#6b7280';
-            ctx.lineWidth = 2 / transform.scale;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.stroke();
-            
-            // Draw Count
-            ctx.fillStyle = '#4b5563';
-            ctx.textAlign = 'left';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(countText, iconX + iconSize/2 + (6/transform.scale), iconY);
-            
-          } else if (hoveredLineParentId === node.id) {
-            // Draw Collapse Button (Chevron Up)
-            ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = '#e5e7eb';
-            ctx.lineWidth = 1 / transform.scale;
-            
-            // Add shadow
-            ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
-            ctx.shadowBlur = 4 / transform.scale;
-            ctx.shadowOffsetY = 2 / transform.scale;
-            
-            ctx.beginPath();
-            ctx.arc(buttonX, buttonY + buttonSize/2, buttonSize/2, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.shadowColor = 'transparent';
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetY = 0;
-            ctx.stroke();
-            
-            // Draw Chevron Up
-            const iconX = buttonX;
-            const iconY = buttonY + buttonSize/2;
-            const iconSize = buttonSize * 0.5;
-            
-            ctx.beginPath();
-            ctx.moveTo(iconX - iconSize/2, iconY + iconSize/4);
-            ctx.lineTo(iconX, iconY - iconSize/4);
-            ctx.lineTo(iconX + iconSize/2, iconY + iconSize/4);
-            ctx.strokeStyle = '#6b7280';
-            ctx.lineWidth = 2 / transform.scale;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.stroke();
-          }
-        }
-      }
-    });
-    
-    // Restore context state
-    ctx.restore();
-  }, [backgroundLoaded, calculateNodePositions, getNodeStatus, iconLoadCounter, currentConfig, transform, hoveredNodeId, hoveredEditButtonNodeId, collapsedNodeIds, hoveredLineParentId]);
-
-  // Use requestAnimationFrame for smooth redraws with simple throttling
-  const animationFrameRef = useRef<number | null>(null);
-  
-  const requestDraw = useCallback(() => {
-    if (animationFrameRef.current !== null) {
-      return; // Already have a pending animation frame
-    }
-    
-    animationFrameRef.current = requestAnimationFrame(() => {
-      animationFrameRef.current = null;
-      draw();
-    });
-  }, [draw]);
-  
-  // Simple ref updates (no redraw triggers needed since draw depends on state)
-  useEffect(() => {
-    transformRef.current = transform;
-  }, [transform]);
-  
-  useEffect(() => {
-    hoveredNodeIdRef.current = hoveredNodeId;
-  }, [hoveredNodeId]);
-  
-  useEffect(() => {
-    hoveredEditButtonNodeIdRef.current = hoveredEditButtonNodeId;
-  }, [hoveredEditButtonNodeId]);
-
-  const resetView = useCallback(() => {
-    // Reset to the initial calculated transform
-    setTransform(initialTransform);
-  }, [initialTransform]);
-
   const fitToContent = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const container = containerRef.current;
+    if (!container) return;
 
     // Calculate bounding box of all nodes
     const { nodes } = calculateNodePositions();
@@ -1837,16 +816,16 @@ const Canvas: React.FC = () => {
     const contentHeight = maxY - minY;
     
     // Calculate scale to fit content
-    const scaleX = canvas.width / contentWidth;
-    const scaleY = canvas.height / contentHeight;
+    const scaleX = container.clientWidth / contentWidth;
+    const scaleY = container.clientHeight / contentHeight;
     const scale = Math.min(scaleX, scaleY, 1.5); // Max scale of 1.5
     
     // Calculate center position
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
     
-    const x = canvas.width / 2 - centerX * scale;
-    const y = canvas.height / 2 - centerY * scale;
+    const x = container.clientWidth / 2 - centerX * scale;
+    const y = container.clientHeight / 2 - centerY * scale;
     
     const newTransform = { x, y, scale };
     setTransform(newTransform);
@@ -1873,90 +852,13 @@ const Canvas: React.FC = () => {
   }, [transform, initialTransform, isInitialized]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const canvasX = e.clientX - rect.left;
-    const canvasY = e.clientY - rect.top;
-    
+    // Only start dragging if clicking on the background (not on a node)
+    // Nodes stop propagation, so this should be fine
     setIsDragging(true);
     setLastMousePos({ x: e.clientX, y: e.clientY });
-    setMouseDownPos({ x: canvasX, y: canvasY });
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const canvasX = e.clientX - rect.left;
-    const canvasY = e.clientY - rect.top;
-    
-    // Check if hovering over a node for cursor management
-    const hoveredNode = getNodeAtPosition(canvasX, canvasY);
-    setHoveredNodeId(hoveredNode ? hoveredNode.id : null); // Track which node is hovered for edit button
-    
-    // Check if hovering over an edit button specifically
-    const editButtonHovered = getEditButtonHover(canvasX, canvasY);
-    setHoveredEditButtonNodeId(editButtonHovered);
-
-    // Check if hovering over an add button specifically
-    const addButtonHovered = getAddButtonHover(canvasX, canvasY);
-    setHoveredAddButtonNodeId(addButtonHovered);
-    
-    // Update cursor state
-    setIsHoveringNode((!!hoveredNode && !!hoveredNode.url) || !!editButtonHovered || !!addButtonHovered);
-    
-    // Handle tooltip for edit circle hover
-    if (editButtonHovered && !isTouch) {
-      setTooltip({
-        text: 'Edit node',
-        x: e.clientX + 10,
-        y: e.clientY - 30
-      });
-    } else if (addButtonHovered && !isTouch) {
-      setTooltip({
-        text: 'Add child node',
-        x: e.clientX + 10,
-        y: e.clientY - 30
-      });
-    } else {
-      setTooltip(null);
-    }
-
-    // Check for hover on collapse/expand buttons or lines
-    if (!isDragging && !isTouch) {
-      const worldX = (canvasX - transform.x) / transform.scale;
-      const worldY = (canvasY - transform.y) / transform.scale;
-      
-      const { nodes } = calculateNodePositions();
-      let foundHoveredLine = null;
-      
-      for (const node of nodes) {
-        const originalNode = findNodeById(currentConfig.tree.nodes, node.id);
-        if (!originalNode || !originalNode.children || originalNode.children.length === 0) continue;
-        
-        // Check area below node where line/button is
-        const buttonX = node.x + node.width / 2;
-        // Hit area for the line/button
-        const hitWidth = 40 / transform.scale;
-        const hitHeight = 40 / transform.scale;
-        
-        if (
-          worldX >= buttonX - hitWidth/2 &&
-          worldX <= buttonX + hitWidth/2 &&
-          worldY >= node.y + node.height &&
-          worldY <= node.y + node.height + hitHeight
-        ) {
-          foundHoveredLine = node.id;
-          break;
-        }
-      }
-      
-      setHoveredLineParentId(foundHoveredLine);
-    }
-    
     if (!isDragging) return;
     
     const deltaX = e.clientX - lastMousePos.x;
@@ -1971,155 +873,18 @@ const Canvas: React.FC = () => {
     setLastMousePos({ x: e.clientX, y: e.clientY });
   };
 
-  const handleMouseUp = (e: React.MouseEvent) => {
-    if (!isDragging) return; // Prevent handling if not dragging
-    
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const canvasX = e.clientX - rect.left;
-    const canvasY = e.clientY - rect.top;
-    
-    // Check if this was a click (minimal movement) vs a drag
-    const dragDistance = Math.sqrt(
-      Math.pow(canvasX - mouseDownPos.x, 2) + 
-      Math.pow(canvasY - mouseDownPos.y, 2)
-    );
-    
-    const wasClick = dragDistance < 5; // Less than 5 pixels movement = click
-    
-    if (wasClick) {
-      // Check for collapse/expand button click
-      const worldX = (canvasX - transform.x) / transform.scale;
-      const worldY = (canvasY - transform.y) / transform.scale;
-      
-      const { nodes } = calculateNodePositions();
-      let buttonClicked = false;
-      
-      for (const node of nodes) {
-        const originalNode = findNodeById(currentConfig.tree.nodes, node.id);
-        if (!originalNode || !originalNode.children || originalNode.children.length === 0) continue;
-        
-        let hit = false;
-        
-        if (isTouch) {
-          // Mobile/Touch: Check side button
-          const buttonSize = 36 / transform.scale;
-          const buttonX = node.x;
-          const buttonY = node.y + node.height / 2;
-          
-          // Check circle hit area
-          const dist = Math.sqrt(Math.pow(worldX - buttonX, 2) + Math.pow(worldY - buttonY, 2));
-          if (dist <= buttonSize/2) {
-            hit = true;
-          }
-        } else {
-          // Desktop: Check bottom button
-          const buttonX = node.x + node.width / 2;
-          const hitWidth = 40 / transform.scale;
-          const hitHeight = 40 / transform.scale;
-          
-          // Expand hit area for the wider "hidden nodes" button if collapsed
-          const isCollapsed = collapsedNodeIds.has(node.id);
-          const effectiveHitWidth = isCollapsed ? 120 / transform.scale : hitWidth;
-          
-          if (
-            worldX >= buttonX - effectiveHitWidth/2 &&
-            worldX <= buttonX + effectiveHitWidth/2 &&
-            worldY >= node.y + node.height &&
-            worldY <= node.y + node.height + hitHeight
-          ) {
-            hit = true;
-          }
-        }
-        
-        if (hit) {
-          buttonClicked = true;
-          
-          setCollapsedNodeIds(prev => {
-            const next = new Set(prev);
-            if (next.has(node.id)) {
-              next.delete(node.id);
-            } else {
-              next.add(node.id);
-            }
-            return next;
-          });
-          
-          break; 
-        }
-      }
-      
-      if (!buttonClicked) {
-        // Check for add button click
-        if (!isTouch && hoveredAddButtonNodeId) {
-          handleAddChildNode(hoveredAddButtonNodeId);
-          setIsDragging(false);
-          return;
-        }
-
-        // If we clicked elsewhere on mobile, clear the hover state (though less relevant now with permanent buttons)
-        if (isTouch) {
-          setHoveredLineParentId(null);
-        }
-
-        // Check for edit circle click first - only if we're hovering a node
-        if (hoveredNodeId) {
-          const hoveredNode = getNodeAtPosition(canvasX, canvasY);
-          if (hoveredNode && hoveredNode.id === hoveredNodeId) {
-            // Calculate circle bounds for the hovered node
-            const worldX = (canvasX - transform.x) / transform.scale;
-            const worldY = (canvasY - transform.y) / transform.scale;
-            
-            // Calculate circle position (same logic as in drawNode)
-            const circlePadding = 15; // Consistent padding for circle
-            const maxCircleSize = Math.min(hoveredNode.height - (circlePadding * 2), 60); // Max circle diameter of 60px
-            const circleRadius = maxCircleSize * 0.5;
-            const circleCenterX = hoveredNode.x + circlePadding + circleRadius; // Center based on consistent padding
-            const circleCenterY = hoveredNode.y + hoveredNode.height / 2;
-            
-            // Check if click is within circle bounds
-            const distance = Math.sqrt(
-              Math.pow(worldX - circleCenterX, 2) + 
-              Math.pow(worldY - circleCenterY, 2)
-            );
-            
-            if (distance <= circleRadius) {
-              // Circle clicked - open edit dialog!
-              handleEditNode(hoveredNode.id);
-              setIsDragging(false); // Ensure we reset dragging state
-              return;
-            }
-          }
-        }
-        
-        // Check for regular node click
-        const clickedNode = getNodeAtPosition(canvasX, canvasY);
-        if (clickedNode) {
-          openNodeUrl(clickedNode);
-        }
-      }
-    }
-    
+  const handleMouseUp = () => {
     setIsDragging(false);
   };
 
-  const handleMouseLeave = () => {
-    setIsDragging(false);
-    setIsHoveringNode(false);
-    setHoveredNodeId(null);
-    setHoveredEditButtonNodeId(null);
-    setTooltip(null);
-  };
-
-  const handleWheel = useCallback((e: WheelEvent) => {
-    e.preventDefault();
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    // e.preventDefault() is not needed/possible in React synthetic events for passive listeners
+    // But we can handle the zoom logic
     
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const container = containerRef.current;
+    if (!container) return;
     
-    const rect = canvas.getBoundingClientRect();
+    const rect = container.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
     
@@ -2138,81 +903,16 @@ const Canvas: React.FC = () => {
     });
   }, [transform]);
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
-
-    const resizeCanvas = () => {
-      canvas.width = container.clientWidth;
-      canvas.height = container.clientHeight;
-      requestDraw();
-    };
-
-    // Add wheel event listener manually to avoid passive event listener issues
-    const wheelHandler = (e: WheelEvent) => {
-      handleWheel(e);
-    };
-
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
-    canvas.addEventListener('wheel', wheelHandler, { passive: false });
-
-    return () => {
-      window.removeEventListener('resize', resizeCanvas);
-      canvas.removeEventListener('wheel', wheelHandler);
-    };
-  }, [requestDraw, handleWheel]);
-
-  // Only redraw on essential changes, not on every draw function recreation
-  useEffect(() => {
-    requestDraw();
-  }, [backgroundLoaded, iconLoadCounter, currentConfig, requestDraw]);
-
-  // Continuous animation for shimmer effect when nodes are checking
-  useEffect(() => {
-    let animationId: number | null = null;
-    
-    const checkForLoadingNodes = () => {
-      // Check if any nodes are in checking state
-      const { nodes } = calculateNodePositions();
-      const hasCheckingNodes = nodes.some(node => {
-        // Use the original identifier (not normalized) to match API response format
-        const nodeIdentifier = node.ip || node.url;
-        if (!nodeIdentifier) return false;
-        
-        // Use the original identifier directly to match API response
-        const status = getNodeStatus(nodeIdentifier);
-        return status.status === 'checking';
-      });
-      
-      if (hasCheckingNodes) {
-        requestDraw();
-        animationId = requestAnimationFrame(checkForLoadingNodes);
-      }
-    };
-    
-    // Start the animation loop
-    checkForLoadingNodes();
-    
-       
-    return () => {
-      if (animationId) {
-        cancelAnimationFrame(animationId);
-      }
-    };
-  }, [calculateNodePositions, getNodeStatus, requestDraw]);
-
   // Auto-fit content on initial load only
   useEffect(() => {
-    if (backgroundLoaded && !isInitialized) {
+    if (!isInitialized && currentConfig.tree.nodes.length > 0) {
       const timer = setTimeout(() => {
         fitToContent();
       }, 100);
       
       return () => clearTimeout(timer);
     }
-  }, [backgroundLoaded, isInitialized, fitToContent]);
+  }, [isInitialized, fitToContent, currentConfig.tree.nodes.length]);
 
   // Handle node click in mobile view
   const handleMobileNodeClick = useCallback((node: TreeNode) => {
@@ -2243,12 +943,33 @@ const Canvas: React.FC = () => {
     testApiConnectivity();
   }, []);
 
+  const resetView = useCallback(() => {
+    setTransform(initialTransform);
+  }, [initialTransform]);
+
+  // Calculate nodes and connections for rendering
+  const { nodes, connections } = calculateNodePositions();
+
+  // Helper to get status for a node
+  const getStatusForNode = (node: PositionedNode) => {
+    let originalIdentifier = node.internalAddress;
+    if (!originalIdentifier) {
+      originalIdentifier = node.healthCheckPort && node.ip 
+        ? `${node.ip}:${node.healthCheckPort}` 
+        : (node.ip || node.url);
+    }
+    
+    return originalIdentifier 
+      ? getNodeStatus(originalIdentifier) 
+      : { status: 'checking' as const, lastChecked: new Date().toISOString(), statusChangedAt: new Date().toISOString(), progress: 0 };
+  };
+
   return (
-    <div className="w-full h-full relative font-roboto" ref={containerRef}>
-      {/* Fallback background image as CSS - will be visible if canvas background doesn't load */}
-      {!backgroundLoaded && currentConfig.appearance?.backgroundImage && (
+    <div className="w-full h-full relative font-roboto overflow-hidden" ref={containerRef}>
+      {/* Background image */}
+      {currentConfig.appearance?.backgroundImage && (
         <div 
-          className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat" 
+          className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
           style={{ 
             backgroundImage: `url(${currentConfig.appearance.backgroundImage})`,
             opacity: 0.3 
@@ -2256,32 +977,164 @@ const Canvas: React.FC = () => {
         />
       )}
       
-      {/* Desktop view with canvas */}
+      {/* Desktop view with DOM-based canvas */}
       {!isMobile && (
         <>
-          <canvas
-            ref={canvasRef}
-            className={`w-full h-full ${isHoveringNode ? 'cursor-pointer' : isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          <div
+            className={`w-full h-full absolute inset-0 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseLeave}
-          />
+            onMouseLeave={handleMouseUp}
+            onWheel={handleWheel}
+          >
+            {/* The "World" container that gets transformed */}
+            <div
+              style={{
+                transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+                transformOrigin: '0 0',
+                width: '100%',
+                height: '100%',
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                willChange: 'transform',
+              }}
+            >
+              {/* Connections Layer (SVG) */}
+              <svg
+                className="absolute top-0 left-0 overflow-visible pointer-events-none"
+                style={{ width: 1, height: 1 }} // Minimal size, overflow visible handles the rest
+              >
+                {connections.map((connection, index) => {
+                  const { from, to, isFirstChild, isLastChild } = connection;
+                  const startX = from.x + from.width / 2;
+                  const startY = from.y + from.height;
+                  const endX = to.x + to.width / 2;
+                  const endY = to.y;
+                  const midY = startY + (endY - startY) / 2;
+                  const cornerRadius = 12; // Fixed radius, looks good at all scales
+
+                  // Construct path
+                  let d = `M ${startX} ${startY}`;
+                  
+                  if (startX === endX) {
+                    d += ` L ${endX} ${endY}`;
+                  } else {
+                    const isMovingRight = endX > startX;
+                    
+                    if (isFirstChild || isLastChild) {
+                      d += ` L ${startX} ${midY - cornerRadius}`;
+                      d += ` Q ${startX} ${midY} ${startX + (isMovingRight ? cornerRadius : -cornerRadius)} ${midY}`;
+                      d += ` L ${endX + (isMovingRight ? -cornerRadius : cornerRadius)} ${midY}`;
+                      d += ` Q ${endX} ${midY} ${endX} ${midY + cornerRadius}`;
+                      d += ` L ${endX} ${endY}`;
+                    } else {
+                      d += ` L ${startX} ${midY}`;
+                      d += ` L ${endX + (isMovingRight ? -cornerRadius : cornerRadius)} ${midY}`;
+                      d += ` Q ${endX} ${midY} ${endX} ${midY + cornerRadius}`;
+                      d += ` L ${endX} ${endY}`;
+                    }
+                  }
+
+                  return (
+                    <path
+                      key={`conn-${index}`}
+                      d={d}
+                      fill="none"
+                      stroke="#6b7280"
+                      strokeWidth={4}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  );
+                })}
+              </svg>
+
+              {/* Nodes Layer */}
+              {nodes.map(node => (
+                <React.Fragment key={node.id}>
+                  <CanvasNode
+                    node={node}
+                    status={getStatusForNode(node)}
+                    scale={transform.scale}
+                    isSelected={false}
+                    onNodeClick={(n) => openNodeUrl(n)}
+                    onEditClick={(n) => handleEditNode(n.id)}
+                    onAddChildClick={(n) => handleAddChildNode(n.id)}
+                  />
+                  
+                  {/* Collapse/Expand Button */}
+                  {(() => {
+                    const originalNode = findNodeById(currentConfig.tree.nodes, node.id);
+                    const hasChildren = originalNode && originalNode.children && originalNode.children.length > 0;
+                    const isCollapsed = collapsedNodeIds.has(node.id);
+                    
+                    if (!hasChildren) return null;
+
+                    const buttonX = node.x + node.width / 2;
+                    const buttonY = node.y + node.height + 12;
+                    
+                    return (
+                      <div
+                        className="absolute z-30 cursor-pointer transform -translate-x-1/2 flex items-center justify-center bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors"
+                        style={{
+                          left: buttonX,
+                          top: buttonY,
+                          borderRadius: isCollapsed ? '9999px' : '50%',
+                          padding: isCollapsed ? '4px 12px' : '4px',
+                          minWidth: isCollapsed ? 'auto' : '24px',
+                          height: '24px',
+                        }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCollapsedNodeIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(node.id)) {
+                              next.delete(node.id);
+                            } else {
+                              next.add(node.id);
+                            }
+                            return next;
+                          });
+                        }}
+                      >
+                        {isCollapsed ? (
+                          <div className="flex items-center gap-2 text-xs font-medium text-gray-600 whitespace-nowrap">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                            <span>{originalNode!.children!.length} hidden nodes</span>
+                          </div>
+                        ) : (
+                          <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                          </svg>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
           
           {/* Empty nodes fallback for desktop */}
           {currentConfig.tree.nodes.length === 0 && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center">
-              <EmptyNodesFallback 
-                onCreateStartingNode={handleCreateStartingNode}
-                appConfig={currentConfig}
-                onRestoreConfig={handleLoadConfig}
-              />
+            <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+              <div className="pointer-events-auto">
+                <EmptyNodesFallback 
+                  onCreateStartingNode={handleCreateStartingNode}
+                  appConfig={currentConfig}
+                  onRestoreConfig={handleLoadConfig}
+                />
+              </div>
             </div>
           )}
           
           {/* Controls - only show when user has moved away from initial position */}
           {hasMovedFromInitial() && (
-            <div className="absolute bottom-4 left-4">
+            <div className="absolute bottom-4 left-4 z-40">
               <button
                 onClick={resetView}
                 className="bg-white/90 hover:bg-white text-gray-800 px-3 py-2 rounded-lg shadow-md transition-colors text-sm font-medium font-roboto"
@@ -2305,16 +1158,6 @@ const Canvas: React.FC = () => {
               backgroundSize: 'cover'
             }} 
           />
-          {/* Fallback background in case the first one fails */}
-          {!backgroundLoaded && (
-            <div 
-              className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
-              style={{ 
-                backgroundImage: 'url(/background.png)',
-                opacity: 0.3 
-              }} 
-            />
-          )}
           
           {/* Single scrollable container with status card and nodes */}
           <div className="relative z-10 h-full overflow-auto bg-transparent">
@@ -2458,26 +1301,6 @@ const Canvas: React.FC = () => {
           appearance={currentConfig.appearance}
         />
       )}
-
-      {/* Tooltip */}
-      {tooltip && (
-        <div
-          className="absolute pointer-events-none z-50 bg-gray-800 text-white text-sm px-2 py-1 rounded shadow-lg"
-          style={{
-            left: tooltip.x,
-            top: tooltip.y,
-          }}
-        >
-          {tooltip.text}
-        </div>
-      )}
-
-      {/* Mobile Node List - Shown only on mobile devices */}
-      {/* {isMobile && currentConfig.tree.nodes.length > 0 && (
-        <div className="absolute inset-0 z-10 p-4 pointer-events-none">
-          <MobileNodeList nodes={currentConfig.tree.nodes} />
-        </div>
-      )} */}
 
       {/* Iframe Overlay for all devices */}
       {iframeOverlay && (
