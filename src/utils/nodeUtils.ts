@@ -77,18 +77,12 @@ export const getVisibleTree = (nodes: TreeNode[], collapsedIds: Set<string>): Tr
 
 /**
  * Determines the display text for a node's address/network details.
- * Handles special cases like Minecraft nodes.
+ * Only returns external addresses (externalAddress or legacy url field).
+ * Internal addresses are never shown on the canvas.
  */
 export const getNodeAddressDisplay = (node: TreeNode): string | null => {
-  if (node.healthCheckType === 'minecraft' && node.internalAddress) {
-    return node.internalAddress;
-  }
-  
-  if (node.ip) {
-    return node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : node.ip;
-  }
-  
-  return null;
+  // Only show external address (externalAddress or legacy url), never internal addresses
+  return node.externalAddress || node.url || null;
 };
 
 /**
@@ -97,7 +91,7 @@ export const getNodeAddressDisplay = (node: TreeNode): string | null => {
  */
 export const getNodeTargetUrl = (node: TreeNode): string | null => {
   // Check if node is interactable
-  if (node.isInteractable === false || node.healthCheckType === 'minecraft') {
+  if (node.isInteractable === false) {
     return null;
   }
 

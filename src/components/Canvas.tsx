@@ -25,7 +25,7 @@ import {
   type PositionedNode, 
   type Connection
 } from '../utils/layoutUtils';
-import { getNodeTargetUrl } from '../utils/nodeUtils';
+import { getNodeTargetUrl, getNodeAddressDisplay } from '../utils/nodeUtils';
 
 const initialAppConfig: AppConfig = {
   general: {
@@ -1376,15 +1376,22 @@ const Canvas: React.FC = () => {
       ctx.textBaseline = 'top';
     }
     
-    // Draw subtitle
-    ctx.fillStyle = '#6b7280';
-    ctx.font = `400 ${subtitleFontSize}px Roboto, sans-serif`;
+    // Draw subtitle - Only if it exists
+    let currentY = titleY + titleFontSize + 4;
     
-    const subtitleX = textAreaX + 10;
-    const subtitleY = titleY + titleFontSize + 4;
-    ctx.fillText(subtitle, subtitleX, subtitleY);
+    if (subtitle) {
+      ctx.fillStyle = '#6b7280';
+      ctx.font = `400 ${subtitleFontSize}px Roboto, sans-serif`;
+      
+      const subtitleX = textAreaX + 10;
+      ctx.fillText(subtitle, subtitleX, currentY);
+      
+      currentY += subtitleFontSize + 8;
+    } else {
+      // Small gap if no subtitle
+      currentY += 4;
+    }
     
-    let currentY = subtitleY + subtitleFontSize + 8;
     const iconSize = Math.min(Math.max(16 / scale, 12), 24); // Larger minimum size, scales better with zoom
     
     // Draw Minecraft Player Count if available - Prominently on the right
@@ -1397,12 +1404,6 @@ const Canvas: React.FC = () => {
       // Draw "X / Y" large
       ctx.textAlign = 'right';
       ctx.textBaseline = 'bottom';
-      ctx.fillStyle = '#dc2626'; // Red color as per mockup (or maybe just dark? Mockup had red circle, text was red)
-      // Wait, the mockup had red text "1/20 players". I'll use a prominent color.
-      // The user said "make the toggles... adhere to accent color". Maybe this should too?
-      // But the mockup had red. I'll stick to a dark color or accent color.
-      // Actually, the mockup text "1/20 players" was written in red marker by the user on the screenshot, not the UI itself.
-      // The UI text should probably be standard dark text.
       ctx.fillStyle = '#1f2937'; 
       
       // Use a large font, but scale it
@@ -1426,59 +1427,34 @@ const Canvas: React.FC = () => {
       // Don't increment currentY so the IP address stays below the subtitle
     }
     
-    // Draw IP with network icon (only if IP is provided, otherwise show "No IP" if URL exists)
-    // For Minecraft nodes, we always want to show the address if available
-    const showAddress = ip || url || (node.healthCheckType === 'minecraft' && node.internalAddress);
+    // Draw External Address - Only if configured (externalAddress or legacy url)
+    // Internal addresses are never shown on canvas
+    const displayAddress = getNodeAddressDisplay(node);
     
-    if (showAddress) {
+    if (displayAddress) {
       // Calculate vertical center alignment
       const textHeight = detailFontSize;
       const iconCenterY = currentY + textHeight / 2;
       
-      // Draw network icon using regular icon system for better performance and reliability
-      drawIconOnCanvas(ctx, 'network', textAreaX + 10 + iconSize/2, iconCenterY, iconSize * 0.8, '#6b7280', handleIconLoaded);
-      
-      // Draw IP text with port (if healthCheckPort available) or "No IP" if only URL is available
-      ctx.fillStyle = '#6b7280';
-      ctx.font = `400 ${detailFontSize}px Roboto, sans-serif`;
-      
-      let displayText = 'No IP';
-      if (node.healthCheckType === 'minecraft' && node.internalAddress) {
-        displayText = node.internalAddress;
-      } else if (ip) {
-        displayText = node.healthCheckPort ? `${ip}:${node.healthCheckPort}` : ip;
-      }
-      
-      ctx.fillText(displayText, textAreaX + 10 + iconSize + 6, currentY); // Increased gap to 6px
-      
-      currentY += detailFontSize + 6;
-    }
-    
-    // Draw URL with globe icon (only if URL is provided)
-    if (url) {
-      // Calculate vertical center alignment
-      const textHeight = detailFontSize;
-      const iconCenterY = currentY + textHeight / 2;
-      
-      // Draw globe icon using regular icon system for better performance and reliability
+      // Draw globe icon for external address
       drawIconOnCanvas(ctx, 'globe', textAreaX + 10 + iconSize/2, iconCenterY, iconSize * 0.8, '#6b7280', handleIconLoaded);
       
-      // Draw URL text (truncate if too long)
+      // Draw address text (truncate if too long)
       ctx.fillStyle = '#6b7280';
       ctx.font = `400 ${detailFontSize}px Roboto, sans-serif`;
       
       const maxUrlWidth = textAreaWidth - 20 - iconSize - 2; // Account for increased gap
-      let displayUrl = url;
+      let displayText = displayAddress;
       
-      // Simple URL truncation
-      if (ctx.measureText(displayUrl).width > maxUrlWidth) {
-        while (ctx.measureText(displayUrl + '...').width > maxUrlWidth && displayUrl.length > 10) {
-          displayUrl = displayUrl.slice(0, -1);
+      // Simple truncation
+      if (ctx.measureText(displayText).width > maxUrlWidth) {
+        while (ctx.measureText(displayText + '...').width > maxUrlWidth && displayText.length > 10) {
+          displayText = displayText.slice(0, -1);
         }
-        displayUrl += '...';
+        displayText += '...';
       }
       
-      ctx.fillText(displayUrl, textAreaX + 10 + iconSize + 6, currentY); // Increased gap to 6px
+      ctx.fillText(displayText, textAreaX + 10 + iconSize + 6, currentY); // Increased gap to 6px
     }
 
     // Draw Add Child button on hover (bottom edge)

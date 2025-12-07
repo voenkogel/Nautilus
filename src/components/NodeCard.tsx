@@ -40,7 +40,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
   className = '',
   style = {}
 }) => {
-  const { title, subtitle, url, icon, type } = node;
+  const { title, subtitle, icon, type } = node;
   
   // Get node card style based on type
   const getNodeCardStyle = (nodeType?: string) => {
@@ -82,9 +82,8 @@ const NodeCard: React.FC<NodeCardProps> = ({
     ? getIconSvg(icon, '#ffffff')
     : getIconSvg('server', '#ffffff');
 
-  // Address display logic
-  const displayIpText = getNodeAddressDisplay(node);
-  const showAddress = !!displayIpText || !!url;
+  // Address display logic - only show external address
+  const displayAddress = getNodeAddressDisplay(node);
 
   // Player count logic
   const showPlayerCount = status?.players && node.healthCheckType === 'minecraft';
@@ -128,37 +127,22 @@ const NodeCard: React.FC<NodeCardProps> = ({
             )}
           </div>
 
-          <div className="text-sm text-gray-600 truncate">{subtitle}</div>
+          {/* Only show subtitle if it exists */}
+          {subtitle && (
+            <div className="text-sm text-gray-600 truncate">{subtitle}</div>
+          )}
           
-          {/* Details Row */}
-          <div className="mt-2 h-4 flex items-center justify-between">
-            {showAddress ? (
-              <div className="flex items-center text-xs text-gray-500">
-                {displayIpText && (
-                  <div className="flex items-center mr-3">
-                    <svg className="mr-1" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M6 2h12a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" />
-                      <path d="M12 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z" />
-                      <path d="M12 14v4" />
-                    </svg>
-                    <span>{displayIpText}</span>
-                  </div>
-                )}
-                {url && (
-                  <div className="flex items-center">
-                    <svg className="mr-1" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="12" cy="12" r="10" />
-                      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                      <path d="M2 12h20" />
-                    </svg>
-                    <span>{url}</span>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-xs text-gray-400">No network details</div>
-            )}
-          </div>
+          {/* Details Row - Only show external address if configured */}
+          {displayAddress && (
+            <div className="mt-2 flex items-center text-xs text-gray-500">
+              <svg className="mr-1" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                <path d="M2 12h20" />
+              </svg>
+              <span className="truncate">{displayAddress}</span>
+            </div>
+          )}
         </div>
 
         {/* Player Count (Right aligned, large) */}

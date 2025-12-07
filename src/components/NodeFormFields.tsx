@@ -187,9 +187,8 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
         )}
 
         {/* Interaction Settings */}
-        {node.healthCheckType !== 'minecraft' && (
-          <div className="col-span-1 md:col-span-2 space-y-4 pt-4 border-t border-gray-200">
-            <div className="flex items-center justify-between">
+        <div className="col-span-1 md:col-span-2 space-y-4 pt-4 border-t border-gray-200">
+          <div className="flex items-center justify-between">
               <label className="block text-sm font-medium text-gray-700">Interaction</label>
               <div className="flex items-center">
                 <input
@@ -263,7 +262,6 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
               </div>
             )}
           </div>
-        )}
       </div>
     </div>
   );
