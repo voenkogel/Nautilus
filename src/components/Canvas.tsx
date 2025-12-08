@@ -15,9 +15,7 @@ import NetworkScanWindow from './NetworkScanWindow';
 import { authenticate, getAuthHeaders, hasAuthToken } from '../utils/auth';
 import { 
   iconImageCache, 
-  iconSvgCache, 
-  getIconSvg, 
-  extractIconsFromConfig
+  iconSvgCache
 } from '../utils/iconUtils';
 import { 
   calculateTreeLayout, 
@@ -376,47 +374,6 @@ const Canvas: React.FC = () => {
       window.removeEventListener('closeScanWindow', handleCloseScanWindow);
     };
   }, []);
-
-  // Preload all icons used in the config on component mount
-  useEffect(() => {
-    const preloadIcons = async () => {
-      const requiredIcons = extractIconsFromConfig(currentConfig.tree.nodes);
-      const accentColor = currentConfig.appearance?.accentColor || '#3b82f6';
-      
-      // Preload all required icons
-      const preloadPromises = Array.from(requiredIcons).map(iconName => {
-        return new Promise<void>((resolve) => {
-          const cacheKey = `${iconName}-${accentColor}`;
-          const cachedImage = iconImageCache.get(cacheKey);
-          
-          if (cachedImage && cachedImage.complete) {
-            resolve();
-            return;
-          }
-          
-          const svgContent = getIconSvg(iconName, accentColor);
-          const svgBlob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
-          const url = URL.createObjectURL(svgBlob);
-          
-          const img = new Image();
-          img.onload = () => {
-            iconImageCache.set(cacheKey, img);
-            URL.revokeObjectURL(url);
-            resolve();
-          };
-          img.onerror = () => {
-            URL.revokeObjectURL(url);
-            resolve(); // Continue even if an icon fails to load
-          };
-          img.src = url;
-        });
-      });
-      
-      await Promise.all(preloadPromises);
-    };
-    
-    preloadIcons();
-  }, [currentConfig.tree.nodes, currentConfig.appearance?.accentColor]);
 
   // Helper function to find a node by ID in the tree
   const findNodeById = useCallback((nodes: TreeNode[], nodeId: string): TreeNode | null => {
@@ -965,23 +922,21 @@ const Canvas: React.FC = () => {
   };
 
   return (
-    <div className="w-full h-full relative font-roboto overflow-hidden" ref={containerRef}>
+    <div className="w-full h-full relative font-roboto overflow-hidden isolate" ref={containerRef}>
       {/* Background image */}
-      {currentConfig.appearance?.backgroundImage && (
-        <div 
-          className="absolute inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
-          style={{ 
-            backgroundImage: `url(${currentConfig.appearance.backgroundImage})`,
-            opacity: 0.3 
-          }} 
-        />
-      )}
+      <div 
+        className="absolute inset-0 -z-10 bg-cover bg-center bg-no-repeat pointer-events-none" 
+        style={{ 
+          backgroundImage: `url(${currentConfig.appearance?.backgroundImage || '/background.png'})`,
+          opacity: 0.4 
+        }} 
+      />
       
       {/* Desktop view with DOM-based canvas */}
       {!isMobile && (
         <>
           <div
-            className={`w-full h-full absolute inset-0 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+            className={`w-full h-full absolute inset-0 z-10 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -991,20 +946,22 @@ const Canvas: React.FC = () => {
             {/* The "World" container that gets transformed */}
             <div
               style={{
-                transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+                transform: `translate(${Math.round(transform.x)}px, ${Math.round(transform.y)}px) scale(${transform.scale})`,
                 transformOrigin: '0 0',
                 width: '100%',
                 height: '100%',
                 position: 'absolute',
                 top: 0,
                 left: 0,
-                willChange: 'transform',
+                // Removed will-change to prevent blurriness
+                backfaceVisibility: 'hidden',
               }}
             >
               {/* Connections Layer (SVG) */}
               <svg
                 className="absolute top-0 left-0 overflow-visible pointer-events-none"
                 style={{ width: 1, height: 1 }} // Minimal size, overflow visible handles the rest
+                shapeRendering="geometricPrecision"
               >
                 {connections.map((connection, index) => {
                   const { from, to, isFirstChild, isLastChild } = connection;
