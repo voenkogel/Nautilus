@@ -127,3 +127,126 @@ export const getNodeTargetUrl = (node: TreeNode): string | null => {
   
   return targetUrl;
 };
+
+/**
+ * Reorders a node within the tree structure.
+ * Handles moving nodes between different parent levels.
+ * @param nodes - The root nodes array
+ * @param nodeId - The ID of the node to move
+ * @param newParentId - The ID of the new parent (null for root level)
+ * @param insertIndex - The index to insert at within the new parent's children
+ * @returns The updated nodes array
+ */
+export const reorderNode = (
+  nodes: TreeNode[],
+  nodeId: string,
+  newParentId: string | null,
+  insertIndex: number
+): TreeNode[] => {
+  // Deep clone the nodes to avoid mutation
+  const clonedNodes = JSON.parse(JSON.stringify(nodes)) as TreeNode[];
+  
+  // Find and remove the node from its current position
+  let nodeToMove: TreeNode | null = null;
+  
+  const removeNode = (nodeList: TreeNode[]): TreeNode[] => {
+    return nodeList.filter((node) => {
+      if (node.id === nodeId) {
+        nodeToMove = node;
+        return false;
+      }
+      if (node.children) {
+        node.children = removeNode(node.children);
+      }
+      return true;
+    });
+  };
+  
+  // First, remove the node from its current position
+  const nodesAfterRemoval = removeNode(clonedNodes);
+  
+  if (!nodeToMove) {
+    console.warn(`Node with ID ${nodeId} not found`);
+    return nodes; // Return original if node not found
+  }
+  
+  // Helper to find a node's parent and siblings info
+  const findCurrentParentAndIndex = (nodeList: TreeNode[], targetId: string, parentId: string | null = null): { parentId: string | null, index: number } | null => {
+    for (let i = 0; i < nodeList.length; i++) {
+      if (nodeList[i].id === targetId) {
+        return { parentId, index: i };
+      }
+      if (nodeList[i].children && nodeList[i].children!.length > 0) {
+        const found = findCurrentParentAndIndex(nodeList[i].children!, targetId, nodeList[i].id);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  
+  // Check if we're moving within the same parent and adjust index if needed
+  const currentPos = findCurrentParentAndIndex(nodes, nodeId);
+  let adjustedInsertIndex = insertIndex;
+  
+  if (currentPos && currentPos.parentId === newParentId && currentPos.index < insertIndex) {
+    // If moving within the same parent and the original position is before the insert position,
+    // we need to decrement the insert index since removing the node shifts indices
+    adjustedInsertIndex = Math.max(0, insertIndex - 1);
+  }
+  
+  // Insert the node at the new position
+  if (newParentId === null) {
+    // Insert at root level
+    nodesAfterRemoval.splice(adjustedInsertIndex, 0, nodeToMove);
+    return nodesAfterRemoval;
+  }
+  
+  // Find the new parent and insert
+  const insertIntoParent = (nodeList: TreeNode[]): boolean => {
+    for (const node of nodeList) {
+      if (node.id === newParentId) {
+        if (!node.children) {
+          node.children = [];
+        }
+        node.children.splice(adjustedInsertIndex, 0, nodeToMove!);
+        return true;
+      }
+      if (node.children && insertIntoParent(node.children)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  
+  if (!insertIntoParent(nodesAfterRemoval)) {
+    console.warn(`Parent node with ID ${newParentId} not found`);
+    // Fallback: insert at root level
+    nodesAfterRemoval.splice(adjustedInsertIndex, 0, nodeToMove);
+  }
+  
+  return nodesAfterRemoval;
+};
+
+/**
+ * Finds a node by ID in the tree.
+ */
+export const findNodeById = (nodes: TreeNode[], nodeId: string): TreeNode | null => {
+  for (const node of nodes) {
+    if (node.id === nodeId) {
+      return node;
+    }
+    if (node.children) {
+      const found = findNodeById(node.children, nodeId);
+      if (found) return found;
+    }
+  }
+  return null;
+};
+
+/**
+ * Counts all descendants of a node (children, grandchildren, etc.)
+ */
+export const countDescendants = (node: TreeNode): number => {
+  if (!node.children || node.children.length === 0) return 0;
+  return node.children.reduce((count, child) => count + 1 + countDescendants(child), 0);
+};

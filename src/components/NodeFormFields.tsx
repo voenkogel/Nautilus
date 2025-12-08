@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { TreeNode, AppearanceConfig } from '../types/config';
 import * as LucideIcons from 'lucide-react';
 import { IconPicker } from './IconPicker';
+import Switch from './Switch';
 
 interface NodeFormFieldsProps {
   node: TreeNode;
@@ -191,19 +192,13 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
           <div className="flex items-center justify-between">
               <label className="block text-sm font-medium text-gray-700">Interaction</label>
               <div className="flex items-center">
-                <input
-                  type="checkbox"
+                <Switch
                   id={`isInteractable-${node.id}`}
                   checked={node.isInteractable !== false} // Default to true
-                  onChange={(e) => onChange({ isInteractable: e.target.checked })}
-                  className="h-4 w-4 border-gray-300 rounded focus:ring-2"
-                  style={{ 
-                    color: accentColor, 
-                    accentColor: accentColor,
-                    '--tw-ring-color': accentColor 
-                  } as React.CSSProperties}
+                  onChange={(checked) => onChange({ isInteractable: checked })}
+                  accentColor={accentColor}
                 />
-                <label htmlFor={`isInteractable-${node.id}`} className="ml-2 text-sm text-gray-600">
+                <label htmlFor={`isInteractable-${node.id}`} className="ml-2 text-sm text-gray-600 cursor-pointer">
                   Interactable
                 </label>
               </div>
@@ -236,22 +231,16 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
 
                 {/* Disable Embedded */}
                 <div className="flex items-start space-x-3">
-                  <div className="flex items-center h-5">
-                    <input
-                      type="checkbox"
+                  <div className="flex items-center h-6">
+                    <Switch
                       id={`disableEmbedded-${node.id}`}
                       checked={node.disableEmbedded || false}
-                      onChange={(e) => onChange({ disableEmbedded: e.target.checked })}
-                      className="h-4 w-4 border-gray-300 rounded focus:ring-2"
-                      style={{ 
-                        color: accentColor, 
-                        accentColor: accentColor,
-                        '--tw-ring-color': accentColor 
-                      } as React.CSSProperties}
+                      onChange={(checked) => onChange({ disableEmbedded: checked })}
+                      accentColor={accentColor}
                     />
                   </div>
                   <div>
-                    <label htmlFor={`disableEmbedded-${node.id}`} className="font-medium text-gray-700 text-sm">
+                    <label htmlFor={`disableEmbedded-${node.id}`} className="font-medium text-gray-700 text-sm cursor-pointer">
                       Disable Embedded Viewer
                     </label>
                     <p className="text-xs text-gray-500">

@@ -7,6 +7,7 @@ import { useToast } from './Toast';
 import { ConfirmDialog } from './ConfirmDialog';
 
 import { NodeFormFields } from './NodeFormFields';
+import Switch from './Switch';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -970,13 +971,11 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                 <p className="text-xs text-gray-500 mt-1">Displayed in the app header and browser tab</p>
               </div>
               <div className="flex items-center mt-4">
-                <input
-                  type="checkbox"
+                <Switch
                   id="open-nodes-overlay"
                   checked={config.general.openNodesAsOverlay}
-                  onChange={(e) => updateGeneralConfig('openNodesAsOverlay', e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  style={{ accentColor: accentColor }}
+                  onChange={(checked) => updateGeneralConfig('openNodesAsOverlay', checked)}
+                  accentColor={accentColor}
                 />
                 <label htmlFor="open-nodes-overlay" className="ml-2 block text-sm text-gray-700">
                   Open nodes as overlay (recommended)
@@ -1217,26 +1216,22 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                   
                   {/* Notify when offline */}
                   <div className="flex items-center">
-                    <input
-                      type="checkbox"
+                    <Switch
                       id="notify-offline"
                       checked={config.webhooks?.statusNotifications?.notifyOffline || false}
-                      onChange={(e) => {
+                      onChange={(checked) => {
                         setConfig({
                           ...config,
                           webhooks: {
                             ...config.webhooks,
                             statusNotifications: {
                               ...(config.webhooks?.statusNotifications || { endpoint: '', notifyOnline: false }),
-                              notifyOffline: e.target.checked
+                              notifyOffline: checked
                             }
                           }
                         });
                       }}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      style={{ 
-                        accentColor: accentColor
-                      }}
+                      accentColor={accentColor}
                     />
                     <label htmlFor="notify-offline" className="ml-2 block text-sm text-gray-700">
                       Notify when a node goes offline
@@ -1245,26 +1240,22 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                   
                   {/* Notify when online */}
                   <div className="flex items-center">
-                    <input
-                      type="checkbox"
+                    <Switch
                       id="notify-online"
                       checked={config.webhooks?.statusNotifications?.notifyOnline || false}
-                      onChange={(e) => {
+                      onChange={(checked) => {
                         setConfig({
                           ...config,
                           webhooks: {
                             ...config.webhooks,
                             statusNotifications: {
                               ...(config.webhooks?.statusNotifications || { endpoint: '', notifyOffline: false }),
-                              notifyOnline: e.target.checked
+                              notifyOnline: checked
                             }
                           }
                         });
                       }}
-                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      style={{ 
-                        accentColor: accentColor
-                      }}
+                      accentColor={accentColor}
                     />
                     <label htmlFor="notify-online" className="ml-2 block text-sm text-gray-700">
                       Notify when a node comes online

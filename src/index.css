@@ -119,3 +119,95 @@ body, html {
   animation: delete-out 0.3s ease-in forwards;
   pointer-events: none;
 }
+
+/* Drag and drop animations */
+@keyframes drag-out {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0.3;
+    transform: scale(0.95);
+  }
+}
+
+.animate-drag-out {
+  animation: drag-out 0.15s ease-out forwards;
+  pointer-events: none;
+}
+
+@keyframes drop-zone-pulse {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scaleY(1.1);
+  }
+}
+
+.animate-drop-zone {
+  animation: drop-zone-pulse 1s ease-in-out infinite;
+}
+
+/* Node make-space animation */
+@keyframes make-space-up {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-50px);
+  }
+}
+
+@keyframes make-space-down {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(50px);
+  }
+}
+
+.animate-make-space-up {
+  animation: make-space-up 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.animate-make-space-down {
+  animation: make-space-down 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Drag ghost styling */
+.drag-ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 10000;
+  opacity: 0.9;
+  transform: rotate(2deg) scale(1.02);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+  transition: transform 0.1s ease-out;
+}
+
+.drag-ghost-stacked {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  right: -4px;
+  bottom: -4px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Drop indicator line */
+.drop-indicator {
+  height: 4px;
+  border-radius: 2px;
+  transition: all 0.2s ease-out;
+}
+
+.drop-indicator-active {
+  box-shadow: 0 0 12px 2px currentColor;
+}

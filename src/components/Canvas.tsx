@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { TreeNode, AppConfig } from '../types/config';
 import { useNodeStatus } from '../hooks/useNodeStatus';
-import { getVisibleTree } from '../utils/nodeUtils';
+import { getVisibleTree, reorderNode, countDescendants } from '../utils/nodeUtils';
 import { useAppearance } from '../hooks/useAppearance';
 import StatusCard from './StatusCard';
 import Settings from './Settings';
@@ -21,10 +21,14 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { 
   calculateTreeLayout, 
   type PositionedNode, 
-  type Connection
+  type Connection,
+  NODE_WIDTH,
+  SIBLING_SPACING
 } from '../utils/layoutUtils';
 import { getNodeTargetUrl } from '../utils/nodeUtils';
 import CanvasNode from './CanvasNode';
+import DragGhost from './DragGhost';
+import { useDragReorder } from '../hooks/useDragReorder';
 
 const initialAppConfig: AppConfig = {
   general: {
@@ -714,12 +718,6 @@ const Canvas: React.FC = () => {
     }
   };
 
-  // Helper function to count all descendants of a node
-  const countDescendants = (node: TreeNode): number => {
-    if (!node.children || node.children.length === 0) return 0;
-    return node.children.reduce((count, child) => count + 1 + countDescendants(child), 0);
-  };
-
   // Core delete function (does the actual deletion with animation)
   const performDeleteNode = async (nodeId: string, skipAnimation = false) => {
     // Helper function to remove node from the tree
@@ -1049,6 +1047,83 @@ const Canvas: React.FC = () => {
   // Calculate nodes and connections for rendering
   const { nodes, connections } = calculateNodePositions();
 
+  // Handle node reordering via drag and drop
+  const handleNodeReorder = useCallback(async (nodeId: string, newParentId: string | null, insertIndex: number) => {
+    try {
+      const newNodes = reorderNode(currentConfig.tree.nodes, nodeId, newParentId, insertIndex);
+      const newConfig = {
+        ...currentConfig,
+        tree: {
+          ...currentConfig.tree,
+          nodes: newNodes
+        }
+      };
+      
+      await handleSaveConfig(newConfig);
+      
+      addToast({
+        type: 'success',
+        message: 'Node rearranged successfully',
+        duration: 2000
+      });
+    } catch (error) {
+      console.error('Error reordering node:', error);
+      addToast({
+        type: 'error',
+        message: 'Failed to rearrange node',
+        duration: 4000
+      });
+    }
+  }, [currentConfig, addToast]);
+
+  // Drag and drop reorder hook
+  const {
+    dragState,
+    startDrag,
+    updateDrag,
+    endDrag,
+    cancelDrag,
+  } = useDragReorder({
+    nodes,
+    rootNodes: currentConfig.tree.nodes,
+    isEditMode,
+    onReorder: handleNodeReorder
+  });
+
+  // Handle drag start from node
+  const handleDragStart = useCallback((node: PositionedNode, clientX: number, clientY: number) => {
+    startDrag(node, clientX, clientY);
+  }, [startDrag]);
+
+  // Handle global mouse move for dragging
+  useEffect(() => {
+    if (!dragState.isDragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      updateDrag(e.clientX, e.clientY, transform);
+    };
+
+    const handleMouseUp = () => {
+      endDrag();
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        cancelDrag();
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [dragState.isDragging, updateDrag, endDrag, cancelDrag, transform]);
+
   // Helper to get status for a node
   const getStatusForNode = (node: PositionedNode) => {
     let originalIdentifier = node.internalAddress;
@@ -1227,9 +1302,47 @@ const Canvas: React.FC = () => {
                 );
               })()}
 
+              {/* Drop Position Ghost Placeholder - shows exactly where node will land */}
+              <DragGhost 
+                dragState={dragState} 
+                nodes={nodes} 
+                config={currentConfig} 
+              />
+
               {/* Nodes Layer */}
-              {nodes.map(node => (
+              {nodes.map(node => {
+                // Check if this node is being dragged
+                const isDraggingThisNode = dragState.isDragging && dragState.draggedNode?.id === node.id;
+                
+                // Check if this node is a descendant of the dragged node (should also be greyed out)
+                // Check if this node is a descendant of the dragged node (should also be greyed out)
+                const isDescendantOfDragged = !!(dragState.isDragging && dragState.draggedNode && 
+                  dragState.draggedNodeWithChildren?.children && 
+                  (() => {
+                    const checkDescendant = (children: typeof currentConfig.tree.nodes): boolean => {
+                      for (const child of children) {
+                        if (child.id === node.id) return true;
+                        if (child.children && checkDescendant(child.children)) return true;
+                      }
+                      return false;
+                    };
+                    return checkDescendant(dragState.draggedNodeWithChildren.children);
+                  })());
+                
+                // Check if this node should be visually shifted because ghost is taking its place
+                // Siblings shift horizontally (translateX), not vertically
+                const isShiftedRight = dragState.isDragging && 
+                  dragState.dropTarget?.targetNodeId === node.id && 
+                  dragState.dropTarget?.position === 'before';
+                
+                return (
                 <React.Fragment key={node.id}>
+                  <div
+                    style={{
+                      transform: isShiftedRight ? `translateX(${NODE_WIDTH + SIBLING_SPACING}px)` : 'none',
+                      transition: 'transform 0.2s ease-out'
+                    }}
+                  >
                   <CanvasNode
                     node={node}
                     status={getStatusForNode(node)}
@@ -1239,8 +1352,11 @@ const Canvas: React.FC = () => {
                     isNewlyAdded={node.id === newlyAddedNodeId}
                     isExpanding={expandingNodeIds.has(node.id)}
                     isDeleting={node.id === deletingNodeId}
+                    isDragging={isDraggingThisNode}
+                    isDescendantOfDragged={isDescendantOfDragged}
                     accentColor={currentConfig.appearance?.accentColor || '#3b82f6'}
                     onNodeClick={(n) => {
+                      if (dragState.isDragging) return; // Don't handle clicks while dragging
                       if (isEditMode) {
                         handleEditNode(n.id);
                       } else {
@@ -1250,7 +1366,9 @@ const Canvas: React.FC = () => {
                     onEditClick={(n) => handleEditNode(n.id)}
                     onAddChildClick={(n) => handleAddChildNode(n.id)}
                     onDeleteClick={(n) => handleQuickDeleteNode(n.id)}
+                    onDragStart={handleDragStart}
                   />
+                </div>
                   
                   {/* Collapse/Expand Button - Hidden in edit mode */}
                   {!isEditMode && (() => {
@@ -1370,7 +1488,8 @@ const Canvas: React.FC = () => {
                     );
                   })()}
                 </React.Fragment>
-              ))}
+              );
+              })}
             </div>
           </div>
           
@@ -1720,6 +1839,57 @@ const Canvas: React.FC = () => {
                 loading="lazy"
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drag Ghost - follows cursor while dragging */}
+      {dragState.isDragging && dragState.draggedNode && (
+        <div
+          className="drag-ghost pointer-events-none"
+          style={{
+            left: dragState.currentPos.x - 140, // Center on cursor
+            top: dragState.currentPos.y - 45,
+            width: 280,
+            height: 90,
+          }}
+        >
+          {/* Stacked cards behind to show children */}
+          {dragState.draggedNodeWithChildren && dragState.draggedNodeWithChildren.children && dragState.draggedNodeWithChildren.children.length > 0 && (
+            <>
+              <div className="drag-ghost-stacked" style={{ transform: 'translate(8px, 8px)' }} />
+              {dragState.draggedNodeWithChildren.children.length > 1 && (
+                <div className="drag-ghost-stacked" style={{ transform: 'translate(4px, 4px)' }} />
+              )}
+            </>
+          )}
+          
+          {/* Main dragged card */}
+          <div className="relative w-full h-full bg-white rounded-xl shadow-xl border-2 overflow-hidden"
+            style={{ borderColor: currentConfig.appearance?.accentColor || '#3b82f6' }}
+          >
+            <div className="p-3 h-full flex flex-col justify-center">
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-semibold text-gray-800 truncate">
+                  {dragState.draggedNode.title}
+                </span>
+              </div>
+              {dragState.draggedNode.subtitle && (
+                <div className="text-sm text-gray-500 truncate">
+                  {dragState.draggedNode.subtitle}
+                </div>
+              )}
+            </div>
+            
+            {/* Child count badge */}
+            {dragState.draggedNodeWithChildren && dragState.draggedNodeWithChildren.children && dragState.draggedNodeWithChildren.children.length > 0 && (
+              <div 
+                className="absolute -top-2 -right-2 px-2 py-0.5 rounded-full text-xs font-bold text-white shadow-lg"
+                style={{ backgroundColor: currentConfig.appearance?.accentColor || '#3b82f6' }}
+              >
+                +{countDescendants(dragState.draggedNodeWithChildren)}
+              </div>
+            )}
           </div>
         </div>
       )}
