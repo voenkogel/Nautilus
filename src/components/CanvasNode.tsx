@@ -2,44 +2,62 @@ import React, { useState } from 'react';
 import type { PositionedNode } from '../utils/layoutUtils';
 import type { NodeStatus } from '../hooks/useNodeStatus';
 import NodeCard from './NodeCard';
-import { getIconSvg } from '../utils/iconUtils';
+import { getNodeTargetUrl } from '../utils/nodeUtils';
 
 interface CanvasNodeProps {
   node: PositionedNode;
   status?: NodeStatus;
   scale: number;
   isSelected?: boolean;
+  isEditMode?: boolean;
+  isNewlyAdded?: boolean;
+  isExpanding?: boolean;
+  isDeleting?: boolean;
+  accentColor?: string;
   onNodeClick: (node: PositionedNode) => void;
   onEditClick: (node: PositionedNode) => void;
   onAddChildClick: (node: PositionedNode) => void;
+  onDeleteClick?: (node: PositionedNode) => void;
 }
 
 const CanvasNode: React.FC<CanvasNodeProps> = ({
   node,
   status,
   isSelected,
+  isEditMode = false,
+  isNewlyAdded = false,
+  isExpanding = false,
+  isDeleting = false,
+  accentColor = '#3b82f6',
   onNodeClick,
-  onEditClick,
-  onAddChildClick
+  onAddChildClick,
+  onDeleteClick
 }) => {
-  const [isHovered, setIsHovered] = useState(false);
-  const [isEditHovered, setIsEditHovered] = useState(false);
   const [isAddHovered, setIsAddHovered] = useState(false);
+  const [isNodeHovered, setIsNodeHovered] = useState(false);
+  const [isDeleteHovered, setIsDeleteHovered] = useState(false);
 
   // Calculate dynamic styles based on scale if needed, 
   // but usually CSS transform on the container handles scale.
   // Here we just position it.
+
+  // Show plus button: always in edit mode
+  const showAddChildButton = isEditMode;
   
-  const handleMouseEnter = () => setIsHovered(true);
-  const handleMouseLeave = () => {
-    setIsHovered(false);
-    setIsEditHovered(false);
-    setIsAddHovered(false);
+  // Determine if node is interactable (has a clickable URL)
+  const isInteractable = !!getNodeTargetUrl(node);
+
+  // Determine animation class
+  const getAnimationClass = () => {
+    if (isDeleting) return 'animate-delete-out';
+    if (isExpanding) return 'animate-expand-in';
+    if (isNewlyAdded) return 'animate-pop-in';
+    return '';
   };
 
   return (
     <div
-      className="absolute"
+      className={`absolute group ${getAnimationClass()}`}
       style={{
         left: node.x,
         top: node.y,
@@ -47,8 +65,11 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
         height: node.height,
         // We don't apply scale here, the parent container is scaled
       }}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
+      onMouseEnter={() => setIsNodeHovered(true)}
+      onMouseLeave={() => {
+        setIsNodeHovered(false);
+        setIsDeleteHovered(false);
+      }}
     >
       {/* The Node Card */}
       <div className="relative w-full h-full">
@@ -56,62 +77,61 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
           node={node}
           status={status}
           onClick={() => onNodeClick(node)}
-          className={`w-full h-full transition-shadow duration-200 ${
-            isSelected ? 'ring-2 ring-blue-500 shadow-xl' : 'hover:shadow-xl'
+          isEditMode={isEditMode}
+          isInteractable={isInteractable}
+          className={`w-full h-full ${
+            isSelected ? 'ring-2 ring-blue-500' : ''
           }`}
           style={{
             // Ensure the card fills the container
             width: '100%',
             height: '100%',
+            ...(isEditMode ? {
+              boxShadow: `0 0 0 2px ${accentColor}80`,
+            } : {})
           }}
         />
 
-        {/* Edit Overlay (Pencil) - Only on hover */}
-        {isHovered && (
-          <div 
-            className="absolute top-0 left-0 z-20 cursor-pointer"
+        {/* Delete Button - Top Right (visible on hover in edit mode) */}
+        {isEditMode && isNodeHovered && onDeleteClick && (
+          <div
+            className="absolute z-20 cursor-pointer flex items-center justify-center transition-all duration-150"
             style={{
-              // Position over the icon circle
-              // NodeCard has padding 12px (p-3), circle is 48px (w-12)
-              // We need to match that position
-              left: '12px',
-              top: '50%',
-              marginTop: '-24px', // Half of height
-              width: '48px',
-              height: '48px',
-              borderRadius: '9999px',
+              top: '-8px',
+              right: '-8px',
+              width: '24px',
+              height: '24px',
             }}
             onClick={(e) => {
               e.stopPropagation();
-              onEditClick(node);
+              onDeleteClick(node);
             }}
-            onMouseEnter={() => setIsEditHovered(true)}
-            onMouseLeave={() => setIsEditHovered(false)}
+            onMouseEnter={() => setIsDeleteHovered(true)}
+            onMouseLeave={() => setIsDeleteHovered(false)}
           >
-            {/* Dark overlay */}
-            <div className="absolute inset-0 bg-black/60 rounded-full" />
-            
-            {/* Pencil Icon */}
             <div 
-              className={`absolute inset-0 flex items-center justify-center transition-transform duration-200 ${
-                isEditHovered ? 'scale-110' : 'scale-100'
+              className={`w-full h-full rounded-full flex items-center justify-center transition-all duration-150 ${
+                isDeleteHovered ? 'bg-red-600 scale-110' : 'bg-red-500'
               }`}
+              style={{
+                boxShadow: isDeleteHovered ? '0 2px 8px rgba(239, 68, 68, 0.5)' : '0 1px 3px rgba(0,0,0,0.2)'
+              }}
             >
-              <div 
-                className="w-6 h-6 text-white"
-                dangerouslySetInnerHTML={{ __html: getIconSvg('pencil', '#ffffff') }}
-              />
+              <svg 
+                className="w-3.5 h-3.5 text-white"
+                fill="none" 
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
             </div>
-            
-            {/* Hover Ring */}
-            {isEditHovered && (
-              <div className="absolute inset-0 border-2 border-blue-500 rounded-full" />
-            )}
           </div>
         )}
 
-        {/* Add Child Button - Bottom Edge */}
-        {isHovered && (
+        {/* Add Child Button - Bottom Edge (visible in edit mode) */}
+        {showAddChildButton && (
           <div
             className="absolute left-1/2 -translate-x-1/2 z-20 cursor-pointer flex items-center justify-center transition-all duration-200"
             style={{
@@ -127,16 +147,21 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
             onMouseLeave={() => setIsAddHovered(false)}
           >
             <div 
-              className={`w-full h-full rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center transition-colors ${
-                isAddHovered ? 'bg-blue-50 border-blue-200' : ''
-              }`}
+              className="w-full h-full rounded-full shadow-sm flex items-center justify-center transition-all duration-150"
+              style={{
+                border: `1px solid ${isAddHovered ? accentColor : '#e5e7eb'}`,
+                backgroundColor: isAddHovered ? '#f0f9ff' : 'white'
+              }}
             >
-              <div 
-                className="w-4 h-4"
-                dangerouslySetInnerHTML={{ 
-                  __html: getIconSvg('plus', isAddHovered ? '#3b82f6' : '#6b7280') 
-                }}
-              />
+              <svg 
+                className="w-3.5 h-3.5"
+                fill="none" 
+                stroke={isAddHovered ? accentColor : '#6b7280'}
+                viewBox="0 0 24 24"
+                strokeWidth={2.5}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
             </div>
           </div>
         )}

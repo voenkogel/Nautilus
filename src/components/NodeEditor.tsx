@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { TreeNode, AppearanceConfig } from '../types/config';
 import { X, Trash, Plus, WrenchIcon } from 'lucide-react';
 import { NodeFormFields } from './NodeFormFields';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface NodeEditorProps {
   node: TreeNode;
@@ -17,11 +18,23 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
   const safeAppearance = appearance || { title: 'Nautilus', accentColor: '#3b82f6' };
   
   const [editedNode, setEditedNode] = useState<TreeNode>({ ...node });
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean;
+    childIndex: number;
+    childTitle: string;
+    childCount: number;
+  } | null>(null);
 
   // Reset edited node when the node prop changes (for child editing)
   useEffect(() => {
     setEditedNode({ ...node });
   }, [node]);
+
+  // Helper function to count all descendants of a node
+  const countDescendants = (n: TreeNode): number => {
+    if (!n.children || n.children.length === 0) return 0;
+    return n.children.reduce((count, child) => count + 1 + countDescendants(child), 0);
+  };
 
   const handleSave = () => {
     onSave(editedNode);
@@ -45,18 +58,11 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
     
     setEditedNode(updatedNode);
     
-    // Save the current node with the new child and then immediately edit the new child
+    // Save the current node with the new child
     try {
       await onSave(updatedNode);
-      if (onEditChild) {
-        onEditChild(newChild);
-      }
     } catch (error) {
       console.error("Failed to save node after adding child:", error);
-      // Still try to edit the child even if save failed
-      if (onEditChild && window.confirm("Failed to save changes. Continue to edit new child node?")) {
-        onEditChild(newChild);
-      }
     }
   };
 
@@ -69,18 +75,38 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
   //   }));
   // };
 
-  const handleDeleteChild = (childIndex: number) => {
+  const performDeleteChild = (childIndex: number) => {
     setEditedNode(prev => ({
       ...prev,
       children: prev.children?.filter((_, index) => index !== childIndex) || []
     }));
   };
 
+  const handleDeleteChild = (childIndex: number) => {
+    const child = editedNode.children?.[childIndex];
+    if (!child) return;
+
+    const childCount = countDescendants(child);
+
+    if (childCount > 0) {
+      // Show confirmation dialog for children with their own children
+      setDeleteConfirmation({
+        isOpen: true,
+        childIndex,
+        childTitle: child.title,
+        childCount
+      });
+    } else {
+      // Delete directly if no nested children
+      performDeleteChild(childIndex);
+    }
+  };
+
 
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-96 max-h-[80vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
+      <div className="bg-white rounded-lg shadow-xl w-96 max-h-[80vh] overflow-y-auto animate-slide-up">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
           <h2 className="text-lg font-semibold text-gray-900">Edit Node</h2>
@@ -183,6 +209,23 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
           </div>
         </div>
       </div>
+
+      {/* Delete Child Confirmation Dialog */}
+      {deleteConfirmation && (
+        <ConfirmDialog
+          isOpen={deleteConfirmation.isOpen}
+          title="Delete Node with Children"
+          message={`"${deleteConfirmation.childTitle}" has ${deleteConfirmation.childCount} child node${deleteConfirmation.childCount > 1 ? 's' : ''}. Deleting this node will also delete all its children. This action cannot be undone.`}
+          confirmLabel="Delete All"
+          cancelLabel="Cancel"
+          variant="danger"
+          onConfirm={() => {
+            performDeleteChild(deleteConfirmation.childIndex);
+            setDeleteConfirmation(null);
+          }}
+          onCancel={() => setDeleteConfirmation(null)}
+        />
+      )}
     </div>
   );
 };

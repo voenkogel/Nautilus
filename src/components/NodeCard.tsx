@@ -31,6 +31,8 @@ interface NodeCardProps {
   onClick?: (node: TreeNode) => void;
   className?: string;
   style?: React.CSSProperties;
+  isEditMode?: boolean;
+  isInteractable?: boolean;
 }
 
 const NodeCard: React.FC<NodeCardProps> = ({ 
@@ -38,7 +40,9 @@ const NodeCard: React.FC<NodeCardProps> = ({
   status, 
   onClick, 
   className = '',
-  style = {}
+  style = {},
+  isEditMode = false,
+  isInteractable = false
 }) => {
   const { title, subtitle, icon, type } = node;
   
@@ -92,9 +96,16 @@ const NodeCard: React.FC<NodeCardProps> = ({
   // Player count logic
   const showPlayerCount = status?.players && node.healthCheckType === 'minecraft';
 
+  // Determine if hover effects should be applied
+  const shouldHover = isEditMode || isInteractable;
+
   return (
     <div 
-      className={`relative flex items-center p-3 bg-white/90 shadow-lg border border-gray-100 overflow-hidden ${getNodeCardStyle(type)} ${className}`}
+      className={`relative flex items-center p-3 bg-white/90 border border-gray-100 overflow-hidden ${getNodeCardStyle(type)} ${className} transition-all duration-200 ease-out ${
+        shouldHover 
+          ? 'shadow-md hover:shadow-xl hover:scale-[1.02] cursor-pointer' 
+          : 'shadow-sm'
+      }`}
       style={{ 
         ...getAngularStyle(type),
         ...style

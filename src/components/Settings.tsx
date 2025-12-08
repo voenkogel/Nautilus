@@ -4,6 +4,7 @@ import type { AppConfig, TreeNode } from '../types/config';
 import { clearAuthentication, isAuthenticated } from '../utils/auth';
 import { downloadConfigBackup, createConfigFileInput } from '../utils/configBackup';
 import { useToast } from './Toast';
+import { ConfirmDialog } from './ConfirmDialog';
 
 import { NodeFormFields } from './NodeFormFields';
 
@@ -61,6 +62,12 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   const [pendingRestoreConfig, setPendingRestoreConfig] = useState<AppConfig | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [isTestingSend, setIsTestingSend] = useState(false);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean;
+    nodeId: string;
+    nodeTitle: string;
+    childCount: number;
+  } | null>(null);
 
   // Check authentication status on mount
   useEffect(() => {
@@ -452,7 +459,26 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }));
   };
 
-  const deleteNode = (nodeId: string) => {
+  // Helper function to count all descendants of a node
+  const countDescendants = (node: TreeNode): number => {
+    if (!node.children || node.children.length === 0) return 0;
+    return node.children.reduce((count, child) => count + 1 + countDescendants(child), 0);
+  };
+
+  // Helper function to find a node by ID
+  const findNodeById = (nodes: TreeNode[], id: string): TreeNode | null => {
+    for (const node of nodes) {
+      if (node.id === id) return node;
+      if (node.children) {
+        const found = findNodeById(node.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  // Core delete function
+  const performDeleteNode = (nodeId: string) => {
     const deleteNodeRecursive = (nodes: TreeNode[]): TreeNode[] => {
       return nodes
         .filter(node => node.id !== nodeId)
@@ -469,6 +495,26 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
         nodes: deleteNodeRecursive(prev.tree.nodes)
       }
     }));
+  };
+
+  const deleteNode = (nodeId: string) => {
+    const node = findNodeById(config.tree.nodes, nodeId);
+    if (!node) return;
+
+    const childCount = countDescendants(node);
+
+    if (childCount > 0) {
+      // Show confirmation dialog for nodes with children
+      setDeleteConfirmation({
+        isOpen: true,
+        nodeId,
+        nodeTitle: node.title,
+        childCount
+      });
+    } else {
+      // Delete directly if no children
+      performDeleteNode(nodeId);
+    }
   };
 
   const addChildNode = (parentId: string) => {
@@ -813,8 +859,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl h-[80vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4 animate-fade-in">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl h-[80vh] overflow-hidden flex flex-col animate-slide-up">
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 flex-shrink-0">
           <div className="flex items-center space-x-2">
@@ -1349,6 +1395,23 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirmation && (
+        <ConfirmDialog
+          isOpen={deleteConfirmation.isOpen}
+          title="Delete Node with Children"
+          message={`"${deleteConfirmation.nodeTitle}" has ${deleteConfirmation.childCount} child node${deleteConfirmation.childCount > 1 ? 's' : ''}. Deleting this node will also delete all its children. This action cannot be undone.`}
+          confirmLabel="Delete All"
+          cancelLabel="Cancel"
+          variant="danger"
+          onConfirm={() => {
+            performDeleteNode(deleteConfirmation.nodeId);
+            setDeleteConfirmation(null);
+          }}
+          onCancel={() => setDeleteConfirmation(null)}
+        />
+      )}
     </div>
   );
 };

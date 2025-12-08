@@ -3,11 +3,14 @@ import type { TreeNode } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
 import NodeCard from './NodeCard';
 import type { AppConfig } from '../types/config';
+import { getNodeTargetUrl } from '../utils/nodeUtils';
 
 interface MobileNodeListProps {
   nodes: TreeNode[];
   statuses: Record<string, NodeStatus>;
   onNodeClick: (node: TreeNode) => void;
+  isEditMode?: boolean;
+  accentColor?: string;
   appConfig?: AppConfig;
   statusCard?: React.ReactNode;
 }
@@ -15,7 +18,9 @@ interface MobileNodeListProps {
 const MobileNodeList: React.FC<MobileNodeListProps> = ({ 
   nodes, 
   statuses, 
-  onNodeClick, 
+  onNodeClick,
+  isEditMode = false,
+  accentColor = '#3b82f6',
   appConfig,
   statusCard
 }) => {
@@ -112,11 +117,16 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
           node={node}
           status={status}
           onClick={onNodeClick}
+          isEditMode={isEditMode}
+          isInteractable={!!getNodeTargetUrl(node)}
           className="z-10"
           style={{ 
             marginLeft: `${level * connectionOffset}px`,
             marginBottom: '12px',
-            height: '88px'
+            height: '88px',
+            ...(isEditMode ? {
+              boxShadow: `0 0 0 2px ${accentColor}80`,
+            } : {})
           }}
         />
         

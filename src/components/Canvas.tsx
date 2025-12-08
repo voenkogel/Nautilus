@@ -17,6 +17,7 @@ import {
   iconImageCache, 
   iconSvgCache
 } from '../utils/iconUtils';
+import { ConfirmDialog } from './ConfirmDialog';
 import { 
   calculateTreeLayout, 
   type PositionedNode, 
@@ -80,6 +81,28 @@ const Canvas: React.FC = () => {
   const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
   const [currentConfig, setCurrentConfig] = useState<AppConfig>(initialAppConfig);
   const [collapsedNodeIds, setCollapsedNodeIds] = useState<Set<string>>(new Set());
+  
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false);
+  
+  // State to track which parent node's connection is being hovered (for collapse button)
+  const [hoveredConnectionParentId, setHoveredConnectionParentId] = useState<string | null>(null);
+  
+  // State to track newly added node for animation
+  const [newlyAddedNodeId, setNewlyAddedNodeId] = useState<string | null>(null);
+  
+  // State to track nodes being animated (for expand/collapse and delete)
+  const [expandingNodeIds, setExpandingNodeIds] = useState<Set<string>>(new Set());
+  const [deletingNodeId, setDeletingNodeId] = useState<string | null>(null);
+  
+  // State for delete confirmation dialog
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{
+    isOpen: boolean;
+    nodeId: string;
+    nodeTitle: string;
+    childCount: number;
+    onConfirm: () => void;
+  } | null>(null);
   
   // Use device detection
   const { isMobile } = useDeviceDetection();
@@ -389,6 +412,42 @@ const Canvas: React.FC = () => {
     return null;
   }, []);
 
+  // Helper function to count all nested children and their health statuses
+  const getNestedNodeStats = useCallback((node: TreeNode): { total: number; online: number; offline: number; checking: number } => {
+    let total = 0;
+    let online = 0;
+    let offline = 0;
+    let checking = 0;
+
+    const countNodes = (n: TreeNode) => {
+      if (n.children) {
+        for (const child of n.children) {
+          total++;
+          // Get status for this child
+          let identifier = child.internalAddress;
+          if (!identifier) {
+            identifier = child.healthCheckPort && child.ip 
+              ? `${child.ip}:${child.healthCheckPort}` 
+              : (child.ip || child.url);
+          }
+          if (identifier) {
+            const status = getNodeStatus(identifier);
+            if (status.status === 'online') online++;
+            else if (status.status === 'offline') offline++;
+            else checking++;
+          } else {
+            checking++;
+          }
+          // Recurse into grandchildren
+          countNodes(child);
+        }
+      }
+    };
+
+    countNodes(node);
+    return { total, online, offline, checking };
+  }, [getNodeStatus]);
+
   const handleSaveConfig = async (newConfig: AppConfig) => {
     // Send the config to the server to update the config.json file
     const response = await fetch('/api/config', {
@@ -602,8 +661,10 @@ const Canvas: React.FC = () => {
       // Trigger immediate status check for the new node
       forceRefresh();
       
-      // Open editor for the new node
-      setEditingNode(newNode);
+      // Track newly added node for animation
+      setNewlyAddedNodeId(newNode.id);
+      // Clear after animation completes
+      setTimeout(() => setNewlyAddedNodeId(null), 500);
     }
   };
 
@@ -653,9 +714,14 @@ const Canvas: React.FC = () => {
     }
   };
 
-  const handleDeleteNode = async () => {
-    if (!editingNode) return;
+  // Helper function to count all descendants of a node
+  const countDescendants = (node: TreeNode): number => {
+    if (!node.children || node.children.length === 0) return 0;
+    return node.children.reduce((count, child) => count + 1 + countDescendants(child), 0);
+  };
 
+  // Core delete function (does the actual deletion with animation)
+  const performDeleteNode = async (nodeId: string, skipAnimation = false) => {
     // Helper function to remove node from the tree
     const removeNodeFromTree = (nodes: TreeNode[], nodeIdToRemove: string): TreeNode[] => {
       return nodes.filter(node => {
@@ -669,22 +735,98 @@ const Canvas: React.FC = () => {
       });
     };
 
+    // Animate before deletion (only for canvas quick delete, not for editor delete)
+    if (!skipAnimation) {
+      setDeletingNodeId(nodeId);
+      // Wait for animation to complete
+      await new Promise(resolve => setTimeout(resolve, 300));
+      setDeletingNodeId(null);
+    }
+
     const newConfig = {
       ...currentConfig,
       tree: {
         ...currentConfig.tree,
-        nodes: removeNodeFromTree(currentConfig.tree.nodes, editingNode.id)
+        nodes: removeNodeFromTree(currentConfig.tree.nodes, nodeId)
       }
     };
 
     try {
       await handleSaveConfig(newConfig);
-      setEditingNode(null);
+      if (editingNode?.id === nodeId) {
+        setEditingNode(null);
+      }
       // Trigger immediate status check to update removed node
       forceRefresh();
     } catch (error) {
       console.error('Error deleting node:', error);
-      // The error will be handled by the component that calls this
+      throw error;
+    }
+  };
+
+  const handleDeleteNode = async () => {
+    if (!editingNode) return;
+
+    const childCount = countDescendants(editingNode);
+    
+    if (childCount > 0) {
+      // Show confirmation dialog for nodes with children
+      setDeleteConfirmation({
+        isOpen: true,
+        nodeId: editingNode.id,
+        nodeTitle: editingNode.title,
+        childCount,
+        onConfirm: async () => {
+          await performDeleteNode(editingNode.id, true); // Skip animation for editor delete
+          setDeleteConfirmation(null);
+        }
+      });
+    } else {
+      // Delete directly if no children (skip animation for editor delete)
+      await performDeleteNode(editingNode.id, true);
+    }
+  };
+
+  // Direct delete handler for quick delete from canvas
+  const handleQuickDeleteNode = async (nodeId: string) => {
+    const node = findNodeById(currentConfig.tree.nodes, nodeId);
+    if (!node) return;
+
+    const childCount = countDescendants(node);
+
+    const doDelete = async () => {
+      try {
+        await performDeleteNode(nodeId);
+        addToast({
+          type: 'success',
+          message: `"${node.title}" deleted`,
+          duration: 3000
+        });
+      } catch (error) {
+        console.error('Error deleting node:', error);
+        addToast({
+          type: 'error',
+          message: 'Failed to delete node',
+          duration: 5000
+        });
+      }
+    };
+
+    if (childCount > 0) {
+      // Show confirmation dialog for nodes with children
+      setDeleteConfirmation({
+        isOpen: true,
+        nodeId,
+        nodeTitle: node.title,
+        childCount,
+        onConfirm: async () => {
+          await doDelete();
+          setDeleteConfirmation(null);
+        }
+      });
+    } else {
+      // Delete directly if no children
+      await doDelete();
     }
   };
 
@@ -932,6 +1074,17 @@ const Canvas: React.FC = () => {
         }} 
       />
       
+      {/* Edit Mode Border Overlay */}
+      {isEditMode && (
+        <div 
+          className="absolute inset-0 z-50 pointer-events-none"
+          style={{ 
+            boxShadow: `inset 0 0 0 3px ${currentConfig.appearance?.accentColor || '#3b82f6'}`,
+            borderRadius: '0px'
+          }} 
+        />
+      )}
+      
       {/* Desktop view with DOM-based canvas */}
       {!isMobile && (
         <>
@@ -959,8 +1112,8 @@ const Canvas: React.FC = () => {
             >
               {/* Connections Layer (SVG) */}
               <svg
-                className="absolute top-0 left-0 overflow-visible pointer-events-none"
-                style={{ width: 1, height: 1 }} // Minimal size, overflow visible handles the rest
+                className="absolute top-0 left-0 overflow-visible"
+                style={{ width: 1, height: 1, pointerEvents: 'none' }} // Minimal size, overflow visible handles the rest
                 shapeRendering="geometricPrecision"
               >
                 {connections.map((connection, index) => {
@@ -995,18 +1148,84 @@ const Canvas: React.FC = () => {
                   }
 
                   return (
-                    <path
-                      key={`conn-${index}`}
-                      d={d}
-                      fill="none"
-                      stroke="#6b7280"
-                      strokeWidth={4}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
+                    <g key={`conn-${index}`}>
+                      {/* Visible connection line */}
+                      <path
+                        d={d}
+                        fill="none"
+                        stroke="#6b7280"
+                        strokeWidth={4}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      {/* Invisible wider path for hover detection - only when not in edit mode */}
+                      {!isEditMode && (
+                        <path
+                          d={d}
+                          fill="none"
+                          stroke="transparent"
+                          strokeWidth={20}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+                          onMouseEnter={() => setHoveredConnectionParentId(from.id)}
+                          onMouseLeave={() => setHoveredConnectionParentId(null)}
+                        />
+                      )}
+                    </g>
                   );
                 })}
               </svg>
+              
+              {/* Collapse buttons (shown when hovering over connection) */}
+              {!isEditMode && hoveredConnectionParentId && (() => {
+                const parentNode = nodes.find(n => n.id === hoveredConnectionParentId);
+                if (!parentNode) return null;
+                
+                const originalNode = findNodeById(currentConfig.tree.nodes, hoveredConnectionParentId);
+                const hasChildren = originalNode && originalNode.children && originalNode.children.length > 0;
+                const isCollapsed = collapsedNodeIds.has(hoveredConnectionParentId);
+                
+                if (!hasChildren || isCollapsed) return null;
+                
+                // Find the first child node to calculate vertical center
+                const firstChildId = originalNode!.children![0].id;
+                const firstChildNode = nodes.find(n => n.id === firstChildId);
+                
+                const buttonX = parentNode.x + parentNode.width / 2;
+                // Position vertically centered between parent bottom and first child top
+                const parentBottom = parentNode.y + parentNode.height;
+                const childTop = firstChildNode ? firstChildNode.y : parentBottom + 60;
+                const buttonY = parentBottom + (childTop - parentBottom) / 2;
+                
+                return (
+                  <div
+                    className="absolute z-30 cursor-pointer transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center bg-white/95 backdrop-blur-sm border border-gray-300 shadow-md hover:bg-gray-50 hover:border-gray-400 hover:shadow-lg transition-all duration-150"
+                    style={{
+                      left: buttonX,
+                      top: buttonY,
+                      borderRadius: '50%',
+                      width: '28px',
+                      height: '28px',
+                    }}
+                    onMouseEnter={() => setHoveredConnectionParentId(hoveredConnectionParentId)}
+                    onMouseLeave={() => setHoveredConnectionParentId(null)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCollapsedNodeIds(prev => {
+                        const next = new Set(prev);
+                        next.add(hoveredConnectionParentId);
+                        return next;
+                      });
+                      setHoveredConnectionParentId(null);
+                    }}
+                  >
+                    <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                  </div>
+                );
+              })()}
 
               {/* Nodes Layer */}
               {nodes.map(node => (
@@ -1016,13 +1235,25 @@ const Canvas: React.FC = () => {
                     status={getStatusForNode(node)}
                     scale={transform.scale}
                     isSelected={false}
-                    onNodeClick={(n) => openNodeUrl(n)}
+                    isEditMode={isEditMode}
+                    isNewlyAdded={node.id === newlyAddedNodeId}
+                    isExpanding={expandingNodeIds.has(node.id)}
+                    isDeleting={node.id === deletingNodeId}
+                    accentColor={currentConfig.appearance?.accentColor || '#3b82f6'}
+                    onNodeClick={(n) => {
+                      if (isEditMode) {
+                        handleEditNode(n.id);
+                      } else {
+                        openNodeUrl(n);
+                      }
+                    }}
                     onEditClick={(n) => handleEditNode(n.id)}
                     onAddChildClick={(n) => handleAddChildNode(n.id)}
+                    onDeleteClick={(n) => handleQuickDeleteNode(n.id)}
                   />
                   
-                  {/* Collapse/Expand Button */}
-                  {(() => {
+                  {/* Collapse/Expand Button - Hidden in edit mode */}
+                  {!isEditMode && (() => {
                     const originalNode = findNodeById(currentConfig.tree.nodes, node.id);
                     const hasChildren = originalNode && originalNode.children && originalNode.children.length > 0;
                     const isCollapsed = collapsedNodeIds.has(node.id);
@@ -1032,42 +1263,109 @@ const Canvas: React.FC = () => {
                     const buttonX = node.x + node.width / 2;
                     const buttonY = node.y + node.height + 12;
                     
+                    // Get stats for all nested children
+                    const stats = getNestedNodeStats(originalNode!);
+                    const total = stats.online + stats.offline + stats.checking;
+                    
+                    // Calculate pie chart angles
+                    const onlineAngle = total > 0 ? (stats.online / total) * 360 : 0;
+                    const offlineAngle = total > 0 ? (stats.offline / total) * 360 : 0;
+                    
+                    // Create donut arc path
+                    const createDonutArc = (startAngle: number, endAngle: number, color: string) => {
+                      if (endAngle - startAngle === 0) return null;
+                      const outerR = 7;
+                      const innerR = 4;
+                      if (endAngle - startAngle >= 360) {
+                        // Full circle donut
+                        return (
+                          <>
+                            <circle cx="8" cy="8" r={outerR} fill={color} />
+                            <circle cx="8" cy="8" r={innerR} fill="white" />
+                          </>
+                        );
+                      }
+                      const startRad = (startAngle - 90) * Math.PI / 180;
+                      const endRad = (endAngle - 90) * Math.PI / 180;
+                      const outerX1 = 8 + outerR * Math.cos(startRad);
+                      const outerY1 = 8 + outerR * Math.sin(startRad);
+                      const outerX2 = 8 + outerR * Math.cos(endRad);
+                      const outerY2 = 8 + outerR * Math.sin(endRad);
+                      const innerX1 = 8 + innerR * Math.cos(startRad);
+                      const innerY1 = 8 + innerR * Math.sin(startRad);
+                      const innerX2 = 8 + innerR * Math.cos(endRad);
+                      const innerY2 = 8 + innerR * Math.sin(endRad);
+                      const largeArc = endAngle - startAngle > 180 ? 1 : 0;
+                      return (
+                        <path 
+                          d={`M ${outerX1} ${outerY1} A ${outerR} ${outerR} 0 ${largeArc} 1 ${outerX2} ${outerY2} L ${innerX2} ${innerY2} A ${innerR} ${innerR} 0 ${largeArc} 0 ${innerX1} ${innerY1} Z`} 
+                          fill={color} 
+                        />
+                      );
+                    };
+                    
+                    // Only show expand button when collapsed (always visible)
+                    // Collapse button would need hover detection on connection (simplified: not shown when expanded)
+                    if (!isCollapsed) {
+                      // When expanded, don't show the collapse button (would need hover on connection)
+                      return null;
+                    }
+                    
                     return (
                       <div
                         className="absolute z-30 cursor-pointer transform -translate-x-1/2 flex items-center justify-center bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors"
                         style={{
                           left: buttonX,
                           top: buttonY,
-                          borderRadius: isCollapsed ? '9999px' : '50%',
-                          padding: isCollapsed ? '4px 12px' : '4px',
-                          minWidth: isCollapsed ? 'auto' : '24px',
+                          borderRadius: '9999px',
+                          paddingRight: '10px',
+                          paddingLeft: '4px',
+                          paddingTop: '4px',
+                          paddingBottom: '4px',
                           height: '24px',
                         }}
                         onClick={(e) => {
                           e.stopPropagation();
+                          // Get all child node IDs to animate
+                          const getChildIds = (n: TreeNode): string[] => {
+                            const ids: string[] = [];
+                            if (n.children) {
+                              for (const child of n.children) {
+                                ids.push(child.id);
+                                ids.push(...getChildIds(child));
+                              }
+                            }
+                            return ids;
+                          };
+                          const childIds = originalNode ? getChildIds(originalNode) : [];
+                          
+                          // Set expanding animation for children
+                          setExpandingNodeIds(new Set(childIds));
+                          
+                          // Expand the node
                           setCollapsedNodeIds(prev => {
                             const next = new Set(prev);
-                            if (next.has(node.id)) {
-                              next.delete(node.id);
-                            } else {
-                              next.add(node.id);
-                            }
+                            next.delete(node.id);
                             return next;
                           });
+                          
+                          // Clear animation after it completes
+                          setTimeout(() => {
+                            setExpandingNodeIds(new Set());
+                          }, 300);
                         }}
                       >
-                        {isCollapsed ? (
-                          <div className="flex items-center gap-2 text-xs font-medium text-gray-600 whitespace-nowrap">
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                            <span>{originalNode!.children!.length} hidden nodes</span>
-                          </div>
-                        ) : (
-                          <svg className="w-3 h-3 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600 whitespace-nowrap">
+                          {/* Donut Chart Indicator */}
+                          <svg width="16" height="16" viewBox="0 0 16 16" className="flex-shrink-0">
+                            <circle cx="8" cy="8" r="7" fill="#e5e7eb" />
+                            <circle cx="8" cy="8" r="4" fill="white" />
+                            {createDonutArc(0, onlineAngle, '#22c55e')}
+                            {createDonutArc(onlineAngle, onlineAngle + offlineAngle, '#ef4444')}
+                            {stats.checking > 0 && createDonutArc(onlineAngle + offlineAngle, 360, '#9ca3af')}
                           </svg>
-                        )}
+                          <span>{stats.total} nodes</span>
+                        </div>
                       </div>
                     );
                   })()}
@@ -1089,6 +1387,21 @@ const Canvas: React.FC = () => {
             </div>
           )}
           
+          {/* Edit Mode Indicator - Top Center */}
+          {isEditMode && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40">
+              <div 
+                className="text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-pulse"
+                style={{ backgroundColor: currentConfig.appearance?.accentColor || '#3b82f6' }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+                <span className="text-sm font-medium">Edit Mode Active</span>
+              </div>
+            </div>
+          )}
+          
           {/* Controls - only show when user has moved away from initial position */}
           {hasMovedFromInitial() && (
             <div className="absolute bottom-4 left-4 z-40">
@@ -1100,6 +1413,50 @@ const Canvas: React.FC = () => {
               </button>
             </div>
           )}
+          
+          {/* Edit Mode FAB Button */}
+          <div className="absolute bottom-4 right-4 z-40">
+            {/* Edit FAB Button */}
+            <button
+              onClick={async () => {
+                if (!isEditMode) {
+                  // Authenticate before entering edit mode
+                  const isAuth = await authenticate();
+                  if (isAuth) {
+                    setIsEditMode(true);
+                  }
+                } else {
+                  setIsEditMode(false);
+                }
+              }}
+              className={`h-12 rounded-full shadow-lg flex items-center justify-center gap-2 px-5 transition-all duration-200 ${
+                isEditMode 
+                  ? 'text-white' 
+                  : 'bg-white hover:bg-gray-50 text-gray-700'
+              }`}
+              style={isEditMode ? { 
+                backgroundColor: currentConfig.appearance?.accentColor || '#3b82f6',
+                boxShadow: `0 0 0 4px ${(currentConfig.appearance?.accentColor || '#3b82f6')}33`
+              } : undefined}
+              title={isEditMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
+            >
+              {isEditMode ? (
+                <>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  <span className="font-medium text-sm">Done</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  <span className="font-medium text-sm">Edit</span>
+                </>
+              )}
+            </button>
+          </div>
         </>
       )}
       
@@ -1149,7 +1506,15 @@ const Canvas: React.FC = () => {
               <MobileNodeList 
                 nodes={currentConfig.tree.nodes} 
                 statuses={statuses}
-                onNodeClick={handleMobileNodeClick}
+                onNodeClick={(node) => {
+                  if (isEditMode) {
+                    handleEditNode(node.id);
+                  } else {
+                    handleMobileNodeClick(node);
+                  }
+                }}
+                isEditMode={isEditMode}
+                accentColor={currentConfig.appearance?.accentColor || '#3b82f6'}
                 appConfig={currentConfig}
                 statusCard={
                   <StatusCard
@@ -1167,6 +1532,57 @@ const Canvas: React.FC = () => {
                 }
               />
             )}
+          </div>
+          
+          {/* Mobile Edit Mode Indicator - Top Center */}
+          {isEditMode && (
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40">
+              <div 
+                className="text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-pulse"
+                style={{ backgroundColor: currentConfig.appearance?.accentColor || '#3b82f6' }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+                <span className="text-sm font-medium">Edit Mode</span>
+              </div>
+            </div>
+          )}
+          
+          {/* Mobile Edit Mode FAB Button */}
+          <div className="absolute bottom-4 right-4 z-40">
+            <button
+              onClick={async () => {
+                if (!isEditMode) {
+                  const isAuth = await authenticate();
+                  if (isAuth) {
+                    setIsEditMode(true);
+                  }
+                } else {
+                  setIsEditMode(false);
+                }
+              }}
+              className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 ${
+                isEditMode 
+                  ? 'text-white' 
+                  : 'bg-white hover:bg-gray-50 text-gray-700'
+              }`}
+              style={isEditMode ? { 
+                backgroundColor: currentConfig.appearance?.accentColor || '#3b82f6',
+                boxShadow: `0 0 0 4px ${(currentConfig.appearance?.accentColor || '#3b82f6')}33`
+              } : undefined}
+              title={isEditMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
+            >
+              {isEditMode ? (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+              )}
+            </button>
           </div>
         </div>
       )}
@@ -1261,8 +1677,8 @@ const Canvas: React.FC = () => {
 
       {/* Iframe Overlay for all devices */}
       {iframeOverlay && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 md:p-8">
-          <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-full max-h-full flex flex-col">
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 md:p-8 animate-fade-in">
+          <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-full max-h-full flex flex-col animate-scale-in">
             {/* Header with title and buttons - reduced height */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-gray-50 rounded-t-lg">
               <h3 className="text-base font-semibold text-gray-900 truncate flex-1 mr-4">
@@ -1306,6 +1722,20 @@ const Canvas: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirmation && (
+        <ConfirmDialog
+          isOpen={deleteConfirmation.isOpen}
+          title="Delete Node with Children"
+          message={`"${deleteConfirmation.nodeTitle}" has ${deleteConfirmation.childCount} child node${deleteConfirmation.childCount > 1 ? 's' : ''}. Deleting this node will also delete all its children. This action cannot be undone.`}
+          confirmLabel="Delete All"
+          cancelLabel="Cancel"
+          variant="danger"
+          onConfirm={deleteConfirmation.onConfirm}
+          onCancel={() => setDeleteConfirmation(null)}
+        />
       )}
     </div>
   );
