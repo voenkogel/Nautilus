@@ -187,7 +187,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
             style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
           />
           <p className="text-xs text-gray-500 mt-1">
-            Address used by the server to check status. Format: <code>ip:port</code> or <code>http://ip:port</code>
+            Address used by the server to check status. Also serves as the default Access URL if not specified below.
           </p>
         </div>
 
@@ -330,29 +330,35 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                         url: undefined
                       });
                     }}
-                    placeholder="https://myapp.com"
+                    placeholder={(() => {
+                      const internal = node.internalAddress || (node.ip ? `${node.ip}:${node.healthCheckPort}` : '');
+                      if (!internal) return "https://myapp.com";
+                      return internal.includes('://') ? internal : `http://${internal}`;
+                    })()}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
                     style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
                   />
-                  <p className="text-xs text-gray-500 mt-1">Public address for opening the service in browser.</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Public address for opening the service. If empty, defaults to Internal Address.
+                  </p>
                 </div>
 
-                {/* Disable Embedded */}
+                {/* Enable Embedded Viewer (Inverted Logic) */}
                 <div className="flex items-start space-x-3">
                   <div className="flex items-center h-6">
                     <Switch
-                      id={`disableEmbedded-${node.id}`}
-                      checked={node.disableEmbedded || false}
-                      onChange={(checked) => onChange({ disableEmbedded: checked })}
+                      id={`enableEmbedded-${node.id}`}
+                      checked={!node.disableEmbedded} // Checked if NOT disabled (default true if undefined)
+                      onChange={(checked) => onChange({ disableEmbedded: !checked })}
                       accentColor={accentColor}
                     />
                   </div>
                   <div>
-                    <label htmlFor={`disableEmbedded-${node.id}`} className="font-medium text-gray-700 text-sm cursor-pointer">
-                      Disable Embedded Viewer
+                    <label htmlFor={`enableEmbedded-${node.id}`} className="font-medium text-gray-700 text-sm cursor-pointer">
+                      Enable Embedded Viewer
                     </label>
                     <p className="text-xs text-gray-500">
-                      Force this node to open in a new tab instead of the embedded iframe overlay.
+                      Open this node in an embedded overlay. (Requires global 'Open Nodes as Overlay' setting to be enabled)
                     </p>
                   </div>
                 </div>

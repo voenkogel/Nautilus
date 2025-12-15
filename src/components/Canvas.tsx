@@ -648,7 +648,9 @@ const Canvas: React.FC = () => {
       title: "New Node",
       subtitle: "New subtitle",
       type: "square",
-      children: []
+      children: [],
+      // Inherit global setting
+      disableEmbedded: currentConfig.general?.openNodesAsOverlay === false
     };
 
     // Add to config
@@ -848,7 +850,7 @@ const Canvas: React.FC = () => {
     }
 
     try {
-      const startingNode = createStartingNode();
+      const startingNode = createStartingNode(currentConfig);
       const newConfig: AppConfig = {
         ...currentConfig,
         tree: {
