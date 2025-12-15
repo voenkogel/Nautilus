@@ -12,6 +12,7 @@ import crypto from 'crypto';
 // Import the webhook utility
 import { sendStatusWebhook } from './utils/webhooks.js';
 import { queryJavaServer, queryBedrockServer } from './utils/minecraft.js';
+import { queryPlexServer } from './utils/plex.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -438,39 +439,51 @@ function findNodeByIdentifier(targetIdentifier) {
   return searchNodes(appConfig.tree.nodes);
 }
 
-// Function to check a single node's health with automatic HTTP/HTTPS fallback
-async function checkNodeHealth(identifier) {
-  const normalizedIdentifier = normalizeNodeIdentifier(identifier);
-  
-  console.log(`🔍 [HEALTH_CHECK] Checking "${identifier}" → normalized: "${normalizedIdentifier}"`);
-  
-  // Get the node data to access IP, URL, and healthCheckPort
-  const nodeData = findNodeByIdentifier(normalizedIdentifier);
-  
-  // Only nodes with healthCheckPort should reach this function
-  let baseEndpoint;
-  let host, port;
-  
-  if (nodeData) {
-    if (nodeData.internalAddress) {
-      baseEndpoint = nodeData.internalAddress;
-      // Parse host/port for Minecraft
-      const parts = nodeData.internalAddress.split(':');
-      host = parts[0];
-      port = parts[1] ? parseInt(parts[1]) : undefined;
-    } else if (nodeData.healthCheckPort && nodeData.ip) {
-      baseEndpoint = `${nodeData.ip}:${nodeData.healthCheckPort}`;
-      host = nodeData.ip;
-      port = nodeData.healthCheckPort;
-    }
+// Function to check a single node's status (Pure logic, no side effects)
+async function performNodeCheck(nodeData) {
+  if (!nodeData) {
+    return {
+      status: 'offline',
+      lastChecked: new Date().toISOString(),
+      responseTime: 0,
+      error: 'Node data not provided'
+    };
   }
 
-  if (baseEndpoint) {
-    console.log(`🎯 [ENDPOINT] Node "${nodeData.title || nodeData.id}": healthCheck="${baseEndpoint}" type=${nodeData.healthCheckType || 'http'}`);
-  } else {
-    console.log(`⚠️  [ENDPOINT] Invalid node data for "${normalizedIdentifier}" - missing internalAddress or (ip+port)`);
-    // Return offline for invalid nodes
-    return {
+  // Only nodes with healthCheckPort or internalAddress should be checked
+  let baseEndpoint;
+  let host, port;
+  let protocol = 'http';
+  
+  if (nodeData.internalAddress) {
+    baseEndpoint = nodeData.internalAddress;
+    
+    // Parse protocol, host, and port
+    let cleanAddress = baseEndpoint;
+    if (baseEndpoint.startsWith('https://')) {
+      protocol = 'https';
+      cleanAddress = baseEndpoint.substring(8);
+    } else if (baseEndpoint.startsWith('http://')) {
+      protocol = 'http';
+      cleanAddress = baseEndpoint.substring(7);
+    }
+    
+    const parts = cleanAddress.split(':');
+    host = parts[0];
+    port = parts[1] ? parseInt(parts[1]) : undefined;
+    
+  } else if (nodeData.healthCheckPort && nodeData.ip) {
+    baseEndpoint = `${nodeData.ip}:${nodeData.healthCheckPort}`;
+    host = nodeData.ip;
+    port = nodeData.healthCheckPort;
+  }
+  
+  // If Plex, we don't strictly need internalAddress if we have host/port via other means, 
+  // but the current architecture assumes internalAddress or ip+port is the source of truth.
+  // We'll proceed if we have a baseEndpoint OR if it's a type that might handle itself (though strictly we need a host).
+
+  if (!baseEndpoint) {
+     return {
       status: 'offline',
       lastChecked: new Date().toISOString(),
       responseTime: 0,
@@ -505,20 +518,29 @@ async function checkNodeHealth(identifier) {
         error: err.message
       };
     }
+  } else if (nodeData.healthCheckType === 'plex') {
+    try {
+      const startTime = Date.now();
+      const plexPort = port || 32400;
+      
+      const result = await queryPlexServer(host, plexPort, nodeData.plexToken, protocol);
+      
+      finalResult = {
+        status: 'online',
+        lastChecked: new Date().toISOString(),
+        responseTime: Date.now() - startTime,
+        streams: result.streams
+      };
+    } catch (err) {
+      finalResult = {
+        status: 'offline',
+        lastChecked: new Date().toISOString(),
+        responseTime: 0,
+        error: err.message,
+        streams: 0 // Ensure streams is defined even on error so UI can show it if needed (or at least not crash)
+      };
+    }
   } else if (nodeData.healthCheckType === 'disabled' || nodeData.disableHealthCheck) {
-     // Skip check for disabled nodes, but we need to return something to preserve state or show as disabled
-     // Actually, the frontend handles the "disabled" visual state based on config.
-     // But we should probably return a status that indicates it wasn't checked?
-     // Or just return the previous status?
-     // For now, let's return a "checking" or "unknown" status, or just skip updating?
-     // If we return "offline", it might trigger notifications.
-     // Let's return a special status or just 'offline' but with a flag?
-     // Actually, if it's disabled, we shouldn't be here ideally, but the loop calls us.
-     // Let's return a dummy "online" or "offline" that doesn't trigger alerts?
-     // Or better, just return what we have.
-     // If I return { status: 'disabled' }, the frontend might break if it expects 'online'/'offline'.
-     // The frontend `NodeStatus` type is 'online' | 'offline' | 'checking'.
-     // Let's just return 'offline' but with error 'Monitoring disabled'.
      finalResult = {
        status: 'offline',
        lastChecked: new Date().toISOString(),
@@ -526,15 +548,18 @@ async function checkNodeHealth(identifier) {
        error: 'Monitoring disabled'
      };
   } else {
-    // HTTP/TCP Check (Existing Logic)
+    // HTTP/TCP Check
     // If protocol is already specified, use it directly
     if (baseEndpoint.includes('://')) {
-      finalResult = await attemptHealthCheck(baseEndpoint, normalizedIdentifier, nodeData);
+      // Use the identifier from nodeData if available, otherwise just use endpoint as ID for logging
+      const id = nodeData.internalAddress || 'unknown';
+      finalResult = await attemptHealthCheck(baseEndpoint, id, nodeData);
     } else {
       // Always try HTTPS first, then HTTP fallback
+      const id = normalizeNodeIdentifier(baseEndpoint);
       
       // Try HTTPS first
-      let result = await attemptHealthCheck(`https://${baseEndpoint}`, normalizedIdentifier, nodeData);
+      let result = await attemptHealthCheck(`https://${baseEndpoint}`, id, nodeData);
       
       // If HTTPS failed with connection errors, try HTTP
       if (result.status === 'offline' && result.error && 
@@ -546,7 +571,7 @@ async function checkNodeHealth(identifier) {
            result.error.includes('SSL routines') ||
            result.error.includes('wrong version number') ||
            result.error.includes('certificate'))) {
-        const httpResult = await attemptHealthCheck(`http://${baseEndpoint}`, normalizedIdentifier, nodeData);
+        const httpResult = await attemptHealthCheck(`http://${baseEndpoint}`, id, nodeData);
         
         // Use HTTP result if it's successful
         if (httpResult.status === 'online') {
@@ -559,6 +584,31 @@ async function checkNodeHealth(identifier) {
       }
     }
   }
+  
+  return finalResult;
+}
+
+// Function to check a single node's health with automatic HTTP/HTTPS fallback
+async function checkNodeHealth(identifier) {
+  const normalizedIdentifier = normalizeNodeIdentifier(identifier);
+  
+  console.log(`🔍 [HEALTH_CHECK] Checking "${identifier}" → normalized: "${normalizedIdentifier}"`);
+  
+  // Get the node data to access IP, URL, and healthCheckPort
+  const nodeData = findNodeByIdentifier(normalizedIdentifier);
+  
+  if (!nodeData) {
+     console.log(`⚠️  [ENDPOINT] Node not found for "${normalizedIdentifier}"`);
+     return {
+      status: 'offline',
+      lastChecked: new Date().toISOString(),
+      responseTime: 0,
+      error: 'Node not found'
+    };
+  }
+
+  // Use the new pure function
+  const finalResult = await performNodeCheck(nodeData);
   
   // NOW handle status change notifications AFTER all attempts are complete
   const previousStatus = nodeStatuses.get(normalizedIdentifier);
@@ -962,9 +1012,99 @@ app.post('/api/auth/logout', (req, res) => {
 
 // --- Configuration API (Protected) ---
 
+const SENSITIVE_MASK = '********';
+
+// Helper function to sanitize config for client consumption
+function sanitizeConfig(config) {
+  if (!config) return config;
+  
+  // Deep clone to avoid modifying the original in-memory config
+  const sanitized = JSON.parse(JSON.stringify(config));
+  
+  // Recursive function to strip/mask sensitive fields from nodes
+  function maskSensitiveFields(nodes) {
+    if (!Array.isArray(nodes)) return;
+    
+    nodes.forEach(node => {
+      // Mask sensitive fields if they exist
+      if (node.plexToken) {
+        node.plexToken = SENSITIVE_MASK;
+      }
+      if (node.apiKeys) {
+        node.apiKeys = SENSITIVE_MASK;
+      }
+      
+      if (node.children) {
+        maskSensitiveFields(node.children);
+      }
+    });
+  }
+  
+  if (sanitized.tree && sanitized.tree.nodes) {
+    maskSensitiveFields(sanitized.tree.nodes);
+  }
+  
+  return sanitized;
+}
+
+// Helper function to restore sensitive fields from old config if masked
+function restoreSensitiveFields(newConfig, oldConfig) {
+  if (!newConfig || !oldConfig) return newConfig;
+
+  // Create a map of old nodes by ID for fast lookup
+  const oldNodeMap = new Map();
+  function mapNodes(nodes) {
+    if (!Array.isArray(nodes)) return;
+    nodes.forEach(node => {
+      if (node.id) oldNodeMap.set(node.id, node);
+      if (node.children) mapNodes(node.children);
+    });
+  }
+  if (oldConfig.tree && oldConfig.tree.nodes) {
+    mapNodes(oldConfig.tree.nodes);
+  }
+
+  // Recursive function to restore fields
+  function restoreNodes(nodes) {
+    if (!Array.isArray(nodes)) return;
+    
+    nodes.forEach(node => {
+      // Restore sensitive fields if they match the mask
+      if (node.plexToken === SENSITIVE_MASK) {
+        const oldNode = oldNodeMap.get(node.id);
+        if (oldNode && oldNode.plexToken) {
+          node.plexToken = oldNode.plexToken;
+        } else {
+          // If no old node or token found, clear the mask to avoid saving "********" as the actual token
+          delete node.plexToken; 
+        }
+      }
+      
+      if (node.apiKeys === SENSITIVE_MASK) {
+        const oldNode = oldNodeMap.get(node.id);
+        if (oldNode && oldNode.apiKeys) {
+          node.apiKeys = oldNode.apiKeys;
+        } else {
+          delete node.apiKeys;
+        }
+      }
+
+      if (node.children) {
+        restoreNodes(node.children);
+      }
+    });
+  }
+
+  if (newConfig.tree && newConfig.tree.nodes) {
+    restoreNodes(newConfig.tree.nodes);
+  }
+
+  return newConfig;
+}
+
 // API endpoint to get centralized config (public - read-only)
 app.get('/api/config', (req, res) => {
-  res.json(appConfig);
+  res.json(sanitizeConfig(appConfig));
 });
 
 // Helper function to deep merge objects
@@ -1065,7 +1205,7 @@ function validateConfig(config) {
 
 // Endpoint to update the configuration
 app.post('/api/config', authenticateRequest, (req, res) => {
-  const newConfig = req.body;
+  let newConfig = req.body; // Use let so we can modify it
   const replaceMode = req.query.replace === 'true'; // Check for replace query parameter
   
   // Validate configuration structure
@@ -1079,6 +1219,10 @@ app.post('/api/config', authenticateRequest, (req, res) => {
   }
   
   try {
+    // Restore sensitive fields (unmask) BEFORE merging
+    // This looks at the incoming 'masked' values and replaces them with real values from appConfig
+    newConfig = restoreSensitiveFields(newConfig, appConfig);
+
     let updatedConfig;
     
     if (replaceMode) {
@@ -1240,6 +1384,32 @@ app.post('/api/network-scan/cancel', authenticateRequest, (req, res) => {
   networkScanService.cancel_scan();
   res.json({ success: true });
 });
+// API endpoint to test connection for a specific node configuration (Protected)
+app.post('/api/test-connection', authenticateRequest, async (req, res) => {
+  try {
+    const nodeConfig = req.body;
+    
+    // Check if node config is valid
+    if (!nodeConfig || typeof nodeConfig !== 'object') {
+       return res.status(400).json({ error: 'Invalid node configuration' });
+    }
+    
+    console.log(`🧪 [TEST-CONNECTION] Testing configuration for "${nodeConfig.title || 'Unknown'}"`);
+    
+    // Perform check using the provided config (not stored config)
+    const result = await performNodeCheck(nodeConfig);
+    
+    res.json(result);
+  } catch (err) {
+    console.error(`❌ [TEST-CONNECTION] Error:`, err);
+    res.status(500).json({ 
+      status: 'offline', 
+      error: err.message,
+      lastChecked: new Date().toISOString()
+    });
+  }
+});
+
 app.listen(appConfig.server.port, () => {
   console.log(` Monitoring ${nodeIdentifiers.length} nodes every ${appConfig.server.healthCheckInterval / 1000}s`);
   console.log(`🔍 Using HTTP GET requests with 5s timeout (URL preferred over IP)`);

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { AppConfig } from '../types/config';
-import { extractMonitoredNodeIdentifiers } from '../utils/nodeUtils';
+import { extractMonitoredNodeIdentifiers, normalizeNodeIdentifier } from '../utils/nodeUtils';
 
 export interface NodeStatus {
   status: 'online' | 'offline' | 'checking';
@@ -15,6 +15,7 @@ export interface NodeStatus {
   version?: string;
   motd?: string;
   favicon?: string;
+  streams?: number;
 }
 
 export interface StatusResponse {
@@ -202,7 +203,8 @@ export const useNodeStatus = (appConfig: AppConfig) => {
   }, [appConfig, fetchStatuses]);
 
   const getNodeStatus = useCallback((identifier: string): NodeStatus => {
-    const status = statuses[identifier];
+    const normalizedId = normalizeNodeIdentifier(identifier);
+    const status = statuses[normalizedId];
     if (status) {
       return status;
     }

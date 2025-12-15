@@ -168,6 +168,17 @@ const Canvas: React.FC = () => {
           };
           
           setCurrentConfig(completeConfig);
+
+          // Initialize collapsed state from config
+          const collapsedIds = new Set<string>();
+          const traverse = (nodes: TreeNode[]) => {
+            nodes.forEach(node => {
+              if (node.collapsed) collapsedIds.add(node.id);
+              if (node.children) traverse(node.children);
+            });
+          };
+          traverse(completeConfig.tree.nodes);
+          setCollapsedNodeIds(collapsedIds);
         } else {
           console.warn('Failed to fetch config from server, using default');
           setCurrentConfig(initialAppConfig);
@@ -861,9 +872,11 @@ const Canvas: React.FC = () => {
   
   // Calculate positions for tree nodes in a proper vertical tree layout
   const calculateNodePositions = useCallback((): { nodes: PositionedNode[], connections: Connection[] } => {
-    const visibleTree = getVisibleTree(currentConfig.tree.nodes, collapsedNodeIds);
+    // In edit mode, ignore collapse state to show full tree
+    const effectiveCollapsedIds = isEditMode ? new Set<string>() : collapsedNodeIds;
+    const visibleTree = getVisibleTree(currentConfig.tree.nodes, effectiveCollapsedIds);
     return calculateTreeLayout(visibleTree);
-  }, [currentConfig, collapsedNodeIds]);
+  }, [currentConfig, collapsedNodeIds, isEditMode]);
 
   // Function to open node URL with debouncing to prevent double-opens
   const openNodeUrl = useCallback((node: PositionedNode) => {
@@ -1041,8 +1054,8 @@ const Canvas: React.FC = () => {
   }, []);
 
   const resetView = useCallback(() => {
-    setTransform(initialTransform);
-  }, [initialTransform]);
+    fitToContent();
+  }, [fitToContent]);
 
   // Calculate nodes and connections for rendering
   const { nodes, connections } = calculateNodePositions();
@@ -1094,6 +1107,55 @@ const Canvas: React.FC = () => {
   const handleDragStart = useCallback((node: PositionedNode, clientX: number, clientY: number) => {
     startDrag(node, clientX, clientY);
   }, [startDrag]);
+
+  // Handle expanding/collapsing nodes with optional persistence
+  const toggleNodeCollapse = async (nodeId: string, isCollapsed: boolean) => {
+    // 1. Update Local UI State immediately for responsiveness
+    setCollapsedNodeIds(prev => {
+      const next = new Set(prev);
+      if (isCollapsed) {
+        next.add(nodeId);
+      } else {
+        next.delete(nodeId);
+      }
+      return next;
+    });
+
+    // 2. If Admin, Persist to Config
+    // We check for auth token directly to see if user is logged in as admin
+    if (hasAuthToken()) {
+      try {
+        const updateNodes = (nodes: TreeNode[]): TreeNode[] => {
+          return nodes.map(node => {
+            if (node.id === nodeId) {
+              return { ...node, collapsed: isCollapsed };
+            }
+            if (node.children) {
+              return { ...node, children: updateNodes(node.children) };
+            }
+            return node;
+          });
+        };
+
+        const newConfig = {
+          ...currentConfig,
+          tree: {
+            ...currentConfig.tree,
+            nodes: updateNodes(currentConfig.tree.nodes)
+          }
+        };
+        
+        // Update local config state to match
+        setCurrentConfig(newConfig);
+        
+        // Save to server
+        await handleSaveConfig(newConfig);
+      } catch (error) {
+        console.error('Failed to save collapse state:', error);
+        // We don't revert the UI state because the user still wants it collapsed locally
+      }
+    }
+  };
 
   // Handle global mouse move for dragging
   useEffect(() => {
@@ -1275,7 +1337,7 @@ const Canvas: React.FC = () => {
                 
                 return (
                   <div
-                    className="absolute z-30 cursor-pointer transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center bg-white/95 backdrop-blur-sm border border-gray-300 shadow-md hover:bg-gray-50 hover:border-gray-400 hover:shadow-lg transition-all duration-150"
+                    className="absolute z-30 cursor-pointer transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center bg-white/95 backdrop-blur-sm border border-gray-300 shadow-md hover:bg-gray-50 hover:scale-110 hover:shadow-lg transition-all duration-150"
                     style={{
                       left: buttonX,
                       top: buttonY,
@@ -1287,11 +1349,7 @@ const Canvas: React.FC = () => {
                     onMouseLeave={() => setHoveredConnectionParentId(null)}
                     onClick={(e) => {
                       e.stopPropagation();
-                      setCollapsedNodeIds(prev => {
-                        const next = new Set(prev);
-                        next.add(hoveredConnectionParentId);
-                        return next;
-                      });
+                      toggleNodeCollapse(hoveredConnectionParentId, true);
                       setHoveredConnectionParentId(null);
                     }}
                   >
@@ -1378,8 +1436,10 @@ const Canvas: React.FC = () => {
                     
                     if (!hasChildren) return null;
 
+                    // Calculate position for the placeholder node (where a child would be)
+                    // VERTICAL_SPACING is 40 in layoutUtils, assuming similar spacing here
                     const buttonX = node.x + node.width / 2;
-                    const buttonY = node.y + node.height + 12;
+                    const buttonY = node.y + node.height + 40; 
                     
                     // Get stats for all nested children
                     const stats = getNestedNodeStats(originalNode!);
@@ -1422,69 +1482,96 @@ const Canvas: React.FC = () => {
                       );
                     };
                     
-                    // Only show expand button when collapsed (always visible)
-                    // Collapse button would need hover detection on connection (simplified: not shown when expanded)
+                    // Only show expand button when collapsed
                     if (!isCollapsed) {
-                      // When expanded, don't show the collapse button (would need hover on connection)
                       return null;
                     }
                     
                     return (
-                      <div
-                        className="absolute z-30 cursor-pointer transform -translate-x-1/2 flex items-center justify-center bg-white border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors"
-                        style={{
-                          left: buttonX,
-                          top: buttonY,
-                          borderRadius: '9999px',
-                          paddingRight: '10px',
-                          paddingLeft: '4px',
-                          paddingTop: '4px',
-                          paddingBottom: '4px',
-                          height: '24px',
-                        }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          // Get all child node IDs to animate
-                          const getChildIds = (n: TreeNode): string[] => {
-                            const ids: string[] = [];
-                            if (n.children) {
-                              for (const child of n.children) {
-                                ids.push(child.id);
-                                ids.push(...getChildIds(child));
+                      <React.Fragment key={`expand-btn-${node.id}`}>
+                        {/* Vertical Connecting Line */}
+                        <div
+                          className="absolute z-20 pointer-events-none"
+                          style={{
+                            left: node.x + node.width / 2 - 2, // Centered (4px width)
+                            top: node.y + node.height,
+                            width: 4,
+                            height: 40, // Matches vertical spacing
+                            backgroundColor: '#9ca3af', // Matches connection line color (gray-400)
+                          }}
+                        />
+                        
+                        {/* Expand Button / Placeholder Node */}
+                        <div
+                          className="absolute z-30 cursor-pointer transform -translate-x-1/2 flex items-center justify-between px-2 bg-white/95 backdrop-blur-sm border shadow-sm hover:shadow-md transform transition-all duration-200 hover:scale-[1.02]"
+                          style={{
+                            left: buttonX,
+                            top: buttonY,
+                            width: '200px',
+                            height: '48px',
+                            borderRadius: '9999px',
+                            borderColor: '#e5e7eb', // Default border color
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // Get all child node IDs to animate
+                            const getChildIds = (n: TreeNode): string[] => {
+                              const ids: string[] = [];
+                              if (n.children) {
+                                for (const child of n.children) {
+                                  ids.push(child.id);
+                                  ids.push(...getChildIds(child));
+                                }
                               }
-                            }
-                            return ids;
-                          };
-                          const childIds = originalNode ? getChildIds(originalNode) : [];
-                          
-                          // Set expanding animation for children
-                          setExpandingNodeIds(new Set(childIds));
-                          
-                          // Expand the node
-                          setCollapsedNodeIds(prev => {
-                            const next = new Set(prev);
-                            next.delete(node.id);
-                            return next;
-                          });
-                          
-                          // Clear animation after it completes
-                          setTimeout(() => {
-                            setExpandingNodeIds(new Set());
-                          }, 300);
-                        }}
-                      >
-                        <div className="flex items-center gap-1.5 text-xs font-medium text-gray-600 whitespace-nowrap">
-                          {/* Donut Chart Indicator */}
-                          <svg width="16" height="16" viewBox="0 0 16 16" className="flex-shrink-0">
-                            <circle cx="8" cy="8" r="7" fill="#e5e7eb" />
-                            <circle cx="8" cy="8" r="4" fill="white" />
-                            {createDonutArc(0, onlineAngle, '#22c55e')}
-                            {createDonutArc(onlineAngle, onlineAngle + offlineAngle, '#ef4444')}
-                            {stats.checking > 0 && createDonutArc(onlineAngle + offlineAngle, 360, '#9ca3af')}
-                          </svg>
-                          <span>{stats.total} nodes</span>
+                              return ids;
+                            };
+                            const childIds = originalNode ? getChildIds(originalNode) : [];
+                            
+                            // Set expanding animation for children
+                            setExpandingNodeIds(new Set(childIds));
+                            
+                            // Expand the node
+                            toggleNodeCollapse(node.id, false);
+                            
+                            // Clear animation after it completes
+                            setTimeout(() => {
+                              setExpandingNodeIds(new Set());
+                            }, 300);
+                          }}
+                        >
+                          <div className="flex items-center justify-between w-full px-1">
+                            {/* Donut Chart Indicator - Size matched to arrow circle */}
+                            <div className="relative w-8 h-8 flex-shrink-0">
+                              <svg width="100%" height="100%" viewBox="0 0 16 16" className="transform -rotate-90">
+                                <circle cx="8" cy="8" r="7" fill="#e5e7eb" />
+                                <circle cx="8" cy="8" r="4" fill="white" />
+                                {createDonutArc(0, onlineAngle, '#22c55e')}
+                                {createDonutArc(onlineAngle, onlineAngle + offlineAngle, '#ef4444')}
+                                {stats.checking > 0 && createDonutArc(onlineAngle + offlineAngle, 360, '#9ca3af')}
+                              </svg>
+                            </div>
+                            
+                            {/* Text */}
+                            <div className="font-medium text-sm text-gray-600 transition-colors" style={{ color: 'inherit' }}>
+                               {stats.total} hidden nodes
+                            </div>
+                            
+                            {/* Arrow Circle */}
+                            <div 
+                               className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
+                               style={{ backgroundColor: `${currentConfig.appearance.accentColor}15` }}
+                            >
+                              <svg 
+                                className="w-5 h-5" 
+                                style={{ color: currentConfig.appearance.accentColor }}
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      </React.Fragment>
                     );
                   })()}
                 </React.Fragment>

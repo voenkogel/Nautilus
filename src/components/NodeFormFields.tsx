@@ -3,6 +3,8 @@ import type { TreeNode, AppearanceConfig } from '../types/config';
 import * as LucideIcons from 'lucide-react';
 import { IconPicker } from './IconPicker';
 import Switch from './Switch';
+import { useToast } from './Toast';
+import { getAuthHeaders } from '../utils/auth';
 
 interface NodeFormFieldsProps {
   node: TreeNode;
@@ -13,6 +15,51 @@ interface NodeFormFieldsProps {
 export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, appearance }) => {
   const accentColor = appearance.accentColor || '#3b82f6';
   const [showIconPicker, setShowIconPicker] = useState(false);
+  const [showPlexToken, setShowPlexToken] = useState(false);
+  const { addToast } = useToast();
+  const [isTesting, setIsTesting] = useState(false);
+
+  const handleTestConnection = async () => {
+    setIsTesting(true);
+    try {
+      const response = await fetch('/api/test-connection', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify(node)
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok && result.status === 'online') {
+        let details = '';
+        if (result.streams !== undefined) details = `(${result.streams} active streams)`;
+        else if (result.players) details = `(${result.players.online}/${result.players.max} players)`;
+        
+        addToast({
+          type: 'success',
+          message: `Connection successful! ${details}`,
+          duration: 3000
+        });
+      } else {
+        addToast({
+          type: 'error',
+          message: `Connection failed: ${result.error || 'Unknown error'}`,
+          duration: 5000
+        });
+      }
+    } catch (error) {
+      addToast({
+        type: 'error',
+        message: `Test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        duration: 5000
+      });
+    } finally {
+      setIsTesting(false);
+    }
+  };
   
   // Helper to convert kebab-case to PascalCase
   const kebabToPascal = (kebabCase: string): string => {
@@ -70,7 +117,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
           <select
             value={node.healthCheckType || (node.disableHealthCheck ? 'disabled' : 'http')}
             onChange={(e) => {
-              const type = e.target.value as 'http' | 'minecraft' | 'disabled';
+              const type = e.target.value as 'http' | 'minecraft' | 'plex' | 'disabled';
               onChange({ 
                 healthCheckType: type,
                 disableHealthCheck: type === 'disabled' // Keep legacy field in sync
@@ -81,12 +128,42 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
           >
             <option value="http">Regular Health Check (HTTP/TCP)</option>
             <option value="minecraft">Minecraft Server</option>
+            <option value="plex">Plex Media Server</option>
             <option value="disabled">Disable Health Checking</option>
           </select>
           <p className="text-xs text-gray-500 mt-1">
             Select how the status of this node should be monitored.
           </p>
         </div>
+
+        {/* Plex Token Input */}
+        {node.healthCheckType === 'plex' && (
+          <div className="col-span-1 md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Plex Token (X-Plex-Token)
+            </label>
+            <div className="relative">
+              <input
+                type={showPlexToken ? "text" : "password"}
+                value={node.plexToken || ''}
+                onChange={(e) => onChange({ plexToken: e.target.value })}
+                placeholder="Enter your Plex Token"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 pr-10"
+                style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPlexToken(!showPlexToken)}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600 focus:outline-none"
+              >
+                {showPlexToken ? <LucideIcons.EyeOff size={18} /> : <LucideIcons.Eye size={18} />}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Required to fetch session count. Found in Plex XML feeds or URL.
+            </p>
+          </div>
+        )}
 
         {/* Internal Address */}
         <div className="col-span-1 md:col-span-2">
@@ -112,6 +189,37 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
           <p className="text-xs text-gray-500 mt-1">
             Address used by the server to check status. Format: <code>ip:port</code> or <code>http://ip:port</code>
           </p>
+        </div>
+
+        {/* Test Connection Button */}
+        <div className="col-span-1 md:col-span-2 flex justify-end">
+          <button
+            type="button"
+            onClick={handleTestConnection}
+            disabled={isTesting}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md text-white transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+              isTesting ? 'opacity-70 cursor-not-allowed' : ''
+            }`}
+            style={{ 
+              backgroundColor: accentColor,
+              '--tw-ring-color': accentColor 
+            } as React.CSSProperties}
+          >
+            {isTesting ? (
+              <>
+                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Testing...
+              </>
+            ) : (
+              <>
+                <LucideIcons.Activity size={16} />
+                Test Connection
+              </>
+            )}
+          </button>
         </div>
 
         {/* Shape Selection */}

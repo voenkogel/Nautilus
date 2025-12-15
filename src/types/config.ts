@@ -13,13 +13,17 @@ export interface TreeNode {
   url?: string;         
   
   disableHealthCheck?: boolean; // Explicitly disable health checking even if port is provided
-  healthCheckType?: 'http' | 'minecraft' | 'disabled'; // Type of health check to perform
+  healthCheckType?: 'http' | 'minecraft' | 'plex' | 'disabled'; // Type of health check to perform
   disableEmbedded?: boolean; // Force opening in new tab instead of embedded iframe
   isInteractable?: boolean; // Whether the node can be clicked to open a URL
   
   icon?: string; // Optional icon name from lucide-react
   type?: 'square' | 'circular' | 'angular'; // Square (normal cards), circular (pill-shaped cards), or angular (diamond-sided cards)
   
+  collapsed?: boolean; // Whether the node's children are hidden (persisted state)
+  
+  plexToken?: string; // Optional Plex Media Server token (only stored on server, never sent to client)
+
   children?: TreeNode[];
 }
 
@@ -60,6 +64,12 @@ export interface NodeStatus {
   status: 'online' | 'offline' | 'checking';
   latency?: number;
   lastChecked: string;
+  statusChangedAt?: string;
+  players?: {
+    online: number;
+    max: number;
+  };
+  streams?: number;
 }
 
 export interface WebhookConfig {

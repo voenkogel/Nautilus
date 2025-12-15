@@ -178,6 +178,7 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
           }}
           isEditMode={isEditMode}
           isInteractable={isInteractable}
+          accentColor={accentColor}
           className={`w-full h-full ${
             isSelected ? 'ring-2 ring-blue-500' : ''
           }`}
@@ -234,7 +235,7 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
         {showAddChildButton && (
           <div
             data-no-drag
-            className="absolute left-1/2 -translate-x-1/2 z-20 cursor-pointer flex items-center justify-center transition-all duration-200"
+            className="absolute left-1/2 -translate-x-1/2 z-20 cursor-pointer flex items-center justify-center transition-all duration-200 hover:scale-110"
             style={{
               bottom: '-12px', // Half sticking out
               width: '24px',
@@ -250,7 +251,7 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
             <div 
               className="w-full h-full rounded-full shadow-sm flex items-center justify-center transition-all duration-150"
               style={{
-                border: `1px solid ${isAddHovered ? accentColor : '#e5e7eb'}`,
+                border: '1px solid #e5e7eb',
                 backgroundColor: isAddHovered ? '#f0f9ff' : 'white'
               }}
             >

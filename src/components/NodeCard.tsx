@@ -3,6 +3,7 @@ import type { TreeNode } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
 import { getIconSvg } from '../utils/iconUtils';
 import { getNodeAddressDisplay } from '../utils/nodeUtils';
+import NodeStatusDetails from './NodeStatusDetails';
 
 // Utility function to format time duration since status change
 const formatTimeSince = (timestamp: string): string => {
@@ -33,6 +34,7 @@ interface NodeCardProps {
   style?: React.CSSProperties;
   isEditMode?: boolean;
   isInteractable?: boolean;
+  accentColor?: string;
 }
 
 const NodeCard: React.FC<NodeCardProps> = ({ 
@@ -42,7 +44,8 @@ const NodeCard: React.FC<NodeCardProps> = ({
   className = '',
   style = {},
   isEditMode = false,
-  isInteractable = false
+  isInteractable = false,
+  accentColor
 }) => {
   const { title, subtitle, icon, type } = node;
   
@@ -72,7 +75,9 @@ const NodeCard: React.FC<NodeCardProps> = ({
   // Determine status color
   let statusColor = '#6b7280'; // Default gray
   let isChecking = false;
-  const isMonitoringDisabled = !node.internalAddress && !node.healthCheckPort;
+  const isMonitoringDisabled = (!node.internalAddress && !node.healthCheckPort) || 
+                               node.healthCheckType === 'disabled' || 
+                               node.disableHealthCheck;
   
   if (status && !isMonitoringDisabled) {
     if (status.status === 'online') {
@@ -92,9 +97,6 @@ const NodeCard: React.FC<NodeCardProps> = ({
 
   // Address display logic - only show external address
   const displayAddress = getNodeAddressDisplay(node);
-
-  // Player count logic
-  const showPlayerCount = status?.players && node.healthCheckType === 'minecraft';
 
   // Determine if hover effects should be applied
   const shouldHover = isEditMode || isInteractable;
@@ -121,10 +123,10 @@ const NodeCard: React.FC<NodeCardProps> = ({
 
       {/* Content area */}
       <div className="flex-1 min-w-0 flex items-center h-full">
-        <div className="flex-1 flex flex-col justify-center h-full">
+        <div className="flex-1 min-w-0 flex flex-col justify-center h-full">
           {/* Title row */}
-          <div className="flex items-center gap-2 mb-1">
-            <div className="font-semibold text-gray-900 truncate text-base leading-tight">{title}</div>
+          <div className="flex items-center gap-2 mb-1 min-w-0">
+            <div className="font-semibold text-gray-900 truncate text-base leading-tight min-w-0 flex-shrink" title={title}>{title}</div>
             
             {/* Status Badge */}
             {status && status.statusChangedAt && !isMonitoringDisabled && (
@@ -144,33 +146,24 @@ const NodeCard: React.FC<NodeCardProps> = ({
 
           {/* Only show subtitle if it exists */}
           {subtitle && (
-            <div className="text-sm text-gray-600 truncate">{subtitle}</div>
+            <div className="text-sm text-gray-600 truncate min-w-0" title={subtitle}>{subtitle}</div>
           )}
           
           {/* Details Row - Only show external address if configured */}
           {displayAddress && (
-            <div className="mt-2 flex items-center text-xs text-gray-500">
-              <svg className="mr-1" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <div className="mt-2 flex items-center text-xs text-gray-500 min-w-0">
+              <svg className="mr-1 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />
                 <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
                 <path d="M2 12h20" />
               </svg>
-              <span className="truncate">{displayAddress}</span>
+              <span className="truncate min-w-0">{displayAddress}</span>
             </div>
           )}
         </div>
 
-        {/* Player Count (Right aligned, large) */}
-        {showPlayerCount && status?.players && (
-          <div className="flex flex-col items-end justify-center ml-4 pl-4 border-l border-gray-100 h-full">
-            <div className="text-xl font-bold text-gray-800 leading-none">
-              {status.players.online}/{status.players.max}
-            </div>
-            <div className="text-xs font-medium text-gray-500 mt-1">
-              players
-            </div>
-          </div>
-        )}
+        {/* Dynamic Status Details (Right aligned) */}
+        <NodeStatusDetails node={node} status={status} accentColor={accentColor} />
       </div>
     </div>
   );

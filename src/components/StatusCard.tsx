@@ -160,7 +160,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
           {/* Collapse/Expand button */}
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+            className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 hover:scale-110 rounded-md transition-all duration-200"
             title={isCollapsed ? "Expand status card" : "Collapse status card"}
           >
             {isCollapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
@@ -175,7 +175,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
           {/* Settings button */}
           <button
             onClick={onOpenSettings}
-            className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+            className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 hover:scale-110 rounded-md transition-all duration-200"
             title="Open settings"
           >
             <SettingsIcon size={18} />
