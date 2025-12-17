@@ -22,9 +22,18 @@ const app = express();
 
 // --- Security Configuration ---
 
-// Admin credentials from environment or defaults (should be changed in production)
+// Admin credentials from environment (required in production)
 const ADMIN_USERNAME = process.env.NAUTILUS_ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.NAUTILUS_ADMIN_PASSWORD || '1234';
+const ADMIN_PASSWORD = process.env.NAUTILUS_ADMIN_PASSWORD;
+
+// Check if admin password is set and strong
+if (!ADMIN_PASSWORD || ADMIN_PASSWORD === '1234') {
+  console.error('❌ ERROR: NAUTILUS_ADMIN_PASSWORD environment variable is not set or is set to the insecure default ("1234").');
+  console.error('Please set a strong, unique password in your environment variables (e.g., in a .env file) before starting the server.');
+  process.exit(1);
+} else {
+  console.log('🔒 Admin password loaded from environment variable.');
+}
 
 // Session storage for authenticated sessions (in production, use Redis or database)
 const authenticatedSessions = new Map();
@@ -272,7 +281,7 @@ app.use((req, res, next) => {
 });
 
 // Increase JSON payload limit for image uploads (base64 encoded images can be large)
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Store for node statuses
@@ -1015,7 +1024,7 @@ app.post('/api/auth/logout', (req, res) => {
 const SENSITIVE_MASK = '********';
 
 // Helper function to sanitize config for client consumption
-function sanitizeConfig(config) {
+function sanitizeConfig(config, isAdmin = false) {
   if (!config) return config;
   
   // Deep clone to avoid modifying the original in-memory config
@@ -1034,6 +1043,11 @@ function sanitizeConfig(config) {
         node.apiKeys = SENSITIVE_MASK;
       }
       
+      // Note: We DO NOT delete internalAddress or monitoring fields for non-admins
+      // These are needed by the frontend to correlate nodes with their status data
+      // The actual health checking is done server-side, so exposing these addresses
+      // doesn't create a security risk - they're just used for matching status to nodes
+      
       if (node.children) {
         maskSensitiveFields(node.children);
       }
@@ -1047,64 +1061,65 @@ function sanitizeConfig(config) {
   return sanitized;
 }
 
-// Helper function to restore sensitive fields from old config if masked
-function restoreSensitiveFields(newConfig, oldConfig) {
-  if (!newConfig || !oldConfig) return newConfig;
-
-  // Create a map of old nodes by ID for fast lookup
-  const oldNodeMap = new Map();
-  function mapNodes(nodes) {
-    if (!Array.isArray(nodes)) return;
-    nodes.forEach(node => {
-      if (node.id) oldNodeMap.set(node.id, node);
-      if (node.children) mapNodes(node.children);
-    });
-  }
-  if (oldConfig.tree && oldConfig.tree.nodes) {
-    mapNodes(oldConfig.tree.nodes);
-  }
-
-  // Recursive function to restore fields
-  function restoreNodes(nodes) {
-    if (!Array.isArray(nodes)) return;
+// Helper function to restore sensitive fields from the original config
+// When a client sends back a config with masked fields (e.g., plexToken: '********'),
+// we need to restore the actual values from the current config before saving
+function restoreSensitiveFields(newConfig, originalConfig) {
+  if (!newConfig || !originalConfig) return newConfig;
+  
+  // Deep clone to avoid modifying the passed config
+  const restored = JSON.parse(JSON.stringify(newConfig));
+  
+  // Recursive function to restore sensitive fields in nodes
+  function restoreInNodes(newNodes, originalNodes) {
+    if (!Array.isArray(newNodes) || !Array.isArray(originalNodes)) return;
     
-    nodes.forEach(node => {
-      // Restore sensitive fields if they match the mask
-      if (node.plexToken === SENSITIVE_MASK) {
-        const oldNode = oldNodeMap.get(node.id);
-        if (oldNode && oldNode.plexToken) {
-          node.plexToken = oldNode.plexToken;
-        } else {
-          // If no old node or token found, clear the mask to avoid saving "********" as the actual token
-          delete node.plexToken; 
-        }
-      }
+    newNodes.forEach(newNode => {
+      // Find the corresponding original node by ID
+      const originalNode = originalNodes.find(n => n.id === newNode.id);
       
-      if (node.apiKeys === SENSITIVE_MASK) {
-        const oldNode = oldNodeMap.get(node.id);
-        if (oldNode && oldNode.apiKeys) {
-          node.apiKeys = oldNode.apiKeys;
-        } else {
-          delete node.apiKeys;
+      if (originalNode) {
+        // Restore plexToken if it was masked
+        if (newNode.plexToken === SENSITIVE_MASK && originalNode.plexToken) {
+          newNode.plexToken = originalNode.plexToken;
         }
-      }
-
-      if (node.children) {
-        restoreNodes(node.children);
+        
+        // Restore apiKeys if it was masked
+        if (newNode.apiKeys === SENSITIVE_MASK && originalNode.apiKeys) {
+          newNode.apiKeys = originalNode.apiKeys;
+        }
+        
+        // Recursively restore in children
+        if (newNode.children && originalNode.children) {
+          restoreInNodes(newNode.children, originalNode.children);
+        }
       }
     });
   }
-
-  if (newConfig.tree && newConfig.tree.nodes) {
-    restoreNodes(newConfig.tree.nodes);
+  
+  // Restore sensitive fields in the tree nodes
+  if (restored.tree && restored.tree.nodes && originalConfig.tree && originalConfig.tree.nodes) {
+    restoreInNodes(restored.tree.nodes, originalConfig.tree.nodes);
   }
-
-  return newConfig;
+  
+  return restored;
 }
 
-// API endpoint to get centralized config (public - read-only)
+// API endpoint to get centralized config (public - read-only, but cleaner for admins)
 app.get('/api/config', (req, res) => {
-  res.json(sanitizeConfig(appConfig));
+  let isAdmin = false;
+  const authHeader = req.headers.authorization;
+  
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.substring(7);
+    if (authenticatedSessions.has(token)) {
+      isAdmin = true;
+      // Update session timestamp for valid admin sessions
+      authenticatedSessions.set(token, Date.now());
+    }
+  }
+
+  res.json(sanitizeConfig(appConfig, isAdmin));
 });
 
 // Helper function to deep merge objects

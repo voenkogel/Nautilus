@@ -5,14 +5,12 @@ services:
       dockerfile: Dockerfile
     image: nautilus:latest
     container_name: nautilus
+    env_file:
+      - .env
     ports:
       - "3069:3069"
     volumes:
       - nautilus-config:/data
-    environment:
-      - NODE_ENV=production
-      - NAUTILUS_SERVER_PORT=3069
-      - NAUTILUS_HOST=localhost
     restart: unless-stopped
 
 volumes:

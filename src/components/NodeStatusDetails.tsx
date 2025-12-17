@@ -12,17 +12,41 @@ interface NodeStatusDetailsProps {
  * Component to render specific status details based on node type.
  * Currently supports Minecraft player counts, but designed to be extensible.
  */
-const NodeStatusDetails: React.FC<NodeStatusDetailsProps> = ({ node, status, accentColor = '#3b82f6' }) => {
+const NodeStatusDetails: React.FC<NodeStatusDetailsProps> = ({ node, status }) => {
+  // Determine status color based on node status
+  const getStatusColor = () => {
+    if (!status) return '#6b7280'; // Default gray
+    
+    const isMonitoringDisabled = (!node.internalAddress && !node.healthCheckPort) || 
+                                 node.healthCheckType === 'disabled' || 
+                                 node.disableHealthCheck;
+    
+    if (isMonitoringDisabled) return '#6b7280';
+    
+    switch (status.status) {
+      case 'online':
+        return '#10b981'; // Green
+      case 'offline':
+        return '#ef4444'; // Red
+      case 'checking':
+        return '#3b82f6'; // Blue
+      default:
+        return '#6b7280'; // Gray
+    }
+  };
+
+  const statusColor = getStatusColor();
+
   // Minecraft Player Count
   if (node.healthCheckType === 'minecraft' && status?.players) {
     return (
       <div 
         className="flex flex-col items-center justify-center ml-2 px-3 py-2 rounded-md h-full min-w-max"
-        style={{ backgroundColor: `${accentColor}15` }}
+        style={{ backgroundColor: `${statusColor}15` }}
       >
         <div 
           className="text-xl font-bold leading-none"
-          style={{ color: accentColor }}
+          style={{ color: statusColor }}
         >
           {status.players.online}/{status.players.max}
         </div>
@@ -38,11 +62,11 @@ const NodeStatusDetails: React.FC<NodeStatusDetailsProps> = ({ node, status, acc
     return (
       <div 
         className="flex flex-col items-center justify-center ml-2 px-3 py-2 rounded-md h-full min-w-max"
-        style={{ backgroundColor: `${accentColor}15` }}
+        style={{ backgroundColor: `${statusColor}15` }}
       >
         <div 
           className="text-xl font-bold leading-none"
-          style={{ color: accentColor }}
+          style={{ color: statusColor }}
         >
           {status.streams}
         </div>

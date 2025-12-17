@@ -6,7 +6,7 @@ import { ConfirmDialog } from './ConfirmDialog';
 
 interface NodeEditorProps {
   node: TreeNode;
-  onSave: (updatedNode: TreeNode) => void;
+  onSave: (updatedNode: TreeNode) => Promise<void>;
   onClose: () => void;
   onDelete: () => void;
   onEditChild?: (childNode: TreeNode) => void;
@@ -18,6 +18,7 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
   const safeAppearance = appearance || { title: 'Nautilus', accentColor: '#3b82f6' };
   
   const [editedNode, setEditedNode] = useState<TreeNode>({ ...node });
+  const [isSaving, setIsSaving] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
     isOpen: boolean;
     childIndex: number;
@@ -36,9 +37,17 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
     return n.children.reduce((count, child) => count + 1 + countDescendants(child), 0);
   };
 
-  const handleSave = () => {
-    onSave(editedNode);
-    onClose();
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await onSave(editedNode);
+      // Parent component (Canvas) handles closing on success via setEditingNode(null)
+    } catch (error) {
+      console.error("Failed to save node:", error);
+      // Keep modal open so user can retry or fix issues
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleAddChild = async () => {
@@ -195,16 +204,25 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
           <div className="flex space-x-2">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors"
+              disabled={isSaving}
+              className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
-              className="px-4 py-2 text-white rounded-md transition-colors"
+              disabled={isSaving}
+              className="px-4 py-2 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               style={{ backgroundColor: safeAppearance.accentColor }}
             >
-              Save
+              {isSaving ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <span>Saving...</span>
+                </>
+              ) : (
+                <span>Save</span>
+              )}
             </button>
           </div>
         </div>

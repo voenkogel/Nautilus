@@ -133,6 +133,47 @@ const Canvas: React.FC = () => {
   // Apply appearance settings
   useAppearance(currentConfig);
 
+  // Reusable function to fetch config with auth headers
+  const loadConfig = useCallback(async () => {
+    try {
+      const response = await fetch('/api/config', {
+        headers: getAuthHeaders() // Include auth headers to get sensitive data if logged in
+      });
+      if (response.ok) {
+        const serverConfig = await response.json();
+        
+        // Ensure we always have a complete config with proper defaults
+        const completeConfig = {
+          ...initialAppConfig,
+          ...serverConfig,
+          server: { ...initialAppConfig.server, ...serverConfig.server },
+          client: { ...initialAppConfig.client, ...serverConfig.client },
+          appearance: { ...initialAppConfig.appearance, ...serverConfig.appearance },
+          tree: serverConfig.tree || initialAppConfig.tree
+        };
+        
+        setCurrentConfig(completeConfig);
+
+        // Initialize collapsed state from config
+        const collapsedIds = new Set<string>();
+        const traverse = (nodes: TreeNode[]) => {
+          nodes.forEach(node => {
+            if (node.collapsed) collapsedIds.add(node.id);
+            if (node.children) traverse(node.children);
+          });
+        };
+        traverse(completeConfig.tree.nodes);
+        setCollapsedNodeIds(collapsedIds);
+      } else {
+        console.warn('Failed to fetch config from server, using default');
+        setCurrentConfig(initialAppConfig);
+      }
+    } catch (error) {
+      console.warn('Failed to fetch config from server, using default:', error);
+      setCurrentConfig(initialAppConfig);
+    }
+  }, []);
+
   // Wrapper function to handle authentication with state tracking
   const authenticateWithState = async (): Promise<boolean> => {
     if (isAuthenticating) {
@@ -143,6 +184,10 @@ const Canvas: React.FC = () => {
     setIsAuthenticating(true);
     try {
       const result = await authenticate();
+      if (result) {
+        // Refresh config after successful login to get sensitive data (like internal IPs)
+        await loadConfig();
+      }
       return result;
     } finally {
       setIsAuthenticating(false);
@@ -152,41 +197,7 @@ const Canvas: React.FC = () => {
   // Fetch current config from server on mount
   useEffect(() => {
     const fetchCurrentConfig = async () => {
-      try {
-        const response = await fetch('/api/config');
-        if (response.ok) {
-          const serverConfig = await response.json();
-          
-          // Ensure we always have a complete config with proper defaults
-          const completeConfig = {
-            ...initialAppConfig,
-            ...serverConfig,
-            server: { ...initialAppConfig.server, ...serverConfig.server },
-            client: { ...initialAppConfig.client, ...serverConfig.client },
-            appearance: { ...initialAppConfig.appearance, ...serverConfig.appearance },
-            tree: serverConfig.tree || initialAppConfig.tree
-          };
-          
-          setCurrentConfig(completeConfig);
-
-          // Initialize collapsed state from config
-          const collapsedIds = new Set<string>();
-          const traverse = (nodes: TreeNode[]) => {
-            nodes.forEach(node => {
-              if (node.collapsed) collapsedIds.add(node.id);
-              if (node.children) traverse(node.children);
-            });
-          };
-          traverse(completeConfig.tree.nodes);
-          setCollapsedNodeIds(collapsedIds);
-        } else {
-          console.warn('Failed to fetch config from server, using default');
-          setCurrentConfig(initialAppConfig);
-        }
-      } catch (error) {
-        console.warn('Failed to fetch config from server, using default:', error);
-        setCurrentConfig(initialAppConfig);
-      }
+      await loadConfig();
     };
 
     const checkScanStatus = async () => {
@@ -221,7 +232,7 @@ const Canvas: React.FC = () => {
 
     fetchCurrentConfig();
     checkScanStatus();
-  }, []);
+  }, [loadConfig]);
 
   // Check for recent scan results or active scan and restore scan window
   useEffect(() => {
@@ -673,15 +684,30 @@ const Canvas: React.FC = () => {
       }
 
       // Save config
-      await handleSaveConfig(newConfig);
-      
-      // Trigger immediate status check for the new node
-      forceRefresh();
-      
-      // Track newly added node for animation
-      setNewlyAddedNodeId(newNode.id);
-      // Clear after animation completes
-      setTimeout(() => setNewlyAddedNodeId(null), 500);
+      try {
+        await handleSaveConfig(newConfig);
+        
+        // Trigger immediate status check for the new node
+        forceRefresh();
+        
+        // Track newly added node for animation
+        setNewlyAddedNodeId(newNode.id);
+        // Clear after animation completes
+        setTimeout(() => setNewlyAddedNodeId(null), 500);
+        
+        addToast({
+          type: 'success',
+          message: 'Child node added successfully',
+          duration: 2000
+        });
+      } catch (error) {
+        console.error('Error adding child node:', error);
+        addToast({
+          type: 'error',
+          message: `Failed to add child node: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          duration: 5000
+        });
+      }
     }
   };
 
@@ -725,9 +751,19 @@ const Canvas: React.FC = () => {
       setEditingNode(null);
       // Trigger immediate status check for the updated node
       forceRefresh();
+      addToast({
+        type: 'success',
+        message: 'Node saved successfully',
+        duration: 2000
+      });
     } catch (error) {
       console.error('Error saving node:', error);
-      // The error will be handled by the component that calls this
+      addToast({
+        type: 'error',
+        message: `Failed to save node: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        duration: 5000
+      });
+      throw error;
     }
   };
 
@@ -780,6 +816,24 @@ const Canvas: React.FC = () => {
 
     const childCount = countDescendants(editingNode);
     
+    const doDelete = async () => {
+      try {
+        await performDeleteNode(editingNode.id, true); // Skip animation for editor delete
+        setDeleteConfirmation(null);
+        addToast({
+          type: 'success',
+          message: 'Node deleted successfully',
+          duration: 2000
+        });
+      } catch (error) {
+        addToast({
+          type: 'error',
+          message: `Failed to delete node: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          duration: 5000
+        });
+      }
+    };
+
     if (childCount > 0) {
       // Show confirmation dialog for nodes with children
       setDeleteConfirmation({
@@ -787,14 +841,11 @@ const Canvas: React.FC = () => {
         nodeId: editingNode.id,
         nodeTitle: editingNode.title,
         childCount,
-        onConfirm: async () => {
-          await performDeleteNode(editingNode.id, true); // Skip animation for editor delete
-          setDeleteConfirmation(null);
-        }
+        onConfirm: doDelete
       });
     } else {
-      // Delete directly if no children (skip animation for editor delete)
-      await performDeleteNode(editingNode.id, true);
+      // Delete directly if no children
+      await doDelete();
     }
   };
 

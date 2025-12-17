@@ -3,7 +3,7 @@ import type { TreeNode } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
 import NodeCard from './NodeCard';
 import type { AppConfig } from '../types/config';
-import { getNodeTargetUrl } from '../utils/nodeUtils';
+import { getNodeTargetUrl, normalizeNodeIdentifier } from '../utils/nodeUtils';
 
 interface MobileNodeListProps {
   nodes: TreeNode[];
@@ -37,7 +37,9 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
       nodeIdentifier = node.ip || node.url || node.externalAddress;
     }
 
-    const status = nodeIdentifier ? statuses[nodeIdentifier] : undefined;
+    // Normalize the identifier before lookup (same as desktop getNodeStatus does)
+    const normalizedIdentifier = nodeIdentifier ? normalizeNodeIdentifier(nodeIdentifier) : '';
+    const status = normalizedIdentifier ? statuses[normalizedIdentifier] : undefined;
     
     // Calculate connection line offset
     const connectionOffset = 16; // Base indentation per level
