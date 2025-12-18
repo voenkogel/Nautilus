@@ -199,7 +199,49 @@ function default_settings() {
   echo -e "${YW}VLAN Tag: ${CL}Default"
   echo -e "${YW}Enable Root SSH Access: ${CL}No"
   echo -e "${YW}Enable Verbose Mode: ${CL}No"
+  echo
   read -p "Press enter to continue or ctrl+c to cancel..."
+  echo
+  
+  # Prompt for admin credentials
+  echo -e "${BL}═══════════════════════════════════════════════════════${CL}"
+  echo -e "${YW}Admin Credentials Configuration${CL}"
+  echo -e "${BL}═══════════════════════════════════════════════════════${CL}"
+  echo
+  echo -e "Set up your Nautilus administrator account:"
+  echo
+  
+  # Username prompt
+  read -p "Admin username (admin): " NAUTILUS_USERNAME
+  NAUTILUS_USERNAME=${NAUTILUS_USERNAME:-admin}
+  
+  # Password prompt with validation
+  while true; do
+    echo
+    echo -e "${YW}Password requirements:${CL}"
+    echo -e "  • At least 8 characters"
+    echo -e "  • Mix of letters, numbers recommended"
+    echo
+    read -s -p "Admin password: " NAUTILUS_PASSWORD
+    echo
+    if [ ${#NAUTILUS_PASSWORD} -lt 8 ]; then
+      echo -e "${RD}Password too short. Must be at least 8 characters.${CL}"
+      continue
+    fi
+    if [ "$NAUTILUS_PASSWORD" = "1234" ] || [ "$NAUTILUS_PASSWORD" = "password" ]; then
+      echo -e "${RD}Password too weak. Please choose a stronger password.${CL}"
+      continue
+    fi
+    read -s -p "Confirm password: " NAUTILUS_PASSWORD_CONFIRM
+    echo
+    if [ "$NAUTILUS_PASSWORD" = "$NAUTILUS_PASSWORD_CONFIRM" ]; then
+      echo -e "${GN}✓ Credentials configured successfully${CL}"
+      break
+    else
+      echo -e "${RD}Passwords don't match. Please try again.${CL}"
+    fi
+  done
+  echo
   
   # Set defaults
   CT_TYPE="1"
@@ -324,6 +366,57 @@ function advanced_settings() {
       *) echo -e "${RD}Invalid selection${CL}" ;;
     esac
   done
+  
+  # Admin credentials
+  echo
+  echo -e "${BL}═══════════════════════════════════════════════════════${CL}"
+  echo -e "${YW}Admin Credentials Configuration${CL}"
+  echo -e "${BL}═══════════════════════════════════════════════════════${CL}"
+  echo
+  
+  read -p "Admin username (admin): " NAUTILUS_USERNAME
+  NAUTILUS_USERNAME=${NAUTILUS_USERNAME:-admin}
+  
+  while true; do
+    echo
+    echo -e "${YW}Password requirements:${CL}"
+    echo -e "  • At least 8 characters"
+    echo -e "  • Mix of letters, numbers recommended"
+    echo
+    read -s -p "Admin password: " NAUTILUS_PASSWORD
+    echo
+    if [ ${#NAUTILUS_PASSWORD} -lt 8 ]; then
+      echo -e "${RD}Password too short. Must be at least 8 characters.${CL}"
+      continue
+    fi
+    if [ "$NAUTILUS_PASSWORD" = "1234" ] || [ "$NAUTILUS_PASSWORD" = "password" ]; then
+      echo -e "${RD}Password too weak. Please choose a stronger password.${CL}"
+      continue
+    fi
+    read -s -p "Confirm password: " NAUTILUS_PASSWORD_CONFIRM
+    echo
+    if [ "$NAUTILUS_PASSWORD" = "$NAUTILUS_PASSWORD_CONFIRM" ]; then
+      echo -e "${GN}✓ Credentials configured${CL}"
+      break
+    else
+      echo -e "${RD}Passwords don't match. Please try again.${CL}"
+    fi
+  done
+  
+  # Optional: Advanced environment variables
+  echo
+  echo -e "${YW}Advanced Environment Variables (optional)${CL}"
+  read -p "Server port (3069): " NAUTILUS_SERVER_PORT
+  NAUTILUS_SERVER_PORT=${NAUTILUS_SERVER_PORT:-3069}
+  
+  read -p "Client port (3070): " NAUTILUS_CLIENT_PORT
+  NAUTILUS_CLIENT_PORT=${NAUTILUS_CLIENT_PORT:-3070}
+  
+  read -p "Host (localhost): " NAUTILUS_HOST
+  NAUTILUS_HOST=${NAUTILUS_HOST:-localhost}
+  
+  read -p "Health check interval in ms (30000): " NAUTILUS_HEALTH_CHECK_INTERVAL
+  NAUTILUS_HEALTH_CHECK_INTERVAL=${NAUTILUS_HEALTH_CHECK_INTERVAL:-30000}
   
   # Set remaining defaults
   PW=""
@@ -1146,6 +1239,7 @@ FIX_EOF
   msg_detail "Service user: nautilus"
   msg_detail "Working directory: /opt/nautilus"
   msg_detail "Service port: 3069"
+  msg_detail "Admin username: admin"
   
   local service_output
   local service_error
@@ -1166,7 +1260,13 @@ ExecStart=/usr/bin/node server/index.js
 Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
-Environment=PORT=3069
+Environment=PORT=${NAUTILUS_SERVER_PORT:-3069}
+Environment=NAUTILUS_ADMIN_USERNAME=$NAUTILUS_USERNAME
+Environment=NAUTILUS_ADMIN_PASSWORD=$NAUTILUS_PASSWORD
+Environment=NAUTILUS_SERVER_PORT=${NAUTILUS_SERVER_PORT:-3069}
+Environment=NAUTILUS_CLIENT_PORT=${NAUTILUS_CLIENT_PORT:-3070}
+Environment=NAUTILUS_HOST=${NAUTILUS_HOST:-localhost}
+Environment=NAUTILUS_HEALTH_CHECK_INTERVAL=${NAUTILUS_HEALTH_CHECK_INTERVAL:-30000}
 
 [Install]
 WantedBy=multi-user.target
@@ -1545,6 +1645,10 @@ EOF
   echo -e " ${BL}Access Information:${CL}"
   echo -e " ${YW}Web Interface: ${CL}${GN}http://$IP${CL}"
   echo -e " ${YW}SSH Access: ${CL}ssh root@$IP"
+  echo
+  echo -e " ${BL}Login Credentials:${CL}"
+  echo -e " ${YW}Username: ${CL}${GN}$NAUTILUS_USERNAME${CL}"
+  echo -e " ${YW}Password: ${CL}${GN}[configured during setup]${CL}"
   echo
   echo -e " ${BL}Service Management:${CL}"
   echo -e " ${YW}Start: ${CL}pct exec $CT_ID -- systemctl start nautilus"
