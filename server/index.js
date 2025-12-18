@@ -28,11 +28,42 @@ const ADMIN_PASSWORD = process.env.NAUTILUS_ADMIN_PASSWORD;
 
 // Check if admin password is set and strong
 if (!ADMIN_PASSWORD || ADMIN_PASSWORD === '1234') {
-  console.error('❌ ERROR: NAUTILUS_ADMIN_PASSWORD environment variable is not set or is set to the insecure default ("1234").');
-  console.error('Please set a strong, unique password in your environment variables (e.g., in a .env file) before starting the server.');
+  console.log('');
+  console.log('╔═══════════════════════════════════════════════════════════════════════════════╗');
+  console.log('║                                                                               ║');
+  console.log('║                    ❌ CRITICAL: SECURITY CONFIGURATION ERROR ❌                ║');
+  console.log('║                                                                               ║');
+  console.log('╠═══════════════════════════════════════════════════════════════════════════════╣');
+  console.log('║                                                                               ║');
+  console.log('║  The NAUTILUS_ADMIN_PASSWORD environment variable is NOT SET or is using      ║');
+  console.log('║  the insecure default value "1234".                                           ║');
+  console.log('║                                                                               ║');
+  console.log('║  🛑 THE SERVER CANNOT START WITHOUT A SECURE PASSWORD 🛑                      ║');
+  console.log('║                                                                               ║');
+  console.log('╠═══════════════════════════════════════════════════════════════════════════════╣');
+  console.log('║                                                                               ║');
+  console.log('║  📋 HOW TO FIX:                                                               ║');
+  console.log('║                                                                               ║');
+  console.log('║  1. Create or edit the .env file in your project root                        ║');
+  console.log('║                                                                               ║');
+  console.log('║  2. Add the following line with a STRONG password:                           ║');
+  console.log('║     NAUTILUS_ADMIN_PASSWORD=your_secure_password_here                        ║');
+  console.log('║                                                                               ║');
+  console.log('║  3. Restart the Nautilus server                                              ║');
+  console.log('║                                                                               ║');
+  console.log('║  💡 TIP: Use a password with at least 12 characters including uppercase,     ║');
+  console.log('║     lowercase, numbers, and special characters.                              ║');
+  console.log('║                                                                               ║');
+  console.log('║  📁 Your .env file location: ./.env                                          ║');
+  console.log('║                                                                               ║');
+  console.log('╚═══════════════════════════════════════════════════════════════════════════════╝');
+  console.log('');
   process.exit(1);
 } else {
-  console.log('🔒 Admin password loaded from environment variable.');
+  console.log('');
+  console.log('✅ Security: Admin password successfully loaded from environment variable');
+  console.log('🔒 Authentication: Password protection is ENABLED');
+  console.log('');
 }
 
 // Session storage for authenticated sessions (in production, use Redis or database)

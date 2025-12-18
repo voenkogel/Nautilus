@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { TreeNode, AppearanceConfig } from '../types/config';
 import * as LucideIcons from 'lucide-react';
 import { IconPicker } from './IconPicker';
 import Switch from './Switch';
-import { useToast } from './Toast';
 import { getAuthHeaders } from '../utils/auth';
 
 interface NodeFormFieldsProps {
@@ -12,15 +11,22 @@ interface NodeFormFieldsProps {
   appearance: AppearanceConfig;
 }
 
+type ConnectionTestStatus = 'idle' | 'testing' | 'online' | 'offline';
+
 export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, appearance }) => {
   const accentColor = appearance.accentColor || '#3b82f6';
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [showPlexToken, setShowPlexToken] = useState(false);
-  const { addToast } = useToast();
-  const [isTesting, setIsTesting] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionTestStatus>('idle');
+  const [connectionDetails, setConnectionDetails] = useState<string>('');
+  const testTimeoutRef = useRef<number | null>(null);
+  const lastTestedConfigRef = useRef<string>('');
 
-  const handleTestConnection = async () => {
-    setIsTesting(true);
+  // Test connection function
+  const testConnection = async (nodeToTest: TreeNode) => {
+    setConnectionStatus('testing');
+    setConnectionDetails('');
+    
     try {
       const response = await fetch('/api/test-connection', {
         method: 'POST',
@@ -28,38 +34,80 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
           'Content-Type': 'application/json',
           ...getAuthHeaders()
         },
-        body: JSON.stringify(node)
+        body: JSON.stringify(nodeToTest)
       });
       
       const result = await response.json();
       
       if (response.ok && result.status === 'online') {
+        setConnectionStatus('online');
         let details = '';
-        if (result.streams !== undefined) details = `(${result.streams} active streams)`;
-        else if (result.players) details = `(${result.players.online}/${result.players.max} players)`;
-        
-        addToast({
-          type: 'success',
-          message: `Connection successful! ${details}`,
-          duration: 3000
-        });
+        if (result.streams !== undefined) details = `${result.streams} active stream${result.streams !== 1 ? 's' : ''}`;
+        else if (result.players) details = `${result.players.online}/${result.players.max} players`;
+        setConnectionDetails(details);
       } else {
-        addToast({
-          type: 'error',
-          message: `Connection failed: ${result.error || 'Unknown error'}`,
-          duration: 5000
-        });
+        setConnectionStatus('offline');
+        setConnectionDetails(result.error || 'Cannot be reached');
       }
     } catch (error) {
-      addToast({
-        type: 'error',
-        message: `Test failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        duration: 5000
-      });
-    } finally {
-      setIsTesting(false);
+      setConnectionStatus('offline');
+      setConnectionDetails(error instanceof Error ? error.message : 'Connection failed');
     }
   };
+
+  // Debounced connection test on field changes
+  useEffect(() => {
+    // Only test if we have an internal address and health checking is enabled
+    const hasAddress = !!node.internalAddress || (node.ip && node.healthCheckPort);
+    const isDisabled = node.healthCheckType === 'disabled' || node.disableHealthCheck;
+    
+    if (!hasAddress || isDisabled) {
+      setConnectionStatus('idle');
+      setConnectionDetails('');
+      return;
+    }
+
+    // Create a config signature to detect changes
+    const configSignature = JSON.stringify({
+      internalAddress: node.internalAddress,
+      ip: node.ip,
+      healthCheckPort: node.healthCheckPort,
+      healthCheckType: node.healthCheckType,
+      plexToken: node.plexToken,
+      disableHealthCheck: node.disableHealthCheck
+    });
+
+    // Don't retest if config hasn't changed
+    if (configSignature === lastTestedConfigRef.current) {
+      return;
+    }
+
+    lastTestedConfigRef.current = configSignature;
+
+    // Clear existing timeout
+    if (testTimeoutRef.current) {
+      clearTimeout(testTimeoutRef.current);
+    }
+
+    // Set new timeout for debounced test (1 second cooldown)
+    testTimeoutRef.current = setTimeout(() => {
+      testConnection(node);
+    }, 1000);
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      if (testTimeoutRef.current) {
+        clearTimeout(testTimeoutRef.current);
+      }
+    };
+  }, [
+    node.internalAddress, 
+    node.ip, 
+    node.healthCheckPort, 
+    node.healthCheckType, 
+    node.plexToken,
+    node.disableHealthCheck
+  ]);
   
   // Helper to convert kebab-case to PascalCase
   const kebabToPascal = (kebabCase: string): string => {
@@ -83,6 +131,34 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
     }
     return <LucideIcons.HelpCircle size={size} className="text-gray-400" />;
   };
+
+  // Get connection status bar color and text
+  const getConnectionStatusDisplay = () => {
+    switch (connectionStatus) {
+      case 'testing':
+        return {
+          color: '#3b82f6',
+          text: 'Testing connection...',
+          icon: <LucideIcons.Loader2 size={14} className="animate-spin" />
+        };
+      case 'online':
+        return {
+          color: '#10b981',
+          text: connectionDetails || 'Online',
+          icon: <LucideIcons.CheckCircle2 size={14} />
+        };
+      case 'offline':
+        return {
+          color: '#ef4444',
+          text: connectionDetails || 'Cannot be reached',
+          icon: <LucideIcons.XCircle size={14} />
+        };
+      default:
+        return null;
+    }
+  };
+
+  const statusDisplay = getConnectionStatusDisplay();
 
   return (
     <div className="space-y-4">
@@ -189,37 +265,21 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
           <p className="text-xs text-gray-500 mt-1">
             Address used by the server to check status. Also serves as the default Access URL if not specified below.
           </p>
-        </div>
-
-        {/* Test Connection Button */}
-        <div className="col-span-1 md:col-span-2 flex justify-end">
-          <button
-            type="button"
-            onClick={handleTestConnection}
-            disabled={isTesting}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md text-white transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 ${
-              isTesting ? 'opacity-70 cursor-not-allowed' : ''
-            }`}
-            style={{ 
-              backgroundColor: accentColor,
-              '--tw-ring-color': accentColor 
-            } as React.CSSProperties}
-          >
-            {isTesting ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
-                Testing...
-              </>
-            ) : (
-              <>
-                <LucideIcons.Activity size={16} />
-                Test Connection
-              </>
-            )}
-          </button>
+          
+          {/* Connection Status Indicator */}
+          {statusDisplay && (
+            <div 
+              className="mt-2 px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-all"
+              style={{ 
+                backgroundColor: `${statusDisplay.color}15`,
+                color: statusDisplay.color,
+                borderLeft: `3px solid ${statusDisplay.color}`
+              }}
+            >
+              {statusDisplay.icon}
+              <span>{statusDisplay.text}</span>
+            </div>
+          )}
         </div>
 
         {/* Shape Selection */}
