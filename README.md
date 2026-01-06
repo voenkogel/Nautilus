@@ -17,6 +17,10 @@ A real-time network monitoring dashboard built with React, TypeScript, and Node.
 - 🐳 **Docker ready** with volume persistence
 - 🖥️ **One-line Proxmox install** for LXC deployment
 
+## TODO
+- Non-recursive node removal: removing nodes within the tree without destroying its children. should be en optional button in the removal confirmation modal.
+- Auto detect local network access; enable admin auth if detected by default.
+
 ## 🚀 Quick Installation
 
 ### Proxmox LXC (Recommended)
