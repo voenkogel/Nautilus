@@ -51,7 +51,7 @@ update_nautilus() {
     cd /opt/nautilus
     git fetch origin
     git reset --hard origin/main
-    npm install --production
+    npm install
     npm run build
   "; then
     msg_error "Failed to update Nautilus"
