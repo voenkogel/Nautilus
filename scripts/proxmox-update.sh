@@ -40,7 +40,7 @@ update_nautilus() {
   msg_ok "Service stopped"
   
   msg_info "Backing up current configuration..."
-  if ! pct exec $ct_id -- cp /opt/nautilus/data/config.json /opt/nautilus/data/config.json.backup; then
+  if ! pct exec $ct_id -- cp /data/config.json /data/config.json.backup; then
     msg_error "Failed to backup configuration"
     return 1
   fi
@@ -59,12 +59,12 @@ update_nautilus() {
   fi
   msg_ok "Nautilus updated"
   
-  msg_info "Restoring configuration..."
-  if ! pct exec $ct_id -- cp /opt/nautilus/data/config.json.backup /opt/nautilus/data/config.json; then
-    msg_error "Failed to restore configuration"
+  msg_info "Verifying configuration..."
+  if ! pct exec $ct_id -- test -f /data/config.json; then
+    msg_error "Configuration file missing at /data/config.json"
     return 1
   fi
-  msg_ok "Configuration restored"
+  msg_ok "Configuration intact"
   
   msg_info "Starting Nautilus service..."
   if ! pct exec $ct_id -- systemctl start nautilus; then
