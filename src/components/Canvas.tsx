@@ -1,7 +1,7 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import type { TreeNode, AppConfig } from '../types/config';
 import { useNodeStatus } from '../hooks/useNodeStatus';
-import { getVisibleTree, reorderNode, countDescendants } from '../utils/nodeUtils';
+import { getVisibleTree, reorderNode, countDescendants, getAllNodes } from '../utils/nodeUtils';
 import { useAppearance } from '../hooks/useAppearance';
 import StatusCard from './StatusCard';
 import Settings from './Settings';
@@ -27,6 +27,7 @@ import {
 } from '../utils/layoutUtils';
 import { getNodeTargetUrl } from '../utils/nodeUtils';
 import CanvasNode from './CanvasNode';
+import NodeCard from './NodeCard';
 import DragGhost from './DragGhost';
 import { useDragReorder } from '../hooks/useDragReorder';
 
@@ -85,7 +86,8 @@ const Canvas: React.FC = () => {
   const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
   const [currentConfig, setCurrentConfig] = useState<AppConfig>(initialAppConfig);
   const [collapsedNodeIds, setCollapsedNodeIds] = useState<Set<string>>(new Set());
-  
+  const [activeFilter, setActiveFilter] = useState<'online' | 'offline' | 'activity' | null>(null);
+
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
   
@@ -1248,10 +1250,32 @@ const Canvas: React.FC = () => {
         : (node.ip || node.url);
     }
     
-    return originalIdentifier 
-      ? getNodeStatus(originalIdentifier) 
+    return originalIdentifier
+      ? getNodeStatus(originalIdentifier)
       : { status: 'checking' as const, lastChecked: new Date().toISOString(), statusChangedAt: new Date().toISOString(), progress: 0 };
   };
+
+  // Filtered node list — computed whenever filter or statuses change
+  const filteredNodes = useMemo(() => {
+    if (!activeFilter) return null;
+    const all = getAllNodes(currentConfig.tree.nodes);
+    return all.filter(node => {
+      const id = node.internalAddress ||
+        (node.ip && node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : null);
+      if (!id || node.disableHealthCheck) return false;
+      const s = getNodeStatus(id);
+      if (!s) return false;
+      if (activeFilter === 'online') return s.status === 'online';
+      if (activeFilter === 'offline') return s.status === 'offline';
+      if (activeFilter === 'activity')
+        return s.status === 'online' && ((s.streams ?? 0) > 0 || (s.players?.online ?? 0) > 0);
+      return false;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilter, currentConfig.tree.nodes, statuses]);
+
+  const filterLabel = activeFilter === 'online' ? 'Online' : activeFilter === 'offline' ? 'Offline' : 'Active';
+  const filterColor = activeFilter === 'online' ? '#22c55e' : activeFilter === 'offline' ? '#ef4444' : (currentConfig.appearance?.accentColor || '#3b82f6');
 
   return (
     <div className="w-full h-full relative font-roboto overflow-hidden isolate" ref={containerRef}>
@@ -1560,7 +1584,7 @@ const Canvas: React.FC = () => {
                           style={{
                             left: buttonX,
                             top: buttonY,
-                            width: '200px',
+                            width: `${NODE_WIDTH}px`,
                             height: '48px',
                             borderRadius: '9999px',
                             borderColor: '#e5e7eb', // Default border color
@@ -1716,9 +1740,77 @@ const Canvas: React.FC = () => {
               )}
             </button>
           </div>
+
+          {/* ── Filtered view overlay ── */}
+          {filteredNodes !== null && (
+            <div className="absolute inset-0 z-20 overflow-y-auto" style={{ background: 'rgba(250,250,252,0.92)', backdropFilter: 'blur(4px)' }}>
+              {/* Sticky filter banner */}
+              <div className="sticky top-0 z-10 flex justify-center pt-5 pb-3 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(250,250,252,0.96) 60%, transparent)' }}>
+                <div
+                  className="pointer-events-auto flex items-center gap-3 px-5 py-2.5 rounded-full shadow-lg bg-white border"
+                  style={{ borderColor: `${filterColor}55` }}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: filterColor }} />
+                  <span className="text-sm font-semibold text-gray-700 font-roboto">{filterLabel} nodes</span>
+                  <span className="text-xs font-medium text-white px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: filterColor }}>
+                    {filteredNodes.length}
+                  </span>
+                  <div className="w-px h-4 bg-gray-200 flex-shrink-0" />
+                  <button
+                    onClick={() => setActiveFilter(null)}
+                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 font-roboto transition-colors"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
+                      <path d="M2 2L9 9M9 2L2 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                    Clear filter
+                  </button>
+                </div>
+              </div>
+
+              {/* Node grid */}
+              <div className="flex flex-wrap justify-center gap-4 px-8 pb-16 -mt-1">
+                {filteredNodes.length > 0 ? (
+                  filteredNodes.map(node => {
+                    const nid = node.internalAddress ||
+                      (node.ip && node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : null);
+                    const nodeStatus = nid ? getNodeStatus(nid) : undefined;
+                    return (
+                      <div key={node.id} style={{ width: NODE_WIDTH }}>
+                        <NodeCard
+                          node={node}
+                          status={nodeStatus}
+                          onClick={(n) => {
+                            if (isEditMode) { handleEditNode(n.id); return; }
+                            const url = getNodeTargetUrl(n);
+                            if (!url) return;
+                            if (currentConfig.general?.openNodesAsOverlay) {
+                              setIframeOverlay({ url, title: n.title });
+                            } else {
+                              window.open(url, '_blank');
+                            }
+                          }}
+                          isInteractable={!!getNodeTargetUrl(node)}
+                          accentColor={currentConfig.appearance?.accentColor}
+                          style={{ height: 88 }}
+                        />
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-28 text-gray-400">
+                    <svg className="w-14 h-14 mb-4 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="text-sm font-roboto">No {filterLabel.toLowerCase()} nodes</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </>
       )}
-      
+
       {/* Mobile view with vertical list */}
       {isMobile && (
         <div className="h-full relative">
@@ -1749,6 +1841,8 @@ const Canvas: React.FC = () => {
                     totalInterval={totalInterval}
                     isQuerying={isQuerying}
                     isMobile={true}
+                    activeFilter={activeFilter}
+                    onFilterChange={setActiveFilter}
                   />
                 </div>
                 
@@ -1762,8 +1856,8 @@ const Canvas: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <MobileNodeList 
-                nodes={currentConfig.tree.nodes} 
+              <MobileNodeList
+                nodes={currentConfig.tree.nodes}
                 statuses={statuses}
                 onNodeClick={(node) => {
                   if (isEditMode) {
@@ -1775,6 +1869,9 @@ const Canvas: React.FC = () => {
                 isEditMode={isEditMode}
                 accentColor={currentConfig.appearance?.accentColor || '#3b82f6'}
                 appConfig={currentConfig}
+                activeFilter={activeFilter}
+                filteredNodes={filteredNodes}
+                onFilterChange={setActiveFilter}
                 statusCard={
                   <StatusCard
                     onOpenSettings={handleOpenSettings}
@@ -1787,6 +1884,8 @@ const Canvas: React.FC = () => {
                     totalInterval={totalInterval}
                     isQuerying={isQuerying}
                     isMobile={true}
+                    activeFilter={activeFilter}
+                    onFilterChange={setActiveFilter}
                   />
                 }
               />
@@ -1848,9 +1947,9 @@ const Canvas: React.FC = () => {
       
       {/* Status Card - only show on desktop, mobile has it embedded */}
       {!isMobile && (
-        <div className="absolute top-4 right-4 z-20">
-          <StatusCard 
-            onOpenSettings={handleOpenSettings} 
+        <div className="absolute top-4 right-4 z-30">
+          <StatusCard
+            onOpenSettings={handleOpenSettings}
             appConfig={currentConfig}
             statuses={statuses}
             isLoading={isLoading}
@@ -1859,6 +1958,8 @@ const Canvas: React.FC = () => {
             nextCheckCountdown={nextCheckCountdown}
             totalInterval={totalInterval}
             isQuerying={isQuerying}
+            activeFilter={activeFilter}
+            onFilterChange={setActiveFilter}
           />
         </div>
       )}

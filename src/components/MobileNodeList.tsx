@@ -5,6 +5,8 @@ import NodeCard from './NodeCard';
 import type { AppConfig } from '../types/config';
 import { getNodeTargetUrl, normalizeNodeIdentifier } from '../utils/nodeUtils';
 
+type NodeFilter = 'online' | 'offline' | 'activity';
+
 interface MobileNodeListProps {
   nodes: TreeNode[];
   statuses: Record<string, NodeStatus>;
@@ -13,17 +15,25 @@ interface MobileNodeListProps {
   accentColor?: string;
   appConfig?: AppConfig;
   statusCard?: React.ReactNode;
+  activeFilter?: NodeFilter | null;
+  filteredNodes?: TreeNode[] | null;
+  onFilterChange?: (filter: NodeFilter | null) => void;
 }
 
-const MobileNodeList: React.FC<MobileNodeListProps> = ({ 
-  nodes, 
-  statuses, 
+const MobileNodeList: React.FC<MobileNodeListProps> = ({
+  nodes,
+  statuses,
   onNodeClick,
   isEditMode = false,
   accentColor = '#3b82f6',
   appConfig,
-  statusCard
+  statusCard,
+  activeFilter,
+  filteredNodes,
+  onFilterChange,
 }) => {
+  const filterLabel = activeFilter === 'online' ? 'Online' : activeFilter === 'offline' ? 'Offline' : 'Active';
+  const filterColor = activeFilter === 'online' ? '#22c55e' : activeFilter === 'offline' ? '#ef4444' : accentColor;
   // Render a node and its children recursively
   const renderNode = useCallback((node: TreeNode, level: number = 0, isLastChild: boolean = true, parentPath: boolean[] = [], childIndex: number = 0) => {
     const { id, children } = node;
@@ -149,49 +159,106 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
   return (
     <div className="overflow-y-auto max-h-full bg-transparent">
       {/* Status Card at the top if provided - edge to edge */}
-      {statusCard && (
+      {statusCard && <div>{statusCard}</div>}
+
+      {activeFilter && filteredNodes ? (
+        /* ── Filtered flat view ── */
         <div>
-          {statusCard}
+          {/* Filter banner */}
+          <div className="mx-4 mt-3 mb-1">
+            <div
+              className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-white/95 border shadow-sm"
+              style={{ borderColor: `${filterColor}45` }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: filterColor }} />
+                <span className="text-sm font-semibold text-gray-700 font-roboto">{filterLabel} nodes</span>
+                <span
+                  className="text-xs font-medium text-white px-2 py-0.5 rounded-full"
+                  style={{ backgroundColor: filterColor }}
+                >
+                  {filteredNodes.length}
+                </span>
+              </div>
+              <button
+                onClick={() => onFilterChange?.(null)}
+                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 font-roboto px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <path d="M2 2L8 8M8 2L2 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                Clear
+              </button>
+            </div>
+          </div>
+
+          {/* Flat node cards */}
+          <div className="px-4 pb-8 pt-2">
+            {filteredNodes.length > 0 ? (
+              filteredNodes.map(node => {
+                let nodeIdentifier = node.internalAddress;
+                if (!nodeIdentifier && node.healthCheckPort && node.ip) {
+                  nodeIdentifier = `${node.ip}:${node.healthCheckPort}`;
+                }
+                const normalizedId = nodeIdentifier ? normalizeNodeIdentifier(nodeIdentifier) : '';
+                const nodeStatus = normalizedId ? statuses[normalizedId] : undefined;
+                return (
+                  <NodeCard
+                    key={node.id}
+                    node={node}
+                    status={nodeStatus}
+                    onClick={onNodeClick}
+                    isEditMode={isEditMode}
+                    isInteractable={!!getNodeTargetUrl(node)}
+                    style={{ marginBottom: '12px', height: '88px' }}
+                  />
+                );
+              })
+            ) : (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+                <svg className="w-12 h-12 mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p className="text-sm font-roboto">No {filterLabel.toLowerCase()} nodes</p>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        /* ── Normal tree view ── */
+        <div className="px-4 py-4">
+          {nodes.map((node, index) => {
+            const isLastChild = index === nodes.length - 1;
+            return renderNode(node, 0, isLastChild, [], index);
+          })}
+
+          {/* Logo at the bottom */}
+          {(appConfig?.appearance?.logo || appConfig?.appearance?.favicon) && (
+            <div className="flex justify-center items-center py-6 mt-4">
+              <img
+                src={appConfig.appearance.logo || appConfig.appearance.favicon}
+                alt={appConfig.general?.title || 'Logo'}
+                className="max-h-12 max-w-24 opacity-80 filter drop-shadow-lg object-contain"
+                onError={(e) => {
+                  console.warn('Logo failed to load, trying fallback');
+                  e.currentTarget.src = '/nautilusIcon.png';
+                }}
+              />
+            </div>
+          )}
+
+          {!appConfig?.appearance?.logo && !appConfig?.appearance?.favicon && (
+            <div className="flex justify-center items-center py-6 mt-4">
+              <img
+                src="/nautilusIcon.png"
+                alt="Nautilus"
+                className="w-12 h-12 opacity-80 filter drop-shadow-lg"
+                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+              />
+            </div>
+          )}
         </div>
       )}
-      
-      <div className="px-4 py-4">
-        {nodes.map((node, index) => {
-          const isLastChild = index === nodes.length - 1;
-          return renderNode(node, 0, isLastChild, [], index);
-        })}
-        
-        {/* Logo at the bottom */}
-        {(appConfig?.appearance?.logo || appConfig?.appearance?.favicon) && (
-          <div className="flex justify-center items-center py-6 mt-4">
-            <img 
-              src={appConfig.appearance.logo || appConfig.appearance.favicon} 
-              alt={appConfig.general?.title || 'Logo'} 
-              className="max-h-12 max-w-24 opacity-80 filter drop-shadow-lg object-contain"
-              onError={(e) => {
-              // Fallback to a default icon if logo/favicon fails
-              console.warn('Logo failed to load, trying fallback');
-              e.currentTarget.src = '/nautilusIcon.png';
-            }}
-          />
-        </div>
-      )}
-      
-      {/* Fallback logo if no logo or favicon is configured */}
-      {!appConfig?.appearance?.logo && !appConfig?.appearance?.favicon && (
-        <div className="flex justify-center items-center py-6 mt-4">
-          <img 
-            src="/nautilusIcon.png" 
-            alt="Nautilus" 
-            className="w-12 h-12 opacity-80 filter drop-shadow-lg"
-            onError={(e) => {
-              // Hide if fallback also fails
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-        </div>
-      )}
-      </div>
     </div>
   );
 };

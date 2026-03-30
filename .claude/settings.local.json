@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"getStatusForNode\\\\|getVisibleTree\\\\|const { nodes, connections }\" /c/Users/tinqk/Documents/Nautilus/src/components/Canvas.tsx)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}

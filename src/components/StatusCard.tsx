@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, ChevronDown, ChevronRight } from 'lucide-react';
+import { Settings as SettingsIcon, ChevronDown, ChevronRight, Play, Users } from 'lucide-react';
 import type { AppConfig, NodeStatus } from '../types/config';
-import { extractMonitoredNodeIdentifiers } from '../utils/nodeUtils';
+import { extractMonitoredNodeIdentifiers, getAllNodes } from '../utils/nodeUtils';
+
+type NodeFilter = 'online' | 'offline' | 'activity';
 
 interface StatusCardProps {
   onOpenSettings: () => void;
@@ -14,6 +16,8 @@ interface StatusCardProps {
   totalInterval: number;
   isQuerying: boolean;
   isMobile?: boolean;
+  activeFilter?: NodeFilter | null;
+  onFilterChange?: (filter: NodeFilter | null) => void;
 }
 
 const StatusCard: React.FC<StatusCardProps> = ({ 
@@ -26,7 +30,9 @@ const StatusCard: React.FC<StatusCardProps> = ({
   nextCheckCountdown,
   totalInterval,
   isQuerying,
-  isMobile = false
+  isMobile = false,
+  activeFilter,
+  onFilterChange,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -51,6 +57,43 @@ const StatusCard: React.FC<StatusCardProps> = ({
     const status = statuses[identifier];
     return status && status.status === 'checking';
   }).length;
+
+  // Activity tracking — Plex streams & Minecraft players
+  const allNodes = getAllNodes(appConfig.tree.nodes);
+
+  interface ActivityItem {
+    title: string;
+    type: 'plex' | 'minecraft';
+    count: number;
+    max?: number;
+  }
+
+  const activityItems: ActivityItem[] = [];
+  const hasActivityNodes = allNodes.some(n =>
+    (n.healthCheckType === 'plex' || n.healthCheckType === 'minecraft') &&
+    (n.internalAddress || (n.ip && n.healthCheckPort)) &&
+    !n.disableHealthCheck
+  );
+
+  if (hasActivityNodes) {
+    for (const node of allNodes) {
+      const identifier = node.internalAddress ||
+        (node.ip && node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : null);
+      if (!identifier || node.disableHealthCheck) continue;
+
+      const status = statuses[identifier];
+      if (!status || status.status !== 'online') continue;
+
+      if (node.healthCheckType === 'plex' && (status.streams ?? 0) > 0) {
+        activityItems.push({ title: node.title, type: 'plex', count: status.streams! });
+      }
+      if (node.healthCheckType === 'minecraft' && (status.players?.online ?? 0) > 0) {
+        activityItems.push({ title: node.title, type: 'minecraft', count: status.players!.online, max: status.players!.max });
+      }
+    }
+  }
+
+  const isActive = activityItems.length > 0;
 
   // Calculate percentages for the progress bar
   const healthPercentage = totalNodes > 0 ? (healthyNodes / totalNodes) * 100 : 100; // Green portion
@@ -245,25 +288,106 @@ const StatusCard: React.FC<StatusCardProps> = ({
             ></div>
           </div>
 
-          {/* Status breakdown */}
-          <div className="flex items-center justify-between text-[11px] text-gray-600 font-roboto mt-2 select-none" aria-label={`Status breakdown: ${healthyNodes} online${checkingNodes>0?`, ${checkingNodes} checking`:''}, ${offlineNodes} offline`}>
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_0_1px_rgba(0,0,0,0.05)]" aria-hidden="true" />
-                <span>{healthyNodes} online</span>
+          {/* Status breakdown — each item is a filter trigger */}
+          <div className="flex items-center gap-1 text-[11px] text-gray-600 font-roboto mt-2 select-none flex-wrap">
+            <button
+              onClick={() => onFilterChange?.(activeFilter === 'online' ? null : 'online')}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all duration-150 ${
+                activeFilter === 'online'
+                  ? 'bg-green-50 text-green-700 ring-1 ring-green-200'
+                  : 'hover:bg-gray-50 hover:text-gray-800'
+              }`}
+              title="Filter to online nodes"
+            >
+              <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+              <span>{healthyNodes} online</span>
+            </button>
+
+            {checkingNodes > 0 && (
+              <span className="flex items-center gap-1.5 px-2 py-1 text-gray-400">
+                <span className="w-2 h-2 rounded-full bg-gray-300 animate-pulse flex-shrink-0" />
+                <span>{checkingNodes}</span>
               </span>
-              {checkingNodes > 0 && (
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-full bg-gray-300 animate-pulse shadow-[0_0_0_1px_rgba(0,0,0,0.05)]" aria-hidden="true" />
-                  <span>{checkingNodes} checking</span>
-                </span>
-              )}
-              <span className="flex items-center gap-1.5">
-                <span className={`w-2.5 h-2.5 rounded-full shadow-[0_0_0_1px_rgba(0,0,0,0.05)] ${offlineNodes>0 ? 'bg-red-500' : 'bg-red-200'}`} aria-hidden="true" />
-                <span>{offlineNodes} offline</span>
-              </span>
-            </div>
+            )}
+
+            <button
+              onClick={() => onFilterChange?.(activeFilter === 'offline' ? null : 'offline')}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all duration-150 ${
+                activeFilter === 'offline'
+                  ? 'bg-red-50 text-red-700 ring-1 ring-red-200'
+                  : 'hover:bg-gray-50 hover:text-gray-800'
+              }`}
+              title="Filter to offline nodes"
+            >
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${offlineNodes > 0 ? 'bg-red-500' : 'bg-red-200'}`} />
+              <span>{offlineNodes} offline</span>
+            </button>
           </div>
+
+          {/* Activity section — Plex streams & Minecraft players */}
+          {hasActivityNodes && (
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              {/* Clickable header row acts as activity filter toggle */}
+              <button
+                onClick={() => onFilterChange?.(activeFilter === 'activity' ? null : 'activity')}
+                className={`w-full flex items-center justify-between mb-1.5 px-2 py-1 rounded-lg transition-all duration-150 ${
+                  activeFilter === 'activity' ? '' : 'hover:bg-gray-50'
+                }`}
+                style={activeFilter === 'activity' ? {
+                  backgroundColor: `${appConfig.appearance.accentColor}12`,
+                  boxShadow: `0 0 0 1px ${appConfig.appearance.accentColor}40`,
+                } : {}}
+                title="Filter to active nodes"
+              >
+                <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide font-roboto">Activity</span>
+                {isActive ? (
+                  <span
+                    className="flex items-center gap-1 text-[11px] font-semibold font-roboto"
+                    style={{ color: appConfig.appearance.accentColor }}
+                  >
+                    <span
+                      className="w-1.5 h-1.5 rounded-full animate-pulse"
+                      style={{ backgroundColor: appConfig.appearance.accentColor }}
+                    />
+                    In Use
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-gray-400 font-roboto">Idle</span>
+                )}
+              </button>
+
+              {isActive ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {activityItems.map((item, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium font-roboto"
+                      style={{
+                        backgroundColor: `${appConfig.appearance.accentColor}18`,
+                        color: appConfig.appearance.accentColor,
+                      }}
+                    >
+                      {item.type === 'plex'
+                        ? <Play size={10} fill="currentColor" strokeWidth={0} />
+                        : <Users size={10} />
+                      }
+                      <span>
+                        {item.type === 'plex'
+                          ? `${item.count} ${item.count === 1 ? 'stream' : 'streams'}`
+                          : `${item.count}${item.max ? `/${item.max}` : ''} player${item.count !== 1 ? 's' : ''}`
+                        }
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-200" />
+                  <span className="text-[11px] text-gray-400 font-roboto">No active usage</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

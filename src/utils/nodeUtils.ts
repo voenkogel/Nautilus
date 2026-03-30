@@ -250,3 +250,18 @@ export const countDescendants = (node: TreeNode): number => {
   if (!node.children || node.children.length === 0) return 0;
   return node.children.reduce((count, child) => count + 1 + countDescendants(child), 0);
 };
+
+/**
+ * Returns a flat array of every node in the tree (all levels).
+ */
+export const getAllNodes = (nodes: TreeNode[]): TreeNode[] => {
+  const result: TreeNode[] = [];
+  const traverse = (nodeList: TreeNode[]) => {
+    for (const node of nodeList) {
+      result.push(node);
+      if (node.children) traverse(node.children);
+    }
+  };
+  traverse(nodes);
+  return result;
+};
