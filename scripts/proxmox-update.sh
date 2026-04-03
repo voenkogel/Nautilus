@@ -53,6 +53,7 @@ update_nautilus() {
     git reset --hard origin/main
     npm install
     npm run build
+    cp -r dist/* server/public/
   "; then
     msg_error "Failed to update Nautilus"
     return 1

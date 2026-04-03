@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, ChevronDown, ChevronRight, Play, Users } from 'lucide-react';
+import { Settings as SettingsIcon, ChevronDown, ChevronRight } from 'lucide-react';
 import type { AppConfig, NodeStatus } from '../types/config';
-import { extractMonitoredNodeIdentifiers, getAllNodes } from '../utils/nodeUtils';
+import { extractMonitoredNodeIdentifiers, getAllNodes, normalizeNodeIdentifier } from '../utils/nodeUtils';
 
 type NodeFilter = 'online' | 'offline' | 'activity';
 
@@ -61,39 +61,21 @@ const StatusCard: React.FC<StatusCardProps> = ({
   // Activity tracking — Plex streams & Minecraft players
   const allNodes = getAllNodes(appConfig.tree.nodes);
 
-  interface ActivityItem {
-    title: string;
-    type: 'plex' | 'minecraft';
-    count: number;
-    max?: number;
-  }
-
-  const activityItems: ActivityItem[] = [];
   const hasActivityNodes = allNodes.some(n =>
     (n.healthCheckType === 'plex' || n.healthCheckType === 'minecraft') &&
     (n.internalAddress || (n.ip && n.healthCheckPort)) &&
     !n.disableHealthCheck
   );
 
-  if (hasActivityNodes) {
-    for (const node of allNodes) {
-      const identifier = node.internalAddress ||
-        (node.ip && node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : null);
-      if (!identifier || node.disableHealthCheck) continue;
-
-      const status = statuses[identifier];
-      if (!status || status.status !== 'online') continue;
-
-      if (node.healthCheckType === 'plex' && (status.streams ?? 0) > 0) {
-        activityItems.push({ title: node.title, type: 'plex', count: status.streams! });
-      }
-      if (node.healthCheckType === 'minecraft' && (status.players?.online ?? 0) > 0) {
-        activityItems.push({ title: node.title, type: 'minecraft', count: status.players!.online, max: status.players!.max });
-      }
-    }
-  }
-
-  const isActive = activityItems.length > 0;
+  const isActive = hasActivityNodes && allNodes.some(node => {
+    const identifier = node.internalAddress ||
+      (node.ip && node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : null);
+    if (!identifier || node.disableHealthCheck) return false;
+    const status = statuses[normalizeNodeIdentifier(identifier)];
+    if (!status || status.status !== 'online') return false;
+    return (node.healthCheckType === 'plex' && (status.streams ?? 0) > 0) ||
+           (node.healthCheckType === 'minecraft' && (status.players?.online ?? 0) > 0);
+  });
 
   // Calculate percentages for the progress bar
   const healthPercentage = totalNodes > 0 ? (healthyNodes / totalNodes) * 100 : 100; // Green portion
@@ -356,36 +338,6 @@ const StatusCard: React.FC<StatusCardProps> = ({
                 )}
               </button>
 
-              {isActive ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {activityItems.map((item, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium font-roboto"
-                      style={{
-                        backgroundColor: `${appConfig.appearance.accentColor}18`,
-                        color: appConfig.appearance.accentColor,
-                      }}
-                    >
-                      {item.type === 'plex'
-                        ? <Play size={10} fill="currentColor" strokeWidth={0} />
-                        : <Users size={10} />
-                      }
-                      <span>
-                        {item.type === 'plex'
-                          ? `${item.count} ${item.count === 1 ? 'stream' : 'streams'}`
-                          : `${item.count}${item.max ? `/${item.max}` : ''} player${item.count !== 1 ? 's' : ''}`
-                        }
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-200" />
-                  <span className="text-[11px] text-gray-400 font-roboto">No active usage</span>
-                </div>
-              )}
             </div>
           )}
         </div>
