@@ -6,13 +6,13 @@ import util from 'minecraft-server-util';
  * @param {number} port - The server port (default: 25565).
  * @returns {Promise<object>} - The server status.
  */
-export const queryJavaServer = async (host, port = 25565) => {
+export const queryJavaServer = async (host, port = 25565, retries = 1) => {
   try {
     const result = await util.status(host, port, {
       timeout: 5000, // 5 second timeout
       enableSRV: true // Enable SRV record lookup
     });
-    
+
     return {
       online: true,
       type: 'java',
@@ -27,6 +27,11 @@ export const queryJavaServer = async (host, port = 25565) => {
       latency: result.roundTripLatency
     };
   } catch (error) {
+    if (retries > 0) {
+      console.warn(`⚠️  Java server query failed for ${host}:${port}, retrying in 2s... (${retries} attempt(s) left)`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return queryJavaServer(host, port, retries - 1);
+    }
     console.error(`Failed to query Java server ${host}:${port}:`, error.message);
     throw error;
   }
@@ -38,7 +43,7 @@ export const queryJavaServer = async (host, port = 25565) => {
  * @param {number} port - The server port (default: 19132).
  * @returns {Promise<object>} - The server status.
  */
-export const queryBedrockServer = async (host, port = 19132) => {
+export const queryBedrockServer = async (host, port = 19132, retries = 1) => {
   try {
     const result = await util.statusBedrock(host, port, {
       timeout: 5000 // 5 second timeout
@@ -56,6 +61,11 @@ export const queryBedrockServer = async (host, port = 19132) => {
       latency: result.roundTripLatency
     };
   } catch (error) {
+    if (retries > 0) {
+      console.warn(`⚠️  Bedrock server query failed for ${host}:${port}, retrying in 2s... (${retries} attempt(s) left)`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      return queryBedrockServer(host, port, retries - 1);
+    }
     console.error(`Failed to query Bedrock server ${host}:${port}:`, error.message);
     throw error;
   }

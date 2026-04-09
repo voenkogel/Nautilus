@@ -318,6 +318,10 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // Store for node statuses
 const nodeStatuses = new Map();
 
+// Track consecutive failures per node to suppress transient offline flips
+const consecutiveFailures = new Map();
+const OFFLINE_THRESHOLD = 2; // require this many consecutive failures before marking offline
+
 // Function to normalize a node identifier (IP or URL)
 function normalizeNodeIdentifier(identifier) {
   if (!identifier) return '';
@@ -400,7 +404,8 @@ function initializeNodeStatuses(preserveExisting = false) {
       // Preserve existing statuses and only add new nodes or remove deleted ones
       const existingStatuses = new Map(nodeStatuses);
       nodeStatuses.clear();
-      
+      consecutiveFailures.clear();
+
       // Add back statuses for nodes that still exist, or initialize new ones
       nodeIdentifiers.forEach(identifier => {
         if (existingStatuses.has(identifier)) {
@@ -408,8 +413,8 @@ function initializeNodeStatuses(preserveExisting = false) {
           nodeStatuses.set(identifier, existingStatuses.get(identifier));
         } else {
           // Initialize new node as checking (loading state)
-          nodeStatuses.set(identifier, { 
-            status: 'checking', 
+          nodeStatuses.set(identifier, {
+            status: 'checking',
             lastChecked: new Date().toISOString(),
             statusChangedAt: new Date().toISOString(),
             error: 'Initial check pending'
@@ -419,6 +424,7 @@ function initializeNodeStatuses(preserveExisting = false) {
     } else {
       // Clear existing statuses (initial startup behavior)
       nodeStatuses.clear();
+      consecutiveFailures.clear();
       
       // Initialize all nodes as checking with normalized keys
       nodeIdentifiers.forEach(identifier => {
@@ -649,9 +655,26 @@ async function checkNodeHealth(identifier) {
 
   // Use the new pure function
   const finalResult = await performNodeCheck(nodeData);
-  
-  // NOW handle status change notifications AFTER all attempts are complete
+
   const previousStatus = nodeStatuses.get(normalizedIdentifier);
+
+  // Suppress transient offline flips: require OFFLINE_THRESHOLD consecutive failures
+  // before actually marking a node offline and notifying.
+  if (finalResult.status === 'offline') {
+    const failures = (consecutiveFailures.get(normalizedIdentifier) || 0) + 1;
+    consecutiveFailures.set(normalizedIdentifier, failures);
+
+    if (previousStatus?.status === 'online' && failures < OFFLINE_THRESHOLD) {
+      console.log(`⚠️  [HEALTH_CHECK] Transient failure ${failures}/${OFFLINE_THRESHOLD} for "${normalizedIdentifier}", suppressing offline`);
+      const suppressedResult = { ...previousStatus, lastChecked: finalResult.lastChecked };
+      nodeStatuses.set(normalizedIdentifier, suppressedResult);
+      return { ...suppressedResult, notification: null };
+    }
+  } else if (finalResult.status === 'online') {
+    consecutiveFailures.set(normalizedIdentifier, 0);
+  }
+
+  // NOW handle status change notifications AFTER all attempts are complete
   const statusChanged = !previousStatus || previousStatus.status !== finalResult.status;
   
   // Preserve statusChangedAt timestamp if status hasn't changed, otherwise set to now
