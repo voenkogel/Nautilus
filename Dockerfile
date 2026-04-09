@@ -42,6 +42,7 @@ ENV NAUTILUS_HOST="localhost"
 ENV NAUTILUS_ADMIN_USERNAME="admin"
 ENV NAUTILUS_ADMIN_PASSWORD="1234"
 ENV NODE_ENV=production
+ENV NAUTILUS_DATA_DIR=/data
 
 # Copy the root package.json and install production server dependencies
 COPY package*.json ./

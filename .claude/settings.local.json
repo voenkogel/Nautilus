@@ -2,7 +2,23 @@
   "permissions": {
     "allow": [
       "Bash(grep -n \"getStatusForNode\\\\|getVisibleTree\\\\|const { nodes, connections }\" /c/Users/tinqk/Documents/Nautilus/src/components/Canvas.tsx)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(ls -la C:\\\\\\\\Users\\\\\\\\tinqk\\\\\\\\Documents\\\\\\\\Nautilus)",
+      "Bash(npm install:*)",
+      "Bash(node -e \"import\\('better-sqlite3'\\).then\\(m => console.log\\('ok', typeof m.default\\)\\).catch\\(e => console.error\\('fail', e.message\\)\\)\")",
+      "Bash(node -e \"const pkg = JSON.parse\\(require\\('fs'\\).readFileSync\\('package.json', 'utf8'\\)\\); console.log\\(pkg.dependencies['better-sqlite3']\\)\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(node --input-type=module --check)",
+      "Bash(node -e \"import\\('./server/index.js'\\).catch\\(e => { console.error\\(e.message\\); process.exit\\(1\\); }\\)\")",
+      "Bash(kill %1)",
+      "Bash(npx vite:*)",
+      "Bash(npm uninstall:*)",
+      "Bash(timeout 5 node server/index.js)",
+      "Bash(timeout 8 node server/index.js)",
+      "Bash(echo \"tsc exit: $?\")",
+      "Bash(git add:*)",
+      "Bash(git update-index:*)",
+      "Bash(git tag:*)"
     ]
   }
 }

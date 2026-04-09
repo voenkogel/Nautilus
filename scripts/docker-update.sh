@@ -38,17 +38,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 DATE=$(date +%Y%m%d-%H%M%S)
-BACKUP_TAG="nautilus:backup-$DATE"
+GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "")
+VERSION_LABEL="${GIT_TAG:-$GIT_SHA}"
+BACKUP_TAG="nautilus:backup-${DATE}-${VERSION_LABEL}"
 
 echo
 echo -e " ${GN}Nautilus Docker Update${CL}"
+echo -e " Current: ${BL}${VERSION_LABEL}${CL} (${GIT_SHA})"
 echo
 
 # Tag existing image as backup
 if docker image inspect nautilus:latest &>/dev/null 2>&1; then
   msg_info "Tagging current image as backup: $BACKUP_TAG"
   docker tag nautilus:latest "$BACKUP_TAG"
-  msg_ok "Backup image created: $BACKUP_TAG"
+  msg_ok "Backup image saved: $BACKUP_TAG"
 else
   msg_info "No existing nautilus:latest image found — skipping backup tag (first build)"
 fi

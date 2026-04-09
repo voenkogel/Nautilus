@@ -46,19 +46,41 @@ update_nautilus() {
   fi
   msg_ok "Configuration backed up"
   
-  msg_info "Updating Nautilus from repository..."
+  msg_info "Pulling latest code from repository..."
   if ! pct exec $ct_id -- su - nautilus -c "
+    set -e
     cd /opt/nautilus
     git fetch origin
     git reset --hard origin/main
-    npm install
+  "; then
+    msg_error "Failed to pull latest code"
+    return 1
+  fi
+  msg_ok "Code updated"
+
+  msg_info "Installing dependencies..."
+  if ! pct exec $ct_id -- su - nautilus -c "
+    set -e
+    cd /opt/nautilus
+    npm ci
+  "; then
+    msg_error "Failed to install dependencies"
+    return 1
+  fi
+  msg_ok "Dependencies installed"
+
+  msg_info "Building frontend..."
+  if ! pct exec $ct_id -- su - nautilus -c "
+    set -e
+    cd /opt/nautilus
     npm run build
     cp -r dist/* server/public/
   "; then
-    msg_error "Failed to update Nautilus"
+    msg_error "Frontend build failed — aborting update, service will restart with previous code"
+    pct exec $ct_id -- systemctl start nautilus 2>/dev/null || true
     return 1
   fi
-  msg_ok "Nautilus updated"
+  msg_ok "Frontend built successfully"
   
   msg_info "Verifying configuration..."
   if ! pct exec $ct_id -- test -f /data/config.json; then
@@ -74,13 +96,27 @@ update_nautilus() {
   fi
   msg_ok "Service started"
   
-  msg_info "Verifying service status..."
-  sleep 3
-  if ! pct exec $ct_id -- systemctl is-active --quiet nautilus; then
-    msg_error "Nautilus service is not running properly"
+  msg_info "Waiting for service to be healthy..."
+  local port
+  port=$(pct exec $ct_id -- bash -c "systemctl show nautilus --property=Environment 2>/dev/null | grep -oP 'NAUTILUS_SERVER_PORT=\K[0-9]+'" 2>/dev/null || echo "3069")
+  [[ -z "$port" ]] && port="3069"
+  local max_attempts=15
+  local attempt=0
+  local healthy=false
+  while [[ $attempt -lt $max_attempts ]]; do
+    sleep 2
+    if pct exec $ct_id -- curl -sf --max-time 3 "http://localhost:$port/api/config" >/dev/null 2>&1; then
+      healthy=true
+      break
+    fi
+    attempt=$((attempt + 1))
+    msg_info "Waiting for service... ($attempt/$max_attempts)"
+  done
+  if [[ "$healthy" != "true" ]]; then
+    msg_error "Service did not become healthy within $((max_attempts * 2))s — check logs with: pct exec $ct_id -- journalctl -u nautilus -n 50"
     return 1
   fi
-  msg_ok "Service is running"
+  msg_ok "Service is healthy (HTTP response confirmed)"
   
   # Get version info
   local version=$(pct exec $ct_id -- su - nautilus -c "cd /opt/nautilus && git describe --tags --always" 2>/dev/null || echo "unknown")

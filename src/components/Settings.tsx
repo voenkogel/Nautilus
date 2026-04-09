@@ -69,6 +69,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     nodeTitle: string;
     childCount: number;
   } | null>(null);
+  const [versionInfo, setVersionInfo] = useState<{ version: string; sha: string; tag: string | null } | null>(null);
 
   // Check authentication status on mount
   useEffect(() => {
@@ -76,9 +77,17 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       const authenticated = await isAuthenticated();
       setIsLoggedIn(authenticated);
     };
-    
     checkAuth();
   }, [isOpen]); // Check when modal opens
+
+  // Fetch version info once when settings opens
+  useEffect(() => {
+    if (!isOpen || versionInfo) return;
+    fetch('/api/version')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setVersionInfo(data); })
+      .catch(() => {});
+  }, [isOpen]);
 
   // Handle logout
   const handleLogout = async () => {
@@ -1352,7 +1361,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                 </button>
               )}
             </div>
-            
+
             {/* Right side - Cancel and Save buttons */}
             <div className="flex items-center space-x-3">
               <button
@@ -1366,7 +1375,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                 onClick={handleSave}
                 disabled={isSaving}
                 className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ 
+                style={{
                   backgroundColor: config.appearance?.accentColor || '#3b82f6',
                 }}
               >
@@ -1384,6 +1393,19 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
               </button>
             </div>
           </div>
+
+          {/* Version footer */}
+          {versionInfo && (
+            <div className="w-full pt-3 border-t border-gray-100 flex items-center justify-center">
+              <span className="text-xs text-gray-400 font-mono">
+                {versionInfo.tag ? (
+                  <>{versionInfo.tag} <span className="text-gray-300">·</span> {versionInfo.sha}</>
+                ) : (
+                  versionInfo.sha
+                )}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

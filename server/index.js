@@ -6,6 +6,7 @@ import https from 'https';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { execSync } from 'child_process';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 
@@ -13,6 +14,7 @@ import crypto from 'crypto';
 import { sendStatusWebhook } from './utils/webhooks.js';
 import { queryJavaServer, queryBedrockServer } from './utils/minecraft.js';
 import { queryPlexServer } from './utils/plex.js';
+import { initHistoryDb, recordStatusHistory, getNodeHistory, getAllNodesHistory, pruneOldHistory } from './utils/historyDb.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -656,6 +658,9 @@ async function checkNodeHealth(identifier) {
   // Use the new pure function
   const finalResult = await performNodeCheck(nodeData);
 
+  // Record every actual check result to history (before suppression, to capture true state)
+  recordStatusHistory(normalizedIdentifier, finalResult);
+
   const previousStatus = nodeStatuses.get(normalizedIdentifier);
 
   // Suppress transient offline flips: require OFFLINE_THRESHOLD consecutive failures
@@ -979,8 +984,76 @@ async function scheduleNextCheck() {
   }
 }
 
+// Initialize history database, then start health checks
+await initHistoryDb();
+
 // Start the health checking loop
 scheduleNextCheck();
+
+// Prune history on startup, then daily
+pruneOldHistory(30);
+setInterval(() => pruneOldHistory(30), 24 * 60 * 60 * 1000);
+
+// ── History API ──────────────────────────────────────────────────────────────
+
+const HISTORY_PERIODS = {
+  '1h':  3_600_000,
+  '24h': 86_400_000,
+  '7d':  604_800_000,
+  '30d': 2_592_000_000,
+};
+
+function parsePeriodMs(period) {
+  return HISTORY_PERIODS[period] || HISTORY_PERIODS['7d'];
+}
+
+function mapHistoryRow(r) {
+  return {
+    status:       r.status,
+    timestamp:    r.timestamp,
+    responseTime: r.response_time,
+    error:        r.error,
+    playersOnline: r.players_online,
+    playersMax:    r.players_max,
+    streams:       r.streams,
+  };
+}
+
+// All nodes history
+app.get('/api/history', (req, res) => {
+  const period  = req.query.period || '7d';
+  const nowMs   = Date.now();
+  const sinceMs = nowMs - parsePeriodMs(period);
+
+  const rows = getAllNodesHistory(sinceMs);
+
+  // Group by node_id
+  const grouped = {};
+  rows.forEach(r => {
+    if (!grouped[r.node_id]) grouped[r.node_id] = [];
+    grouped[r.node_id].push(mapHistoryRow(r));
+  });
+
+  res.json({ records: grouped, period, sinceMs, nowMs });
+});
+
+// Single node history
+app.get('/api/history/:nodeId', (req, res) => {
+  const nodeId  = decodeURIComponent(req.params.nodeId);
+  const period  = req.query.period || '7d';
+  const nowMs   = Date.now();
+  const sinceMs = nowMs - parsePeriodMs(period);
+
+  const rows = getNodeHistory(nodeId, sinceMs);
+
+  res.json({
+    nodeId,
+    records: rows.map(mapHistoryRow),
+    period,
+    sinceMs,
+    nowMs,
+  });
+});
 
 // API endpoint to get all node statuses
 app.get('/api/status', (req, res) => {
@@ -1406,11 +1479,31 @@ app.get('/api/status/:ip', (req, res) => {
 
 // Health check endpoint for the monitoring server itself
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
+  res.json({
+    status: 'healthy',
     timestamp: new Date().toISOString()
     // Removed sensitive configuration details for security
   });
+});
+
+// Version endpoint — no auth required so the UI can always read it
+let _versionCache = null;
+function getVersionInfo() {
+  if (_versionCache) return _versionCache;
+  let sha = 'unknown';
+  let tag = null;
+  try {
+    sha = execSync('git rev-parse --short HEAD', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  } catch {}
+  try {
+    tag = execSync('git describe --tags --exact-match HEAD', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  } catch {}
+  _versionCache = { sha, tag, version: tag || sha };
+  return _versionCache;
+}
+
+app.get('/api/version', (req, res) => {
+  res.json(getVersionInfo());
 });
 
 // Start server
@@ -1480,6 +1573,8 @@ app.post('/api/test-connection', authenticateRequest, async (req, res) => {
 });
 
 app.listen(appConfig.server.port, () => {
+  const { version } = getVersionInfo();
+  console.log(`📌 Version: ${version}`);
   console.log(` Monitoring ${nodeIdentifiers.length} nodes every ${appConfig.server.healthCheckInterval / 1000}s`);
   console.log(`🔍 Using HTTP GET requests with 5s timeout (URL preferred over IP)`);
   console.log('');

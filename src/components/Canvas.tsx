@@ -25,11 +25,12 @@ import {
   NODE_WIDTH,
   SIBLING_SPACING
 } from '../utils/layoutUtils';
-import { getNodeTargetUrl } from '../utils/nodeUtils';
+import { getNodeTargetUrl, normalizeNodeIdentifier } from '../utils/nodeUtils';
 import CanvasNode from './CanvasNode';
 import NodeCard from './NodeCard';
 import DragGhost from './DragGhost';
 import { useDragReorder } from '../hooks/useDragReorder';
+import HistoryModal from './HistoryModal';
 
 const initialAppConfig: AppConfig = {
   general: {
@@ -114,7 +115,10 @@ const Canvas: React.FC = () => {
   const { isMobile } = useDeviceDetection();
   
   // State for mobile iframe overlay
-  const [iframeOverlay, setIframeOverlay] = useState<{ url: string; title: string } | null>(null);
+  const [iframeOverlay, setIframeOverlay] = useState<{ url: string; title: string; nodeId?: string } | null>(null);
+
+  // State for history modal: null = closed; nodeId null = global view; string = specific node
+  const [historyModal, setHistoryModal] = useState<{ nodeId: string | null; nodeName?: string } | null>(null);
 
   // Helper to get app title from config
   const appTitle = currentConfig.general?.title || 'External Site';
@@ -944,7 +948,9 @@ const Canvas: React.FC = () => {
       if (now - lastOpenTime > 1000) { // 1 second debounce
         (window as any)[lastOpenKey] = now;
         if (currentConfig.general?.openNodesAsOverlay !== false && !node.disableEmbedded) {
-          setIframeOverlay({ url: targetUrl, title: node.title || appTitle });
+          const rawId = node.internalAddress || (node.ip && node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : '');
+          const nid = rawId ? normalizeNodeIdentifier(rawId) : undefined;
+          setIframeOverlay({ url: targetUrl, title: node.title || appTitle, nodeId: nid });
         } else {
           window.open(targetUrl, '_blank', 'noopener,noreferrer');
         }
@@ -1502,6 +1508,11 @@ const Canvas: React.FC = () => {
                     onAddChildClick={(n) => handleAddChildNode(n.id)}
                     onDeleteClick={(n) => handleQuickDeleteNode(n.id)}
                     onDragStart={handleDragStart}
+                    onHistoryClick={(n) => {
+                      const rawId = n.internalAddress || (n.ip && n.healthCheckPort ? `${n.ip}:${n.healthCheckPort}` : '');
+                      const nodeId = rawId ? normalizeNodeIdentifier(rawId) : null;
+                      if (nodeId) setHistoryModal({ nodeId, nodeName: n.title });
+                    }}
                   />
                 </div>
                   
@@ -1950,6 +1961,7 @@ const Canvas: React.FC = () => {
         <div className="absolute top-4 right-4 z-30">
           <StatusCard
             onOpenSettings={handleOpenSettings}
+            onOpenHistory={() => setHistoryModal({ nodeId: null })}
             appConfig={currentConfig}
             statuses={statuses}
             isLoading={isLoading}
@@ -2035,6 +2047,16 @@ const Canvas: React.FC = () => {
         />
       )}
 
+      {/* History Modal */}
+      {historyModal && (
+        <HistoryModal
+          nodeId={historyModal.nodeId}
+          nodeName={historyModal.nodeName}
+          appConfig={currentConfig}
+          onClose={() => setHistoryModal(null)}
+        />
+      )}
+
       {/* Iframe Overlay for all devices */}
       {iframeOverlay && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 md:p-8 animate-fade-in">
@@ -2045,6 +2067,20 @@ const Canvas: React.FC = () => {
                 {iframeOverlay.title}
               </h3>
               <div className="flex items-center gap-1">
+                {/* History button - only for monitored nodes */}
+                {iframeOverlay.nodeId && (
+                  <button
+                    onClick={() => setHistoryModal({ nodeId: iframeOverlay.nodeId!, nodeName: iframeOverlay.title })}
+                    className="p-1.5 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
+                    aria-label="View history"
+                    title="View status history"
+                  >
+                    <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                      <circle cx="12" cy="12" r="10" />
+                      <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     window.open(iframeOverlay.url, '_blank', 'noopener,noreferrer');

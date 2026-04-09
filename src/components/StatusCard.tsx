@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, ChevronDown, ChevronRight } from 'lucide-react';
+import { Settings as SettingsIcon, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import type { AppConfig, NodeStatus } from '../types/config';
 import { extractMonitoredNodeIdentifiers, getAllNodes, normalizeNodeIdentifier } from '../utils/nodeUtils';
 
@@ -7,6 +7,7 @@ type NodeFilter = 'online' | 'offline' | 'activity';
 
 interface StatusCardProps {
   onOpenSettings: () => void;
+  onOpenHistory?: () => void;
   appConfig: AppConfig;
   statuses: { [key: string]: NodeStatus };
   isLoading: boolean;
@@ -20,8 +21,9 @@ interface StatusCardProps {
   onFilterChange?: (filter: NodeFilter | null) => void;
 }
 
-const StatusCard: React.FC<StatusCardProps> = ({ 
+const StatusCard: React.FC<StatusCardProps> = ({
   onOpenSettings,
+  onOpenHistory,
   appConfig,
   statuses,
   isLoading,
@@ -197,6 +199,16 @@ const StatusCard: React.FC<StatusCardProps> = ({
 
         {/* Action buttons */}
         <div className="flex items-center space-x-1">
+          {/* History button */}
+          {onOpenHistory && (
+            <button
+              onClick={onOpenHistory}
+              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 hover:scale-110 rounded-md transition-all duration-200"
+              title="View history"
+            >
+              <Clock size={18} />
+            </button>
+          )}
           {/* Settings button */}
           <button
             onClick={onOpenSettings}

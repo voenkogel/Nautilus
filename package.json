@@ -21,7 +21,8 @@
     "minecraft-server-util": "^5.4.4",
     "node-fetch": "^3.3.2",
     "react": "^19.1.2",
-    "react-dom": "^19.1.2"
+    "react-dom": "^19.1.2",
+    "sql.js": "^1.14.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.29.0",

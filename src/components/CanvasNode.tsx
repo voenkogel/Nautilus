@@ -21,6 +21,7 @@ interface CanvasNodeProps {
   onAddChildClick: (node: PositionedNode) => void;
   onDeleteClick?: (node: PositionedNode) => void;
   onDragStart?: (node: PositionedNode, clientX: number, clientY: number) => void;
+  onHistoryClick?: (node: PositionedNode) => void;
 }
 
 const CanvasNode: React.FC<CanvasNodeProps> = ({
@@ -37,11 +38,13 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
   onNodeClick,
   onAddChildClick,
   onDeleteClick,
-  onDragStart
+  onDragStart,
+  onHistoryClick,
 }) => {
   const [isAddHovered, setIsAddHovered] = useState(false);
   const [isNodeHovered, setIsNodeHovered] = useState(false);
   const [isDeleteHovered, setIsDeleteHovered] = useState(false);
+  const [isHistoryHovered, setIsHistoryHovered] = useState(false);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
   const isDraggingRef = useRef(false);
   const clickHandledRef = useRef(false);
@@ -226,6 +229,43 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
                 strokeWidth={2}
               >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </div>
+          </div>
+        )}
+
+        {/* History Button - Bottom Right (visible on hover in view mode, only for monitored nodes) */}
+        {!isEditMode && isNodeHovered && !isDragging && onHistoryClick && status && status.status !== 'checking' && (
+          <div
+            data-no-drag
+            className="absolute z-20 cursor-pointer flex items-center justify-center transition-all duration-150"
+            style={{ bottom: '-8px', right: '-8px', width: '22px', height: '22px' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onHistoryClick(node);
+            }}
+            onMouseEnter={() => setIsHistoryHovered(true)}
+            onMouseLeave={() => setIsHistoryHovered(false)}
+            title="View history"
+          >
+            <div
+              className={`w-full h-full rounded-full flex items-center justify-center transition-all duration-150 ${
+                isHistoryHovered ? 'scale-110 shadow-md' : 'shadow-sm'
+              }`}
+              style={{
+                backgroundColor: isHistoryHovered ? '#f0f9ff' : 'white',
+                border: `1.5px solid ${isHistoryHovered ? accentColor : '#e5e7eb'}`,
+              }}
+            >
+              <svg
+                className="w-3 h-3 transition-colors duration-150"
+                fill="none"
+                stroke={isHistoryHovered ? accentColor : '#9ca3af'}
+                viewBox="0 0 24 24"
+                strokeWidth={2}
+              >
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
               </svg>
             </div>
           </div>
