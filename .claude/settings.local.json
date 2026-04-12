@@ -18,7 +18,9 @@
       "Bash(echo \"tsc exit: $?\")",
       "Bash(git add:*)",
       "Bash(git update-index:*)",
-      "Bash(git tag:*)"
+      "Bash(git tag:*)",
+      "Bash(npm audit:*)",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('vulns:', d.get\\('metadata',{}\\).get\\('vulnerabilities',{}\\)\\); print\\('advisories:', list\\(d.get\\('advisories',{}\\).keys\\(\\)\\)[:10]\\)\")"
     ]
   }
 }

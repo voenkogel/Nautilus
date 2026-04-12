@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { X, ArrowLeft, Clock, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
 import type { AppConfig } from '../types/config';
 import { getAllNodes, normalizeNodeIdentifier } from '../utils/nodeUtils';
@@ -175,7 +175,32 @@ const ResponseSparkline: React.FC<{
   records: HistoryRecord[];
   accentColor: string;
 }> = ({ records, accentColor }) => {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ clientX: number; clientY: number } | null>(null);
+
   const valid = records.filter(r => r.responseTime != null && r.status === 'online');
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (!svg || valid.length < 2) return;
+    const rect = svg.getBoundingClientRect();
+    const relX = ((e.clientX - rect.left) / rect.width) * W;
+    let closest = 0;
+    let minDist = Infinity;
+    for (let i = 0; i < valid.length; i++) {
+      const x = valid.length > 1 ? (i / (valid.length - 1)) * W : W / 2;
+      const d = Math.abs(x - relX);
+      if (d < minDist) { minDist = d; closest = i; }
+    }
+    setHoveredIndex(closest);
+    setTooltipPos({ clientX: e.clientX, clientY: e.clientY });
+  }, [valid.length]);
+
+  const handleMouseLeave = useCallback(() => {
+    setHoveredIndex(null);
+    setTooltipPos(null);
+  }, []);
 
   if (valid.length < 3) {
     return (
@@ -195,18 +220,28 @@ const ResponseSparkline: React.FC<{
   const H = 60;
   const pad = 6;
 
-  const pts = valid.map((r, i) => {
-    const x = (i / (valid.length - 1)) * W;
-    const y = H - pad - ((r.responseTime! - minT) / range) * (H - pad * 2);
-    return `${x},${y}`;
-  });
+  const pts = valid.map((r, i) => ({
+    x: (i / (valid.length - 1)) * W,
+    y: H - pad - ((r.responseTime! - minT) / range) * (H - pad * 2),
+    value: r.responseTime!,
+    timestamp: r.timestamp,
+  }));
 
-  const linePoints = pts.join(' ');
+  const linePoints = pts.map(p => `${p.x},${p.y}`).join(' ');
   const areaPoints = `0,${H} ${linePoints} ${W},${H}`;
+  const hovered = hoveredIndex !== null ? pts[hoveredIndex] : null;
 
   return (
-    <div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 60 }} preserveAspectRatio="none">
+    <div className="relative">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full cursor-crosshair"
+        style={{ height: 60 }}
+        preserveAspectRatio="none"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+      >
         <defs>
           <linearGradient id="rt-grad" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0%"   stopColor={accentColor} stopOpacity="0.25" />
@@ -222,13 +257,82 @@ const ResponseSparkline: React.FC<{
           strokeLinecap="round"
           strokeLinejoin="round"
         />
+        {/* Hover indicator */}
+        {hovered && (
+          <>
+            <line
+              x1={hovered.x} y1={pad}
+              x2={hovered.x} y2={H}
+              stroke={accentColor}
+              strokeWidth="1.5"
+              strokeDasharray="4,3"
+              strokeOpacity="0.5"
+            />
+            <circle cx={hovered.x} cy={hovered.y} r="6" fill={accentColor} fillOpacity="0.2" />
+            <circle cx={hovered.x} cy={hovered.y} r="4" fill={accentColor} />
+            <circle cx={hovered.x} cy={hovered.y} r="2" fill="white" />
+          </>
+        )}
       </svg>
+
+      {/* Floating tooltip */}
+      {hovered && tooltipPos && (
+        <div
+          className="fixed z-[200] pointer-events-none px-3 py-2 bg-gray-900 text-white rounded-lg shadow-xl text-xs"
+          style={{
+            left: tooltipPos.clientX,
+            top:  tooltipPos.clientY - 12,
+            transform: 'translate(-50%, -100%)',
+          }}
+        >
+          <div className="font-semibold font-roboto">{hovered.value}ms</div>
+          <div className="text-gray-400 font-roboto">{formatTimestamp(hovered.timestamp)}</div>
+        </div>
+      )}
+
       <div className="flex justify-between text-[10px] text-gray-400 mt-1 font-roboto">
         <span>min {minT}ms</span>
         <span>avg {avg}ms</span>
         <span>max {maxT}ms</span>
       </div>
     </div>
+  );
+};
+
+// ─── Uptime ring ─────────────────────────────────────────────────────────────
+
+const UptimeRing: React.FC<{ pct: number | null }> = ({ pct }) => {
+  const R = 28;
+  const circumference = 2 * Math.PI * R;
+  const filled = pct !== null ? (pct / 100) * circumference : 0;
+
+  const color = pct === null ? '#9ca3af'
+    : pct >= 99 ? '#10b981'
+    : pct >= 95 ? '#f59e0b'
+    : '#ef4444';
+
+  return (
+    <svg width="72" height="72" viewBox="0 0 72 72">
+      {/* Track */}
+      <circle cx="36" cy="36" r={R} fill="none" stroke="#e5e7eb" strokeWidth="6" />
+      {/* Progress — CSS rotation alone positions start at 12 o'clock, no offset needed */}
+      <circle
+        cx="36" cy="36" r={R}
+        fill="none"
+        stroke={color}
+        strokeWidth="6"
+        strokeLinecap="round"
+        strokeDasharray={`${filled} ${circumference}`}
+        style={{ transform: 'rotate(-90deg)', transformOrigin: '36px 36px', transition: 'stroke-dasharray 0.6s ease' }}
+      />
+      {/* Label */}
+      <text x="36" y="37" textAnchor="middle" fontSize="11" fontWeight="700" fill={color} fontFamily="monospace">
+        {pct !== null ? `${pct.toFixed(1)}%` : '—'}
+      </text>
+      <text x="36" y="49" textAnchor="middle" fontSize="9" fill="#9ca3af" fontFamily="sans-serif">
+        uptime
+      </text>
+    </svg>
   );
 };
 
@@ -280,25 +384,26 @@ const NodeHistoryView: React.FC<{
   return (
     <div className="space-y-6">
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-3">
-        <StatCard
-          label="Uptime"
-          value={stats.uptimePercent !== null ? `${stats.uptimePercent.toFixed(2)}%` : '—'}
-          colorClass={uptimeColor(stats.uptimePercent)}
-          icon={<CheckCircle className="w-3 h-3" />}
-        />
-        <StatCard
-          label="Outages"
-          value={String(stats.outageCount)}
-          colorClass={stats.outageCount > 0 ? 'text-red-600' : 'text-green-600'}
-          icon={<AlertCircle className="w-3 h-3" />}
-        />
-        <StatCard
-          label="Avg Response"
-          value={stats.avgResponseTime !== null ? `${stats.avgResponseTime}ms` : '—'}
-          colorClass="text-gray-700"
-          icon={<TrendingUp className="w-3 h-3" />}
-        />
+      <div className="flex items-stretch gap-3">
+        {/* Uptime ring — prominent visual */}
+        <div className="bg-gray-50 rounded-xl p-3 flex-shrink-0 flex items-center justify-center">
+          <UptimeRing pct={stats.uptimePercent} />
+        </div>
+        {/* Secondary stats */}
+        <div className="grid grid-cols-2 gap-3 flex-1">
+          <StatCard
+            label="Outages"
+            value={String(stats.outageCount)}
+            colorClass={stats.outageCount > 0 ? 'text-red-600' : 'text-green-600'}
+            icon={<AlertCircle className="w-3 h-3" />}
+          />
+          <StatCard
+            label="Avg Response"
+            value={stats.avgResponseTime !== null ? `${stats.avgResponseTime}ms` : '—'}
+            colorClass="text-gray-700"
+            icon={<TrendingUp className="w-3 h-3" />}
+          />
+        </div>
       </div>
 
       {/* Timeline */}

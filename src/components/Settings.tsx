@@ -1270,6 +1270,42 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                       Notify when a node comes online
                     </label>
                   </div>
+
+                  {/* Offline notification delay */}
+                  {config.webhooks?.statusNotifications?.notifyOffline && (
+                    <div className="pt-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Offline notification delay (seconds)
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step={30}
+                          value={config.webhooks?.statusNotifications?.notifyAfterSeconds ?? 0}
+                          onChange={(e) => {
+                            const val = Math.max(0, parseInt(e.target.value) || 0);
+                            setConfig({
+                              ...config,
+                              webhooks: {
+                                ...config.webhooks,
+                                statusNotifications: {
+                                  ...(config.webhooks?.statusNotifications || { endpoint: '', notifyOffline: false, notifyOnline: false }),
+                                  notifyAfterSeconds: val,
+                                }
+                              }
+                            });
+                          }}
+                          className="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 text-sm"
+                          style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
+                        />
+                        <span className="text-sm text-gray-500">seconds (0 = notify immediately)</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Wait this long before firing an offline alert. Useful to suppress transient blips.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Example Payload */}

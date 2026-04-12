@@ -13,7 +13,8 @@ export interface TreeNode {
   url?: string;         
   
   disableHealthCheck?: boolean; // Explicitly disable health checking even if port is provided
-  healthCheckType?: 'http' | 'minecraft' | 'plex' | 'disabled'; // Type of health check to perform
+  healthCheckType?: 'http' | 'ping' | 'minecraft' | 'plex' | 'disabled'; // Type of health check to perform
+  healthCheckInterval?: number; // Per-node check interval in ms — overrides the global setting
   disableEmbedded?: boolean; // Force opening in new tab instead of embedded iframe
   isInteractable?: boolean; // Whether the node can be clicked to open a URL
   
@@ -76,6 +77,7 @@ export interface WebhookConfig {
   endpoint: string;
   notifyOffline: boolean;
   notifyOnline: boolean;
+  notifyAfterSeconds?: number; // Delay before sending offline notifications (0 = immediate)
 }
 
 export interface WebhookSettings {

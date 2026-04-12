@@ -74,7 +74,8 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
       healthCheckPort: node.healthCheckPort,
       healthCheckType: node.healthCheckType,
       plexToken: node.plexToken,
-      disableHealthCheck: node.disableHealthCheck
+      disableHealthCheck: node.disableHealthCheck,
+      healthCheckInterval: node.healthCheckInterval,
     });
 
     // Don't retest if config hasn't changed
@@ -203,6 +204,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
             style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
           >
             <option value="http">Regular Health Check (HTTP/TCP)</option>
+            <option value="ping">ICMP Ping</option>
             <option value="minecraft">Minecraft Server</option>
             <option value="plex">Plex Media Server</option>
             <option value="disabled">Disable Health Checking</option>
@@ -237,6 +239,29 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
             </div>
             <p className="text-xs text-gray-500 mt-1">
               Required to fetch session count. Found in Plex XML feeds or URL.
+            </p>
+          </div>
+        )}
+
+        {/* Per-node check interval */}
+        {node.healthCheckType !== 'disabled' && !node.disableHealthCheck && (
+          <div className="col-span-1 md:col-span-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Check Interval (ms)</label>
+            <input
+              type="number"
+              min={5000}
+              step={1000}
+              value={node.healthCheckInterval ?? ''}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                onChange({ healthCheckInterval: val > 0 ? val : undefined });
+              }}
+              placeholder="Default (global setting)"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
+              style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Override the global check interval for this node. Leave empty to use the global setting.
             </p>
           </div>
         )}

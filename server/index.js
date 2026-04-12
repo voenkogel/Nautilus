@@ -6,9 +6,13 @@ import https from 'https';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { execSync } from 'child_process';
+import { execSync, exec } from 'child_process';
+import { promisify } from 'util';
+import os from 'os';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
+
+const execAsync = promisify(exec);
 
 // Import the webhook utility
 import { sendStatusWebhook } from './utils/webhooks.js';
@@ -324,6 +328,14 @@ const nodeStatuses = new Map();
 const consecutiveFailures = new Map();
 const OFFLINE_THRESHOLD = 2; // require this many consecutive failures before marking offline
 
+// Offline notification cooldown tracking (feature: notifyAfterSeconds)
+const offlineSince = new Map();    // identifier -> timestamp when first confirmed offline
+const offlineNotified = new Set(); // identifiers where offline webhook has already been sent this outage
+
+// Per-node check interval tracking
+const nodeLastChecked = new Map(); // identifier -> timestamp of last check
+const MIN_LOOP_INTERVAL = 5000;    // Base scheduling loop runs every 5 s minimum
+
 // Function to normalize a node identifier (IP or URL)
 function normalizeNodeIdentifier(identifier) {
   if (!identifier) return '';
@@ -588,6 +600,32 @@ async function performNodeCheck(nodeData) {
         streams: 0 // Ensure streams is defined even on error so UI can show it if needed (or at least not crash)
       };
     }
+  } else if (nodeData.healthCheckType === 'ping') {
+    // ICMP ping check
+    try {
+      const startTime = Date.now();
+      const isWindows = os.platform() === 'win32';
+      const pingCmd = isWindows
+        ? `ping -n 1 -w 2000 ${host}`
+        : `ping -c 1 -W 2 ${host}`;
+      const { stdout } = await execAsync(pingCmd, { timeout: 5000 });
+      const elapsed = Date.now() - startTime;
+      // Extract RTT from output: "time=1.23 ms" (Linux) or "time=1ms" (Windows)
+      const match = stdout.match(/time[<=](\d+\.?\d*)\s*ms/i);
+      const pingTime = match ? parseFloat(match[1]) : elapsed;
+      finalResult = {
+        status: 'online',
+        lastChecked: new Date().toISOString(),
+        responseTime: Math.round(pingTime),
+      };
+    } catch {
+      finalResult = {
+        status: 'offline',
+        lastChecked: new Date().toISOString(),
+        responseTime: 0,
+        error: 'Host unreachable',
+      };
+    }
   } else if (nodeData.healthCheckType === 'disabled' || nodeData.disableHealthCheck) {
      finalResult = {
        status: 'offline',
@@ -701,32 +739,60 @@ async function checkNodeHealth(identifier) {
   
   // Store using normalized identifier for consistent lookups
   nodeStatuses.set(normalizedIdentifier, finalResult);
-  
+
+  // Clear cooldown tracking when a node recovers
+  if (finalResult.status === 'online') {
+    offlineSince.delete(normalizedIdentifier);
+    offlineNotified.delete(normalizedIdentifier);
+  }
+
   let notification = null;
-  
-  if (shouldNotify) {
+
+  if (shouldNotify && appConfig.webhooks?.statusNotifications) {
     const nodeName = nodeData?.title || nodeData?.id || normalizedIdentifier;
-    console.log(`📢 [NOTIFICATION] Status change detected for "${nodeName}": ${previousStatus.status} → ${finalResult.status}`);
-    
-    // Prepare notification object but don't send it yet (batch processing will handle it)
-    if (appConfig.webhooks?.statusNotifications) {
-      const event = finalResult.status === 'online' ? 'online' : 'offline';
-      
+    const event = finalResult.status === 'online' ? 'online' : 'offline';
+    console.log(`📢 [NOTIFICATION] Status change for "${nodeName}": ${previousStatus.status} → ${finalResult.status}`);
+
+    const notifyDetails = {
+      error: finalResult.error,
+      responseTime: finalResult.responseTime,
+      endpoint: finalResult.endpoint,
+      statusCode: finalResult.statusCode,
+    };
+
+    if (event === 'online') {
+      // Online: always notify immediately
       notification = {
         identifier: normalizedIdentifier,
-        nodeName: nodeName,
-        event: event,
+        nodeName,
+        event,
         timestamp: new Date().toISOString(),
-        details: {
-          error: finalResult.error,
-          responseTime: finalResult.responseTime,
-          endpoint: finalResult.endpoint,
-          statusCode: finalResult.statusCode
-        }
+        details: notifyDetails,
       };
+    } else {
+      // Offline: respect notifyAfterSeconds cooldown
+      const notifyAfterMs = (appConfig.webhooks.statusNotifications.notifyAfterSeconds || 0) * 1000;
+      if (notifyAfterMs === 0) {
+        // Immediate (default behaviour — no change from before)
+        notification = {
+          identifier: normalizedIdentifier,
+          nodeName,
+          event,
+          timestamp: new Date().toISOString(),
+          details: notifyDetails,
+        };
+        offlineSince.set(normalizedIdentifier, Date.now());
+        offlineNotified.add(normalizedIdentifier);
+      } else {
+        // Deferred — record start time, notify later
+        if (!offlineSince.has(normalizedIdentifier)) {
+          offlineSince.set(normalizedIdentifier, Date.now());
+          console.log(`⏳ [NOTIFY] "${nodeName}" offline — notification deferred ${notifyAfterMs / 1000}s`);
+        }
+      }
     }
   }
-  
+
   // Return both result and notification
   return { ...finalResult, notification };
 }
@@ -919,26 +985,73 @@ async function processNotifications(notifications) {
   }
 }
 
+// Build deferred offline notifications whose cooldown has now elapsed
+function checkDeferredOfflineNotifications() {
+  if (!appConfig.webhooks?.statusNotifications) return [];
+  const notifyAfterMs = (appConfig.webhooks.statusNotifications.notifyAfterSeconds || 0) * 1000;
+  if (notifyAfterMs === 0) return []; // Nothing deferred when cooldown is 0
+
+  const now = Date.now();
+  const deferred = [];
+
+  for (const [identifier, since] of offlineSince.entries()) {
+    if (offlineNotified.has(identifier)) continue;       // Already sent
+    if (now - since < notifyAfterMs) continue;           // Cooldown not elapsed
+    const currentStatus = nodeStatuses.get(identifier);
+    if (currentStatus?.status !== 'offline') continue;  // Recovered before cooldown elapsed
+
+    offlineNotified.add(identifier);
+    const nodeData = findNodeByIdentifier(identifier);
+    const nodeName = nodeData?.title || nodeData?.id || identifier;
+    console.log(`📢 [NOTIFY] Deferred offline: "${nodeName}" (offline ${Math.round((now - since) / 1000)}s)`);
+
+    deferred.push({
+      identifier,
+      nodeName,
+      event: 'offline',
+      timestamp: new Date().toISOString(),
+      details: {
+        error: currentStatus?.error,
+        responseTime: currentStatus?.responseTime,
+      },
+    });
+  }
+
+  return deferred;
+}
+
 // Function to check all nodes
 async function checkAllNodes() {
-  // Use batching to control concurrency (Synchronous Asynchronous)
-  // This prevents "thundering herd" issues with 50+ nodes
+  const now = Date.now();
   const BATCH_SIZE = 10;
-  const queue = [...nodeIdentifiers];
+
+  // Only check nodes whose individual (or global) interval has elapsed
+  const dueIdentifiers = nodeIdentifiers.filter(id => {
+    const node = findNodeByIdentifier(normalizeNodeIdentifier(id));
+    const interval = (node?.healthCheckInterval != null && node.healthCheckInterval > 0)
+      ? node.healthCheckInterval
+      : appConfig.server.healthCheckInterval;
+    return now - (nodeLastChecked.get(id) || 0) >= interval;
+  });
+
+  // Mark all due nodes as checked now
+  dueIdentifiers.forEach(id => nodeLastChecked.set(id, now));
+
   const cycleNotifications = [];
-  
+  const queue = [...dueIdentifiers];
+
   while (queue.length > 0) {
     const batch = queue.splice(0, BATCH_SIZE);
-    
+
     const promises = batch.map(async (identifier) => {
       const { notification, ...result } = await checkNodeHealth(identifier);
-      
+
       if (notification) {
         cycleNotifications.push(notification);
       }
 
       const normalizedIdentifier = normalizeNodeIdentifier(identifier);
-      
+
       // Only log offline nodes with details
       if (result.status === 'offline') {
         const nodeData = findNodeByIdentifier(normalizedIdentifier);
@@ -946,25 +1059,27 @@ async function checkAllNodes() {
         const errorDetail = result.error ? ` (${result.error})` : '';
         console.log(`❌ ${displayName} (${normalizedIdentifier}): offline${errorDetail}`);
       }
-      
+
       return result;
     });
-    
-    // Wait for the current batch to finish before starting the next one
+
     await Promise.allSettled(promises);
   }
-  
-  // Process and send notifications (bundled or individual)
-  if (cycleNotifications.length > 0) {
-    await processNotifications(cycleNotifications);
+
+  // Merge deferred offline notifications whose cooldown has now elapsed
+  const deferred = checkDeferredOfflineNotifications();
+  const allNotifications = [...cycleNotifications, ...deferred];
+
+  if (allNotifications.length > 0) {
+    await processNotifications(allNotifications);
   }
-  
-  const statuses = Array.from(nodeStatuses.entries());
-  const onlineCount = statuses.filter(([_, status]) => status.status === 'online').length;
-  const offlineCount = statuses.filter(([_, status]) => status.status === 'offline').length;
-  
-  console.log(`✨ Health check complete: ${onlineCount}/${nodeIdentifiers.length} nodes online`);
-  
+
+  if (dueIdentifiers.length > 0) {
+    const statuses = Array.from(nodeStatuses.entries());
+    const onlineCount = statuses.filter(([_, s]) => s.status === 'online').length;
+    console.log(`✨ Health check complete: ${onlineCount}/${nodeIdentifiers.length} nodes online (${dueIdentifiers.length} checked this cycle)`);
+  }
+
   // Reset the initial health check flag after the first complete cycle to enable notifications
   if (initialHealthCheck) {
     initialHealthCheck = false;
@@ -972,15 +1087,17 @@ async function checkAllNodes() {
   }
 }
 
-// Recursive scheduling function to prevent overlapping checks
+// Recursive scheduling function to prevent overlapping checks.
+// Runs at MIN_LOOP_INTERVAL so nodes with custom shorter intervals are serviced promptly.
+// Each node is only actually checked when its own interval has elapsed.
 async function scheduleNextCheck() {
   try {
     await checkAllNodes();
   } catch (error) {
     console.error('❌ Critical error in health check loop:', error);
   } finally {
-    // Schedule next run only after this one completes
-    setTimeout(scheduleNextCheck, appConfig.server.healthCheckInterval);
+    const loopInterval = Math.min(appConfig.server.healthCheckInterval, MIN_LOOP_INTERVAL);
+    setTimeout(scheduleNextCheck, loopInterval);
   }
 }
 
