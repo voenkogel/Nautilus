@@ -32,6 +32,11 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/voenkogel/Nautilus/main
 
 This creates a fully configured Ubuntu LXC container with Nautilus, Nginx, and all dependencies.
 
+**One-command update** (run on the Proxmox host):
+```bash
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/voenkogel/Nautilus/main/scripts/proxmox-update.sh)"
+```
+
 ### Docker Deployment
 
 ```bash
@@ -259,6 +264,16 @@ bash -c "$(wget -qLO - https://raw.githubusercontent.com/voenkogel/Nautilus/main
 - Systemd service for auto-start
 - Firewall configuration
 - Automatic updates capability
+
+### Updating
+
+Run this on the Proxmox host to update an existing LXC installation to the latest version:
+
+```bash
+bash -c "$(wget -qLO - https://raw.githubusercontent.com/voenkogel/Nautilus/main/scripts/proxmox-update.sh)"
+```
+
+The script will detect your Nautilus container automatically, back up your config, pull the latest code, rebuild, and restart the service. Your configuration and data are preserved.
 
 ### Manual Proxmox Setup
 

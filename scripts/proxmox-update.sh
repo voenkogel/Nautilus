@@ -74,6 +74,7 @@ update_nautilus() {
     set -e
     cd /opt/nautilus
     npm run build
+    rm -rf server/public/*
     cp -r dist/* server/public/
   "; then
     msg_error "Frontend build failed — aborting update, service will restart with previous code"
