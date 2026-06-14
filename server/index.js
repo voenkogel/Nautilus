@@ -1101,8 +1101,13 @@ async function scheduleNextCheck() {
   }
 }
 
-// Initialize history database, then start health checks
-await initHistoryDb();
+// Initialize history database, then start health checks.
+// History is non-critical: never let a DB failure take down the whole server.
+try {
+  await initHistoryDb();
+} catch (err) {
+  console.error('❌ [HISTORY] Initialization failed, continuing without history:', err.message);
+}
 
 // Start the health checking loop
 scheduleNextCheck();

@@ -1,5 +1,5 @@
 import initSqlJs from 'sql.js';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -22,7 +22,11 @@ function flushToDisk() {
   try {
     const dbPath = getDbPath();
     const data   = db.export();          // Uint8Array
-    writeFileSync(dbPath, Buffer.from(data));
+    // Write to a temp file then atomically rename over the live DB, so an
+    // interrupted write (e.g. SIGKILL on shutdown) can never corrupt it.
+    const tmpPath = `${dbPath}.tmp`;
+    writeFileSync(tmpPath, Buffer.from(data));
+    renameSync(tmpPath, dbPath);
     dirty = false;
   } catch (err) {
     console.error('❌ [HISTORY] Failed to persist database:', err.message);
@@ -43,7 +47,20 @@ export async function initHistoryDb() {
   });
 
   if (existsSync(dbPath)) {
-    db = new SQL.Database(readFileSync(dbPath));
+    try {
+      db = new SQL.Database(readFileSync(dbPath));
+    } catch (err) {
+      // A corrupt/truncated history.db must NOT crash the whole server.
+      // Move it aside and start fresh so the dashboard still comes up.
+      const backupPath = `${dbPath}.corrupt-${Date.now()}`;
+      console.error(`❌ [HISTORY] Could not open ${dbPath} (${err.message}). Backing up to ${backupPath} and starting a fresh database.`);
+      try {
+        renameSync(dbPath, backupPath);
+      } catch (backupErr) {
+        console.error(`❌ [HISTORY] Failed to back up corrupt database: ${backupErr.message}`);
+      }
+      db = new SQL.Database();
+    }
   } else {
     db = new SQL.Database();
   }
@@ -69,10 +86,14 @@ export async function initHistoryDb() {
   // Flush to disk every 60 seconds
   setInterval(flushToDisk, 60_000);
 
-  // Flush on process exit / signals
+  // Flush on process exit / signals.
+  // SIGTERM/SIGINT handlers MUST call process.exit(): registering a listener
+  // overrides Node's default termination, so without an explicit exit the
+  // process would ignore `systemctl stop`/reboot, get SIGKILLed after the stop
+  // timeout, and risk corrupting the DB with a half-finished write.
   process.on('exit',    flushToDisk);
-  process.on('SIGTERM', () => { flushToDisk(); });
-  process.on('SIGINT',  () => { flushToDisk(); });
+  process.on('SIGTERM', () => { flushToDisk(); process.exit(0); });
+  process.on('SIGINT',  () => { flushToDisk(); process.exit(0); });
 
   console.log(`📚 [HISTORY] Database ready at ${dbPath}`);
 }
