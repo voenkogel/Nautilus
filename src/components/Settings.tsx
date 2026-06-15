@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, X, Plus, Trash2, Save, ChevronDown, ChevronRight, LogOut, Network, Download, Upload } from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
+import { findNodeById, countDescendants } from '../utils/nodeUtils';
 import { clearAuthentication, isAuthenticated } from '../utils/auth';
 import { downloadConfigBackup, createConfigFileInput } from '../utils/configBackup';
 import { useToast } from './Toast';
@@ -38,7 +39,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       favicon: initialConfig.appearance?.favicon ?? '',
       backgroundImage: initialConfig.appearance?.backgroundImage ?? '',
       logo: initialConfig.appearance?.logo ?? '',
-      disableBackground: (initialConfig.appearance as any)?.disableBackground ?? false
+      disableBackground: initialConfig.appearance?.disableBackground ?? false
     },
     tree: {
       nodes: initialConfig.tree?.nodes ?? []
@@ -469,23 +470,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }));
   };
 
-  // Helper function to count all descendants of a node
-  const countDescendants = (node: TreeNode): number => {
-    if (!node.children || node.children.length === 0) return 0;
-    return node.children.reduce((count, child) => count + 1 + countDescendants(child), 0);
-  };
-
-  // Helper function to find a node by ID
-  const findNodeById = (nodes: TreeNode[], id: string): TreeNode | null => {
-    for (const node of nodes) {
-      if (node.id === id) return node;
-      if (node.children) {
-        const found = findNodeById(node.children, id);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
+  // findNodeById and countDescendants are imported from utils/nodeUtils
 
   // Core delete function
   const performDeleteNode = (nodeId: string) => {

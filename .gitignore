@@ -28,6 +28,14 @@ dist-ssr
 config.json
 data/
 
+# Runtime history database (must never be committed: a `git reset --hard`
+# deploy would otherwise overwrite live history). Set NAUTILUS_DATA_DIR to a
+# persistent path outside the repo on the deployment.
+history.db*
+
+# Persisted network-scan results
+last_scan_results.json
+
 # Keep examples for setup guidance
 !.env.example
 !defaultConfig.json

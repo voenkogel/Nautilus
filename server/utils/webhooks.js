@@ -17,7 +17,20 @@ export async function sendStatusWebhook(config, nodeName, event, details = {}) {
   if (!config || !config.endpoint) {
     return { success: false, error: 'Webhook endpoint not configured' };
   }
-  
+
+  // Validate the endpoint is a well-formed http(s) URL. We intentionally allow
+  // private/LAN targets (self-hosted webhook receivers are normal in a homelab)
+  // but reject other schemes (file:, gopher:, etc.).
+  let endpointUrl;
+  try {
+    endpointUrl = new URL(config.endpoint);
+  } catch {
+    return { success: false, error: 'Webhook endpoint is not a valid URL' };
+  }
+  if (endpointUrl.protocol !== 'http:' && endpointUrl.protocol !== 'https:') {
+    return { success: false, error: 'Webhook endpoint must use http(s)' };
+  }
+
   if (event === 'online' && !config.notifyOnline) {
     return { success: false, error: 'Online notifications disabled' };
   }
@@ -60,6 +73,9 @@ export async function sendStatusWebhook(config, nodeName, event, details = {}) {
         'User-Agent': 'Nautilus-Monitor/1.0'
       },
       body: JSON.stringify(payload),
+      // Do not follow redirects: a malicious/compromised receiver could 3xx us
+      // toward an internal address (SSRF). A redirect is treated as a failure.
+      redirect: 'manual',
       signal: controller.signal
     });
     

@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import * as LucideIcons from 'lucide-react';
-import { Search, X } from 'lucide-react';
+import { Search, X, type LucideProps } from 'lucide-react';
+import { iconRegistry } from '../utils/iconUtils';
 
 interface IconPickerProps {
   currentIcon: string;
@@ -15,13 +16,13 @@ export const IconPicker: React.FC<IconPickerProps> = ({ currentIcon, onSelect, o
 
   // Get all available icons from Lucide
   const allIcons = useMemo(() => {
-    const iconList: { name: string; pascalName: string; component: any }[] = [];
+    const iconList: { name: string; pascalName: string; component: ComponentType<LucideProps> }[] = [];
     
     Object.keys(LucideIcons).forEach(key => {
       // Skip internal/utility exports
       if (key === 'createLucideIcon' || key === 'default') return;
       
-      const component = (LucideIcons as any)[key];
+      const component = iconRegistry[key];
       
       // Ensure it's a valid component (function or object with render)
       // Lucide icons are functional components

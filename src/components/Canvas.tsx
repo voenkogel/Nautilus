@@ -173,12 +173,22 @@ const Canvas: React.FC = () => {
       } else {
         console.warn('Failed to fetch config from server, using default');
         setCurrentConfig(initialAppConfig);
+        addToast({
+          type: 'error',
+          message: 'Could not load configuration from the server — showing defaults. Changes may not reflect the live config.',
+          duration: 6000
+        });
       }
     } catch (error) {
       console.warn('Failed to fetch config from server, using default:', error);
       setCurrentConfig(initialAppConfig);
+      addToast({
+        type: 'error',
+        message: 'Cannot reach the Nautilus server — showing default configuration. Check that the server is running.',
+        duration: 6000
+      });
     }
-  }, []);
+  }, [addToast]);
 
   // Wrapper function to handle authentication with state tracking
   const authenticateWithState = async (): Promise<boolean> => {

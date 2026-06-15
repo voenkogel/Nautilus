@@ -7,8 +7,8 @@ Nautilus now includes **server-side authentication** to protect configuration ch
 ## 🚨 Important Security Information
 
 ### Default Configuration
-- **Default Password**: `1234` (for development only)
-- **Production**: **MUST** change the password immediately
+- **No default password.** The server **refuses to start** unless `NAUTILUS_ADMIN_PASSWORD` is set, and it explicitly rejects the insecure value `1234`.
+- **Production**: use a strong, unique password (12+ chars). It is read from the environment only and is never committed (`.env` is git-ignored).
 
 ### What's Protected
 - ✅ **Settings Panel**: Requires authentication
@@ -61,6 +61,14 @@ NAUTILUS_HOST=localhost
    - Use firewalls appropriately
    - Consider VPN access for admin functions
 
+> ⚠️ **Internet-exposed deployments.** The read endpoints listed below are public at the application layer, and `GET /api/config` currently includes node **addresses** (internal IPs/ports, needed for status correlation). Until status/history are re-keyed to hide addresses (roadmap), you **must** front Nautilus with a reverse proxy that:
+> - enforces **HTTPS + HSTS** (terminate TLS at the proxy; redirect HTTP→HTTPS), and
+> - **restricts who can reach it** — proxy auth, an IP allow-list, or a VPN.
+>
+> The single shared admin password is the only application-layer gate, so a brute-force-resistant proxy front (and/or fail2ban on the login route) is strongly recommended.
+
+> 💾 **Persistent data.** Set `NAUTILUS_DATA_DIR` to a path **outside the git working tree** so the history database survives `git reset --hard` deploys. `history.db*` and `config.json` are git-ignored and must never be committed.
+
 ### 3. Authentication Flow
 
 1. **First Access**: User attempts to open settings or edit nodes
@@ -73,9 +81,12 @@ NAUTILUS_HOST=localhost
 ### 4. API Endpoints
 
 #### Public (No Authentication Required)
-- `GET /api/config` - Read configuration
+- `GET /api/config` - Read configuration (⚠️ currently includes node addresses — see Limitations)
 - `GET /api/status` - Node status monitoring
 - `GET /api/status/:id` - Individual node status
+- `GET /api/history`, `GET /api/history/:id` - Status history
+- `GET /api/network-scan/status` - Whether a scan is currently active
+- `GET /api/version` - Build version (git sha/tag)
 - `GET /health` - Basic health check
 
 #### Protected (Authentication Required)
@@ -86,12 +97,14 @@ NAUTILUS_HOST=localhost
 - `POST /api/network-scan/start` - Start network scan
 - `GET /api/network-scan/progress` - Get scan progress
 - `POST /api/network-scan/cancel` - Cancel network scan
+- `GET /api/minecraft/status` - Query a Minecraft server (now requires auth — closes an unauthenticated SSRF)
+- `POST /api/test-connection` - Test a node configuration
 
 ## 🔧 Development vs Production
 
 ### Development Mode
 - Uses `.env` file for configuration
-- Default password: `1234`
+- A password is still required — the server will not start without `NAUTILUS_ADMIN_PASSWORD` (and `1234` is rejected)
 - Session tokens stored in browser sessionStorage
 - Detailed error messages
 
@@ -171,10 +184,11 @@ Status indicators:
 
 ### Current Limitations
 - ❌ **No user management**: Single admin password only
-- ❌ **No rate limiting**: Basic delay only
+- ⚠️ **Rate limiting is login-only**: failed logins are rate-limited (5 attempts per IP → 15-minute lockout, plus a fixed 1s delay per failure), but the public read endpoints are **not** rate-limited yet
 - ❌ **In-memory sessions**: Lost on server restart
 - ❌ **No audit logging**: No change history tracking
 - ❌ **No 2FA**: Password-only authentication
+- ⚠️ **Public reads expose node addresses**: `GET /api/config` currently includes internal addresses/ports (needed for status correlation). Restrict access at the proxy until this is re-keyed (see roadmap).
 
 ### Future Enhancements (Roadmap)
 - Multi-user support with roles

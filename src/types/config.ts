@@ -43,6 +43,7 @@ export interface AppearanceConfig {
   logo?: string; // base64 encoded logo image (falls back to favicon if not set)
   accentColor: string;
   backgroundImage?: string; // base64 encoded background image
+  disableBackground?: boolean; // when true, the background image is not rendered
 }
 
 export interface GeneralConfig {

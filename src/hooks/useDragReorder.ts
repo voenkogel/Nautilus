@@ -1,9 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { TreeNode } from '../types/config';
-import { 
-  type PositionedNode, 
-  NODE_HEIGHT 
+import {
+  type PositionedNode,
+  NODE_HEIGHT
 } from '../utils/layoutUtils';
+import { findNodeById } from '../utils/nodeUtils';
 
 export interface DragState {
   isDragging: boolean;
@@ -41,20 +42,6 @@ interface UseDragReorderProps {
   isEditMode: boolean;
   onReorder: (nodeId: string, newParentId: string | null, insertIndex: number) => Promise<void>;
 }
-
-// Helper to find a node by ID in the tree
-const findNodeById = (nodes: TreeNode[], nodeId: string): TreeNode | null => {
-  for (const node of nodes) {
-    if (node.id === nodeId) {
-      return node;
-    }
-    if (node.children) {
-      const found = findNodeById(node.children, nodeId);
-      if (found) return found;
-    }
-  }
-  return null;
-};
 
 // Helper to check if a node is a descendant of another node
 const isDescendantOf = (nodeId: string, potentialAncestorId: string, rootNodes: TreeNode[]): boolean => {

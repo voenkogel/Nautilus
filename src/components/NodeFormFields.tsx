@@ -4,6 +4,7 @@ import * as LucideIcons from 'lucide-react';
 import { IconPicker } from './IconPicker';
 import Switch from './Switch';
 import { getAuthHeaders } from '../utils/auth';
+import { iconRegistry } from '../utils/iconUtils';
 
 interface NodeFormFieldsProps {
   node: TreeNode;
@@ -123,11 +124,11 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
     
     try {
       const pascalCaseName = kebabToPascal(iconName);
-      const IconComponent = (LucideIcons as any)[pascalCaseName];
+      const IconComponent = iconRegistry[pascalCaseName];
       if (IconComponent) {
         return <IconComponent size={size} />;
       }
-    } catch (error) {
+    } catch {
       // Ignore error
     }
     return <LucideIcons.HelpCircle size={size} className="text-gray-400" />;
@@ -327,7 +328,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                   borderColor: (node.type === type.value || (!node.type && type.value === 'square')) ? accentColor : undefined,
                   backgroundColor: (node.type === type.value || (!node.type && type.value === 'square')) ? `${accentColor}08` : undefined
                 }}
-                onClick={() => onChange({ type: type.value as any })}
+                onClick={() => onChange({ type: type.value as TreeNode['type'] })}
               >
                 <div className="text-sm font-medium text-gray-900">{type.label}</div>
                 <div className="text-xs text-gray-500">{type.subtitle}</div>

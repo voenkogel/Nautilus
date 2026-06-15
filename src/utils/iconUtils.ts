@@ -1,6 +1,8 @@
-import { createElement } from 'react';
+import { createElement, type ComponentType } from 'react';
 import { renderToString } from 'react-dom/server';
 import * as LucideIcons from 'lucide-react';
+import type { LucideProps } from 'lucide-react';
+import type { TreeNode } from '../types/config';
 
 // Cache for SVG strings and image objects
 export const iconSvgCache = new Map<string, string>();
@@ -14,11 +16,21 @@ export const iconNameToPascalCase = (name: string): string => {
     .join('');
 };
 
+// Typed view over the Lucide icon namespace for dynamic, name-based lookups
+// (replaces `LucideIcons as any` scattered across components).
+export const iconRegistry = LucideIcons as unknown as Record<string, ComponentType<LucideProps>>;
+
+/** Resolves an icon name (kebab or any case) to a Lucide component, or undefined. */
+export const getLucideIcon = (name: string): ComponentType<LucideProps> | undefined => {
+  if (!name) return undefined;
+  return iconRegistry[iconNameToPascalCase(name)];
+};
+
 // Extract all unique icons from the tree config
-export const extractIconsFromConfig = (nodes: any[]): Set<string> => {
+export const extractIconsFromConfig = (nodes: TreeNode[]): Set<string> => {
   const icons = new Set<string>();
-  
-  const processNode = (node: any) => {
+
+  const processNode = (node: TreeNode) => {
     if (node.icon) icons.add(node.icon);
     if (node.children && node.children.length > 0) {
       node.children.forEach(processNode);
@@ -34,7 +46,7 @@ export const generateIconSvg = (iconName: string, color: string): string => {
   try {
     // Convert icon name to PascalCase for Lucide component lookup
     const pascalCaseIcon = iconNameToPascalCase(iconName);
-    const IconComponent = (LucideIcons as any)[pascalCaseIcon];
+    const IconComponent = iconRegistry[pascalCaseIcon];
     
     if (IconComponent) {
       // Use Lucide React to generate SVG

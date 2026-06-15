@@ -3,28 +3,40 @@ import { NetworkScanService } from './network_scan_service.js';
 import cors from 'cors';
 import fetch from 'node-fetch';
 import https from 'https';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, chmodSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { execSync, exec } from 'child_process';
+import { execSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 
-const execAsync = promisify(exec);
+// execFile (not exec) runs the binary directly without a shell, so interpolated
+// arguments can never be interpreted as shell commands.
+const execFileAsync = promisify(execFile);
 
 // Import the webhook utility
 import { sendStatusWebhook } from './utils/webhooks.js';
 import { queryJavaServer, queryBedrockServer } from './utils/minecraft.js';
 import { queryPlexServer } from './utils/plex.js';
 import { initHistoryDb, recordStatusHistory, getNodeHistory, getAllNodesHistory, pruneOldHistory } from './utils/historyDb.js';
+import { isValidHost, validateScanSubnet } from './utils/validation.js';
 
 // Load environment variables from .env file
 dotenv.config();
 
 const app = express();
 // Note: express.json() is configured later with proper limits for image uploads
+
+// When deployed behind a reverse proxy (recommended for internet exposure), set
+// NAUTILUS_TRUST_PROXY so req.ip reflects the real client via X-Forwarded-For and
+// per-IP rate limiting / lockouts apply per client rather than per proxy. Value:
+// "true" (trust 1 hop), a hop count, or a subnet/IP. Leave unset for direct use.
+if (process.env.NAUTILUS_TRUST_PROXY) {
+  const tp = process.env.NAUTILUS_TRUST_PROXY;
+  app.set('trust proxy', tp === 'true' ? 1 : (/^\d+$/.test(tp) ? parseInt(tp, 10) : tp));
+}
 
 // --- Security Configuration ---
 
@@ -83,6 +95,14 @@ const AUTH_LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes
 // Generate secure session token
 const generateSessionToken = () => {
   return crypto.randomBytes(32).toString('hex');
+};
+
+// Constant-time credential comparison. Both inputs are hashed to a fixed-length
+// digest first, so neither the result nor the timing leaks the secret's length.
+const safeEqual = (a, b) => {
+  const ha = crypto.createHash('sha256').update(String(a)).digest();
+  const hb = crypto.createHash('sha256').update(String(b)).digest();
+  return crypto.timingSafeEqual(ha, hb);
 };
 
 // Check if IP is rate limited
@@ -301,7 +321,7 @@ app.use((req, res, next) => {
   // Content Security Policy
   res.setHeader('Content-Security-Policy', 
     "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline'; " +
+    "script-src 'self'; " +
     "style-src 'self' 'unsafe-inline'; " +
     "img-src 'self' data:; " +
     "connect-src 'self'; " +
@@ -319,7 +339,39 @@ app.use((req, res, next) => {
 
 // Increase JSON payload limit for image uploads (base64 encoded images can be large)
 app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.urlencoded({ limit: '1mb', extended: true }));
+
+// ── Rate limiting ──────────────────────────────────────────────────────────────
+// Dependency-free in-memory per-IP fixed-window limiter. This is an abuse/DoS
+// backstop for the public read endpoints, not a fine-grained quota. For
+// internet-exposed deployments the reverse proxy should ALSO rate-limit.
+function createRateLimiter({ windowMs, max }) {
+  const hits = new Map(); // ip -> { count, resetAt }
+  const timer = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, e] of hits.entries()) if (now > e.resetAt) hits.delete(ip);
+  }, windowMs);
+  if (timer.unref) timer.unref();
+  return (req, res, next) => {
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    const now = Date.now();
+    let e = hits.get(ip);
+    if (!e || now > e.resetAt) {
+      e = { count: 0, resetAt: now + windowMs };
+      hits.set(ip, e);
+    }
+    e.count++;
+    if (e.count > max) {
+      res.setHeader('Retry-After', Math.ceil((e.resetAt - now) / 1000));
+      return res.status(429).json({ error: 'Too Many Requests', message: 'Rate limit exceeded' });
+    }
+    next();
+  };
+}
+
+// 300 requests/min per IP across the public read endpoints — well above normal
+// dashboard polling, low enough to blunt scraping/DoS.
+const publicReadLimiter = createRateLimiter({ windowMs: 60_000, max: 300 });
 
 // Store for node statuses
 const nodeStatuses = new Map();
@@ -601,30 +653,41 @@ async function performNodeCheck(nodeData) {
       };
     }
   } else if (nodeData.healthCheckType === 'ping') {
-    // ICMP ping check
-    try {
-      const startTime = Date.now();
-      const isWindows = os.platform() === 'win32';
-      const pingCmd = isWindows
-        ? `ping -n 1 -w 2000 ${host}`
-        : `ping -c 1 -W 2 ${host}`;
-      const { stdout } = await execAsync(pingCmd, { timeout: 5000 });
-      const elapsed = Date.now() - startTime;
-      // Extract RTT from output: "time=1.23 ms" (Linux) or "time=1ms" (Windows)
-      const match = stdout.match(/time[<=](\d+\.?\d*)\s*ms/i);
-      const pingTime = match ? parseFloat(match[1]) : elapsed;
-      finalResult = {
-        status: 'online',
-        lastChecked: new Date().toISOString(),
-        responseTime: Math.round(pingTime),
-      };
-    } catch {
+    // ICMP ping check. The host is validated and ping is invoked via execFile
+    // (no shell), so a host value can never be reinterpreted as a shell command
+    // or a command-line flag.
+    if (!isValidHost(host)) {
       finalResult = {
         status: 'offline',
         lastChecked: new Date().toISOString(),
         responseTime: 0,
-        error: 'Host unreachable',
+        error: 'Invalid host',
       };
+    } else {
+      try {
+        const startTime = Date.now();
+        const isWindows = os.platform() === 'win32';
+        const pingArgs = isWindows
+          ? ['-n', '1', '-w', '2000', host]
+          : ['-c', '1', '-W', '2', host];
+        const { stdout } = await execFileAsync('ping', pingArgs, { timeout: 5000 });
+        const elapsed = Date.now() - startTime;
+        // Extract RTT from output: "time=1.23 ms" (Linux) or "time=1ms" (Windows)
+        const match = stdout.match(/time[<=](\d+\.?\d*)\s*ms/i);
+        const pingTime = match ? parseFloat(match[1]) : elapsed;
+        finalResult = {
+          status: 'online',
+          lastChecked: new Date().toISOString(),
+          responseTime: Math.round(pingTime),
+        };
+      } catch {
+        finalResult = {
+          status: 'offline',
+          lastChecked: new Date().toISOString(),
+          responseTime: 0,
+          error: 'Host unreachable',
+        };
+      }
     }
   } else if (nodeData.healthCheckType === 'disabled' || nodeData.disableHealthCheck) {
      finalResult = {
@@ -1142,7 +1205,7 @@ function mapHistoryRow(r) {
 }
 
 // All nodes history
-app.get('/api/history', (req, res) => {
+app.get('/api/history', publicReadLimiter, (req, res) => {
   const period  = req.query.period || '7d';
   const nowMs   = Date.now();
   const sinceMs = nowMs - parsePeriodMs(period);
@@ -1160,8 +1223,13 @@ app.get('/api/history', (req, res) => {
 });
 
 // Single node history
-app.get('/api/history/:nodeId', (req, res) => {
-  const nodeId  = decodeURIComponent(req.params.nodeId);
+app.get('/api/history/:nodeId', publicReadLimiter, (req, res) => {
+  let nodeId;
+  try {
+    nodeId = decodeURIComponent(req.params.nodeId);
+  } catch {
+    return res.status(400).json({ error: 'Invalid nodeId encoding' });
+  }
   const period  = req.query.period || '7d';
   const nowMs   = Date.now();
   const sinceMs = nowMs - parsePeriodMs(period);
@@ -1178,7 +1246,7 @@ app.get('/api/history/:nodeId', (req, res) => {
 });
 
 // API endpoint to get all node statuses
-app.get('/api/status', (req, res) => {
+app.get('/api/status', publicReadLimiter, (req, res) => {
   const statusObject = {};
   
   // The server stores statuses with normalized keys, but the client may expect 
@@ -1219,7 +1287,11 @@ app.post('/api/auth/login', (req, res) => {
     });
   }
   
-  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+  // Compute both comparisons up front (no short-circuit) so the response timing
+  // is constant regardless of which credential is wrong.
+  const validUsername = safeEqual(username, ADMIN_USERNAME);
+  const validPassword = safeEqual(password, ADMIN_PASSWORD);
+  if (!validUsername || !validPassword) {
     recordFailedAuth(clientIP);
     // Add a small delay to prevent brute force attacks
     setTimeout(() => {
@@ -1355,7 +1427,7 @@ function restoreSensitiveFields(newConfig, originalConfig) {
 }
 
 // API endpoint to get centralized config (public - read-only, but cleaner for admins)
-app.get('/api/config', (req, res) => {
+app.get('/api/config', publicReadLimiter, (req, res) => {
   let isAdmin = false;
   const authHeader = req.headers.authorization;
   
@@ -1437,7 +1509,29 @@ function validateConfig(config) {
     if (node.disableEmbedded && typeof node.disableEmbedded !== 'boolean') {
       return { valid: false, error: `Node at ${path || 'root'} disableEmbedded must be a boolean` };
     }
-    
+
+    // Length and range caps to reject oversized/abusive payloads.
+    const MAX_STR = 2048;
+    const stringFields = ['id', 'title', 'subtitle', 'icon', 'type', 'ip', 'url',
+      'internalAddress', 'externalAddress', 'healthCheckType', 'plexToken', 'apiKeys'];
+    for (const f of stringFields) {
+      if (typeof node[f] === 'string' && node[f].length > MAX_STR) {
+        return { valid: false, error: `Node at ${path || 'root'} ${f} exceeds ${MAX_STR} characters` };
+      }
+    }
+    if (node.healthCheckPort != null) {
+      const p = Number(node.healthCheckPort);
+      if (!Number.isInteger(p) || p < 1 || p > 65535) {
+        return { valid: false, error: `Node at ${path || 'root'} healthCheckPort must be between 1 and 65535` };
+      }
+    }
+    if (node.healthCheckInterval != null) {
+      const iv = Number(node.healthCheckInterval);
+      if (!Number.isFinite(iv) || iv < 0 || iv > 86_400_000) {
+        return { valid: false, error: `Node at ${path || 'root'} healthCheckInterval is out of range` };
+      }
+    }
+
     // Validate children if they exist
     if (node.children) {
       if (!Array.isArray(node.children)) {
@@ -1520,6 +1614,9 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     
     console.log(`🔧 NODE_ENV for config write: "${process.env.NODE_ENV}", using path: "${configPath}"`);
     writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2), 'utf8');
+    // config.json holds secrets (plexToken/apiKeys) — restrict to owner-only.
+    // Best-effort: no-op on platforms without POSIX permissions.
+    try { chmodSync(configPath, 0o600); } catch { /* ignore */ }
     console.log('📁 Configuration file written successfully');
     
     // Update the in-memory config only after successful file write
@@ -1548,20 +1645,24 @@ app.post('/api/config', authenticateRequest, (req, res) => {
   } catch (error) {
     console.error('❌ Error updating configuration:', error);
     console.error('Error stack:', error.stack);
-    console.error('Config data preview:', JSON.stringify(newConfig, null, 2).substring(0, 500) + '...');
-    res.status(500).json({ 
-      success: false, 
-      message: `Failed to update configuration: ${error.message}` 
+    // Generic message to the client; full details stay in the server log only.
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update configuration'
     });
   }
 });
 
 // API endpoint to get Minecraft server status
-app.get('/api/minecraft/status', async (req, res) => {
+// Requires auth: this endpoint connects to an arbitrary host:port, so leaving it
+// public would expose an unauthenticated SSRF / internal port-prober. It is not
+// used by the frontend (Minecraft status flows through /api/status), but is kept
+// for authenticated external/API callers.
+app.get('/api/minecraft/status', authenticateRequest, async (req, res) => {
   const { host, port, type } = req.query;
 
-  if (!host) {
-    return res.status(400).json({ error: 'Host is required' });
+  if (!host || !isValidHost(host)) {
+    return res.status(400).json({ error: 'A valid host is required' });
   }
 
   const serverPort = parseInt(port) || (type === 'bedrock' ? 19132 : 25565);
@@ -1585,7 +1686,7 @@ app.get('/api/minecraft/status', async (req, res) => {
 });
 
 // API endpoint to get status for a specific node
-app.get('/api/status/:ip', (req, res) => {
+app.get('/api/status/:ip', publicReadLimiter, (req, res) => {
   const ip = req.params.ip;
   const status = nodeStatuses.get(ip);
   
@@ -1624,7 +1725,7 @@ function getVersionInfo() {
   return _versionCache;
 }
 
-app.get('/api/version', (req, res) => {
+app.get('/api/version', publicReadLimiter, (req, res) => {
   res.json(getVersionInfo());
 });
 
@@ -1634,9 +1735,18 @@ const networkScanService = new NetworkScanService();
 
 app.post('/api/network-scan/start', authenticateRequest, (req, res) => {
   try {
-    const subnet = req.body && req.body.subnet ? req.body.subnet : '10.20.148.0/16';
+    const requested = req.body && req.body.subnet ? req.body.subnet : '10.20.148.0/16';
+    // Validate before handing the value to nmap: enforce IPv4 CIDR, a sane size
+    // cap, and RFC-1918-only ranges (prevents nmap flag injection, resource
+    // exhaustion, and scanning of arbitrary external networks).
+    const validated = validateScanSubnet(requested);
+    if (!validated.valid) {
+      console.warn(`⚠️  [NETWORK-SCAN] Rejected subnet "${requested}": ${validated.error}`);
+      return res.status(400).json({ success: false, error: validated.error });
+    }
+    const subnet = validated.subnet;
     console.log(`🔍 [NETWORK-SCAN] Starting scan for subnet: ${subnet}`);
-    
+
     networkScanService.start_scan({ subnet });
     
     console.log(`✅ [NETWORK-SCAN] Scan started successfully for subnet: ${subnet}`);
@@ -1652,7 +1762,7 @@ app.get('/api/network-scan/progress', authenticateRequest, (req, res) => {
 });
 
 // Public endpoint to check if scan is active (no auth required)
-app.get('/api/network-scan/status', (req, res) => {
+app.get('/api/network-scan/status', publicReadLimiter, (req, res) => {
   const progress = networkScanService.get_progress();
   const isActive = progress.status === 'starting' || progress.status === 'scanning';
   const hasRecentResults = networkScanService.has_recent_results();
