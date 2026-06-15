@@ -134,6 +134,28 @@ export const getNodeTargetUrl = (node: TreeNode): string | null => {
  * @param insertIndex - The index to insert at within the new parent's children
  * @returns The updated nodes array
  */
+/**
+ * Find a node's parent id, its index among its siblings, and the sibling count.
+ * Used by keyboard reorder (A11Y-3) to move a node within its sibling list.
+ */
+export const getNodeSiblingPosition = (
+  nodes: TreeNode[],
+  nodeId: string,
+  parentId: string | null = null
+): { parentId: string | null; index: number; siblingCount: number } | null => {
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i].id === nodeId) {
+      return { parentId, index: i, siblingCount: nodes.length };
+    }
+    const children = nodes[i].children;
+    if (children && children.length > 0) {
+      const found = getNodeSiblingPosition(children, nodeId, nodes[i].id);
+      if (found) return found;
+    }
+  }
+  return null;
+};
+
 export const reorderNode = (
   nodes: TreeNode[],
   nodeId: string,

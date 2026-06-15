@@ -17,6 +17,9 @@ type ConnectionTestStatus = 'idle' | 'testing' | 'online' | 'offline';
 
 export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, appearance }) => {
   const accentColor = appearance.accentColor || '#3b82f6';
+  // UX-4: inline validation for the per-node check interval (must be >= 5 seconds)
+  const MIN_CHECK_INTERVAL = 5000;
+  const intervalInvalid = typeof node.healthCheckInterval === 'number' && node.healthCheckInterval < MIN_CHECK_INTERVAL;
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [showPlexToken, setShowPlexToken] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionTestStatus>('idle');
@@ -252,9 +255,9 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
             <label htmlFor={`${node.id}-checkInterval`} className="block text-sm font-medium text-gray-700 mb-1">Check Interval (ms)</label>
             <FormInput
               id={`${node.id}-checkInterval`}
-              accentColor={accentColor}
+              accentColor={intervalInvalid ? undefined : accentColor}
               type="number"
-              min={5000}
+              min={MIN_CHECK_INTERVAL}
               step={1000}
               value={node.healthCheckInterval ?? ''}
               onChange={(e) => {
@@ -262,9 +265,17 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                 onChange({ healthCheckInterval: val > 0 ? val : undefined });
               }}
               placeholder="Default (global setting)"
+              aria-invalid={intervalInvalid}
+              aria-describedby={`${node.id}-checkInterval-help`}
+              className={intervalInvalid ? 'border-red-400 focus:ring-red-300' : ''}
             />
-            <p className="text-xs text-gray-500 mt-1">
-              Override the global check interval for this node. Leave empty to use the global setting.
+            <p
+              id={`${node.id}-checkInterval-help`}
+              className={`text-xs mt-1 ${intervalInvalid ? 'text-red-600' : 'text-gray-500'}`}
+            >
+              {intervalInvalid
+                ? 'Must be at least 5000 ms (5 seconds).'
+                : 'Override the global check interval for this node. Leave empty to use the global setting.'}
             </p>
           </div>
         )}

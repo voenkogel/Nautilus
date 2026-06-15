@@ -115,12 +115,13 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
           </div>
         )}
         
-        <NodeCard 
+        <NodeCard
           node={node}
           status={status}
           onClick={onNodeClick}
           isEditMode={isEditMode}
           isInteractable={!!getNodeTargetUrl(node)}
+          interactive={isEditMode || !!getNodeTargetUrl(node)}
           className="z-10"
           style={{ 
             marginLeft: `${level * connectionOffset}px`,
@@ -154,8 +155,8 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
       {activeFilter && filteredNodes ? (
         /* ── Filtered flat view ── */
         <div>
-          {/* Filter banner */}
-          <div className="mx-4 mt-3 mb-1">
+          {/* Filter banner — sticky so the active filter stays visible while scrolling (UX-7) */}
+          <div className="sticky top-0 z-20 mx-4 mt-3 mb-1">
             <div
               className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-white/95 border shadow-sm"
               style={{ borderColor: `${filterColor}45` }}
@@ -195,6 +196,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
                     onClick={onNodeClick}
                     isEditMode={isEditMode}
                     isInteractable={!!getNodeTargetUrl(node)}
+                    interactive={isEditMode || !!getNodeTargetUrl(node)}
                     style={{ marginBottom: '12px', height: '88px' }}
                   />
                 );

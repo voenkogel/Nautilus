@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, X, Plus, Trash2, Save, ChevronDown, ChevronRight, LogOut, Network, Download, Upload } from 'lucide-react';
+import { Settings as SettingsIcon, X, Plus, Trash2, Save, LogOut, Network, Download, Upload } from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
 import { findNodeById, countDescendants } from '../utils/nodeUtils';
 import { clearAuthentication, isAuthenticated } from '../utils/auth';
@@ -7,7 +7,7 @@ import { downloadConfigBackup, createConfigFileInput } from '../utils/configBack
 import { useToast } from './Toast';
 import { ConfirmDialog } from './ConfirmDialog';
 
-import { NodeFormFields } from './NodeFormFields';
+import { SettingsNodeTree } from './settings/SettingsNodeTree';
 import Switch from './Switch';
 
 interface SettingsProps {
@@ -312,6 +312,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
         // Note: No dimension restrictions for logo field - any size should work
         // All checks passed, update config
         updateAppearanceConfig(field, base64);
+        const fieldLabel = field === 'backgroundImage' ? 'Background image' : field === 'favicon' ? 'Favicon' : 'Logo';
+        addToast({ type: 'success', message: `${fieldLabel} updated`, duration: 2000 });
       };
 
       img.onerror = () => {
@@ -330,6 +332,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     
     try {
       await onSave(config);
+      addToast({ type: 'success', message: 'Settings saved', duration: 2000 });
       onClose();
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -565,88 +568,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
 
 
 
-  const renderNodeEditor = (node: TreeNode, level: number = 0): React.ReactNode => {
-    const isCollapsed = collapsedNodes.has(node.id);
-    const hasChildren = node.children && node.children.length > 0;
-    
-    return (
-      <div key={node.id} className="relative">
-        <div 
-          className="border border-gray-200 rounded-lg bg-white shadow-sm mb-2"
-          style={{ 
-            width: level > 0 ? `calc(100% - ${level * 24}px)` : '100%',
-            marginLeft: level > 0 ? `${level * 24}px` : '0'
-          }}
-        >
-          <div className="p-3">
-            <div 
-              className={`flex items-center justify-between cursor-pointer ${isCollapsed ? '' : 'mb-2'}`}
-              onClick={() => toggleNodeCollapse(node.id)}
-            >
-              <div className="flex items-center space-x-2">
-                {/* Always show expand/collapse button for better tree navigation */}
-                <button
-                  className="p-1 text-gray-600 hover:bg-gray-200 rounded transition-colors"
-                  title={isCollapsed ? "Expand node details" : "Collapse node details"}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleNodeCollapse(node.id);
-                  }}
-                >
-                  {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                </button>
-                <h4 className="font-medium text-gray-800">
-                  {node.title}
-                </h4>
-              </div>
-              <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
-                {isLoggedIn && (
-                  <>
-                    <button
-                      onClick={() => addChildNode(node.id)}
-                      className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors"
-                      title="Add child node"
-                    >
-                      <Plus size={16} />
-                    </button>
-                    <button
-                      onClick={() => deleteNode(node.id)}
-                      className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
-                      title="Delete node"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-            
-            {/* Show detailed form only when expanded */}
-            {!isCollapsed && (
-              <div className="mt-4">
-                <NodeFormFields 
-                  node={node} 
-                  onChange={(updates) => updateNode(node.id, updates)}
-                  appearance={config.appearance}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-        
-        {/* Render children with tighter spacing */}
-        {hasChildren && (
-          <div className="space-y-1">
-            {node.children!.map((child) => (
-              <div key={child.id}>
-                {renderNodeEditor(child, level + 1)}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
+  // Node tree extracted to <SettingsNodeTree /> (ARCH-2c)
 
   const renderAppearanceTab = () => (
     <div className="space-y-6">
@@ -864,6 +786,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           </div>
           <button
             onClick={onClose}
+            aria-label="Close settings"
             className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
           >
             <X size={20} />
@@ -1098,7 +1021,19 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                 </div>
               </div>
               <div className="space-y-4">
-                {config.tree.nodes.map(node => renderNodeEditor(node))}
+                {config.tree.nodes.map(node => (
+                  <SettingsNodeTree
+                    key={node.id}
+                    node={node}
+                    collapsedNodes={collapsedNodes}
+                    isLoggedIn={isLoggedIn}
+                    appearance={config.appearance}
+                    onToggleCollapse={toggleNodeCollapse}
+                    onAddChild={addChildNode}
+                    onDelete={deleteNode}
+                    onUpdateNode={updateNode}
+                  />
+                ))}
               </div>
               {/* Confirmation Modal Overlay */}
               {showClearNodesConfirm && (
@@ -1358,6 +1293,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                   <div className="-mx-1.5 -my-1.5">
                     <button
                       onClick={() => setSaveError(null)}
+                      aria-label="Dismiss error"
                       className="inline-flex rounded-md bg-red-50 p-1.5 text-red-500 hover:bg-red-100"
                     >
                       <X className="h-4 w-4" />

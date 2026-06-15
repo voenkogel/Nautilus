@@ -10,7 +10,6 @@ import { execSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import os from 'os';
 import dotenv from 'dotenv';
-import crypto from 'crypto';
 
 // execFile (not exec) runs the binary directly without a shell, so interpolated
 // arguments can never be interpreted as shell commands.
@@ -22,6 +21,18 @@ import { queryJavaServer, queryBedrockServer } from './utils/minecraft.js';
 import { queryPlexServer } from './utils/plex.js';
 import { initHistoryDb, recordStatusHistory, getNodeHistory, getAllNodesHistory, pruneOldHistory } from './utils/historyDb.js';
 import { isValidHost, validateScanSubnet } from './utils/validation.js';
+import {
+  authenticateRequest,
+  generateSessionToken,
+  safeEqual,
+  isRateLimited,
+  recordFailedAuth,
+  clearAuthAttempts,
+  registerSession,
+  destroySession,
+  touchSession,
+} from './middleware/auth.js';
+import { publicReadLimiter } from './middleware/rateLimit.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -84,102 +95,6 @@ if (!ADMIN_PASSWORD || ADMIN_PASSWORD === '1234') {
   console.log('');
 }
 
-// Session storage for authenticated sessions (in production, use Redis or database)
-const authenticatedSessions = new Map();
-
-// Rate limiting for authentication attempts
-const authAttempts = new Map();
-const MAX_AUTH_ATTEMPTS = 5;
-const AUTH_LOCKOUT_TIME = 15 * 60 * 1000; // 15 minutes
-
-// Generate secure session token
-const generateSessionToken = () => {
-  return crypto.randomBytes(32).toString('hex');
-};
-
-// Constant-time credential comparison. Both inputs are hashed to a fixed-length
-// digest first, so neither the result nor the timing leaks the secret's length.
-const safeEqual = (a, b) => {
-  const ha = crypto.createHash('sha256').update(String(a)).digest();
-  const hb = crypto.createHash('sha256').update(String(b)).digest();
-  return crypto.timingSafeEqual(ha, hb);
-};
-
-// Check if IP is rate limited
-const isRateLimited = (ip) => {
-  const attempts = authAttempts.get(ip);
-  if (!attempts) return false;
-  
-  if (attempts.count >= MAX_AUTH_ATTEMPTS) {
-    const timeSinceLastAttempt = Date.now() - attempts.lastAttempt;
-    if (timeSinceLastAttempt < AUTH_LOCKOUT_TIME) {
-      return true;
-    } else {
-      // Reset attempts after lockout period
-      authAttempts.delete(ip);
-      return false;
-    }
-  }
-  
-  return false;
-};
-
-// Record failed authentication attempt
-const recordFailedAuth = (ip) => {
-  const attempts = authAttempts.get(ip) || { count: 0, lastAttempt: 0 };
-  attempts.count++;
-  attempts.lastAttempt = Date.now();
-  authAttempts.set(ip, attempts);
-};
-
-// Clear successful authentication attempts
-const clearAuthAttempts = (ip) => {
-  authAttempts.delete(ip);
-};
-
-// Middleware to authenticate requests
-const authenticateRequest = (req, res, next) => {
-  const clientIp = req.ip || req.connection.remoteAddress || req.headers['x-forwarded-for'] || 'unknown';
-  
-  const authHeader = req.headers.authorization;
-  
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    console.log(`❌ [AUTH] Unauthenticated request from ${clientIp} to ${req.method} ${req.path} (missing/invalid auth header)`);
-    return res.status(401).json({ 
-      error: 'Unauthorized', 
-      message: 'Missing or invalid authorization header' 
-    });
-  }
-  
-  const token = authHeader.substring(7); // Remove 'Bearer ' prefix
-  
-  if (!authenticatedSessions.has(token)) {
-    console.log(`❌ [AUTH] Invalid session token from ${clientIp} to ${req.method} ${req.path} (token: ${token.substring(0, 8)}...)`);
-    return res.status(401).json({ 
-      error: 'Unauthorized', 
-      message: 'Invalid or expired session token' 
-    });
-  }
-  
-  // Update session timestamp
-  authenticatedSessions.set(token, Date.now());
-  next();
-};
-
-// Clean up expired sessions (older than 24 hours)
-const cleanupExpiredSessions = () => {
-  const now = Date.now();
-  const maxAge = 24 * 60 * 60 * 1000; // 24 hours
-  
-  for (const [token, timestamp] of authenticatedSessions.entries()) {
-    if (now - timestamp > maxAge) {
-      authenticatedSessions.delete(token);
-    }
-  }
-};
-
-// Clean up expired sessions every hour
-setInterval(cleanupExpiredSessions, 60 * 60 * 1000);
 
 // Get current directory (ES module equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -342,36 +257,7 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
 
 // ── Rate limiting ──────────────────────────────────────────────────────────────
-// Dependency-free in-memory per-IP fixed-window limiter. This is an abuse/DoS
-// backstop for the public read endpoints, not a fine-grained quota. For
-// internet-exposed deployments the reverse proxy should ALSO rate-limit.
-function createRateLimiter({ windowMs, max }) {
-  const hits = new Map(); // ip -> { count, resetAt }
-  const timer = setInterval(() => {
-    const now = Date.now();
-    for (const [ip, e] of hits.entries()) if (now > e.resetAt) hits.delete(ip);
-  }, windowMs);
-  if (timer.unref) timer.unref();
-  return (req, res, next) => {
-    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
-    const now = Date.now();
-    let e = hits.get(ip);
-    if (!e || now > e.resetAt) {
-      e = { count: 0, resetAt: now + windowMs };
-      hits.set(ip, e);
-    }
-    e.count++;
-    if (e.count > max) {
-      res.setHeader('Retry-After', Math.ceil((e.resetAt - now) / 1000));
-      return res.status(429).json({ error: 'Too Many Requests', message: 'Rate limit exceeded' });
-    }
-    next();
-  };
-}
-
-// 300 requests/min per IP across the public read endpoints — well above normal
-// dashboard polling, low enough to blunt scraping/DoS.
-const publicReadLimiter = createRateLimiter({ windowMs: 60_000, max: 300 });
+// Implemented in middleware/rateLimit.js (publicReadLimiter imported above).
 
 // Store for node statuses
 const nodeStatuses = new Map();
@@ -1339,7 +1225,7 @@ app.post('/api/auth/login', (req, res) => {
   
   // Generate session token
   const token = generateSessionToken();
-  authenticatedSessions.set(token, Date.now());
+  registerSession(token);
   
   res.json({ 
     success: true, 
@@ -1362,7 +1248,7 @@ app.post('/api/auth/logout', (req, res) => {
   
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    authenticatedSessions.delete(token);
+    destroySession(token);
   }
   
   res.json({ 
@@ -1502,10 +1388,9 @@ app.get('/api/config', publicReadLimiter, (req, res) => {
   
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-    if (authenticatedSessions.has(token)) {
+    // Valid session token → treat as admin (and refresh its timestamp)
+    if (touchSession(token)) {
       isAdmin = true;
-      // Update session timestamp for valid admin sessions
-      authenticatedSessions.set(token, Date.now());
     }
   }
 

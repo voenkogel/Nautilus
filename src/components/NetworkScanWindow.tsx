@@ -2,103 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { TreeNode, AppConfig } from '../types/config';
 import { getAuthHeaders, hasAuthToken, authenticate } from '../utils/auth';
 import ReactDOM from 'react-dom';
+import { Stepper } from './network-scan/Stepper';
+import { CancelConfirmDialog } from './network-scan/CancelConfirmDialog';
 
 // Helper function to generate unique IDs for nodes
 const generateUniqueId = () => {
   return Date.now().toString(36) + Math.random().toString(36).substr(2);
-};
-
-// Stepper Component
-interface StepperProps {
-  currentPhase: string;
-  accentColor: string;
-}
-
-const Stepper: React.FC<StepperProps> = ({ currentPhase, accentColor }) => {
-  const steps = [
-    { id: 'ping', label: 'Discover Hosts', description: 'Finding active devices' },
-    { id: 'port', label: 'Scan Ports', description: 'Identifying open ports' },
-    { id: 'probe', label: 'Find Web GUIs', description: 'Detecting web interfaces' }
-  ];
-
-  const getStepStatus = (stepId: string) => {
-    const stepIndex = steps.findIndex(step => step.id === stepId);
-    const currentIndex = steps.findIndex(step => step.id === currentPhase);
-    
-    if (stepIndex < currentIndex) return 'completed';
-    if (stepIndex === currentIndex) return 'active';
-    return 'pending';
-  };
-
-  return (
-    <div className="mb-6">
-      <div className="flex items-center w-full">
-        {steps.map((step, index) => {
-          const status = getStepStatus(step.id);
-          return (
-            <div key={step.id} className="flex items-center flex-1">
-              {/* Step Circle */}
-              <div className="flex flex-col items-center w-full">
-                <div
-                  className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
-                    status === 'completed'
-                      ? 'border-green-500 bg-green-500 text-white'
-                      : status === 'active'
-                      ? 'border-2 text-white'
-                      : 'border-gray-300 bg-gray-100 text-gray-400'
-                  }`}
-                  style={{
-                    borderColor: status === 'active' ? accentColor : undefined,
-                    backgroundColor: status === 'active' ? accentColor : undefined,
-                  }}
-                >
-                  {status === 'completed' ? (
-                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                    </svg>
-                  ) : status === 'active' ? (
-                    <svg className="animate-spin w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <circle className="opacity-0" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v2a6 6 0 00-6 6H4z" />
-                    </svg>
-                  ) : (
-                    <span className="text-sm font-semibold">{index + 1}</span>
-                  )}
-                </div>
-                <div className="text-center mt-2">
-                  <div className={`text-sm font-semibold ${status === 'active' ? 'text-gray-800' : status === 'completed' ? 'text-green-600' : 'text-gray-400'}`}>
-                    {step.label}
-                  </div>
-                  <div className={`text-xs ${status === 'active' ? 'text-gray-600' : 'text-gray-400'}`}>
-                    {step.description}
-                  </div>
-                </div>
-              </div>
-              
-              {/* Connector Line */}
-              {index < steps.length - 1 && (
-                <div className="flex-1 h-0.5 mx-4 mt-5">
-                  <div
-                    className={`h-full transition-all duration-300 ${
-                      getStepStatus(steps[index + 1].id) === 'completed' || 
-                      (getStepStatus(steps[index + 1].id) === 'active' && status === 'completed')
-                        ? 'bg-green-500'
-                        : getStepStatus(steps[index + 1].id) === 'active'
-                        ? 'bg-gray-300'
-                        : 'bg-gray-300'
-                    }`}
-                    style={{
-                      backgroundColor: getStepStatus(steps[index + 1].id) === 'active' && status === 'completed' ? accentColor : undefined
-                    }}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
 };
 
 // ...existing state/utility declarations...
@@ -1369,62 +1278,36 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
 
         {/* Cancel Confirmation Dialog */}
         {showCancelConfirm && (
-          <div 
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1002]"
-            onClick={() => setShowCancelConfirm(false)}
-          >
-            <div 
-              className="bg-white rounded-lg p-6 max-w-md mx-4 shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">
-                Discard Scan Results?
-              </h3>
-              <p className="text-gray-600 mb-6">
-                Are you sure you want to cancel? All scan results will be lost and cannot be recovered.
-              </p>
-              <div className="flex gap-3 justify-end">
-                <button
-                  className="px-4 py-2 text-gray-600 bg-gray-100 hover:bg-gray-200 rounded font-medium transition-colors"
-                  onClick={() => setShowCancelConfirm(false)}
-                >
-                  Keep Results
-                </button>
-                <button
-                  className="px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded font-medium transition-colors"
-                  onClick={() => {
-                    // Reset to initial state and close
-                    clearSavedScanResults(); // Clear persisted results
-                    setScanCompleted(false);
-                    setActiveHosts([]);
-                    setOpenPorts({});
-                    setWebGuis({});
-                    setSelectedItems(new Set());
-                    setFilterMode('web-devices');
-                    setShowLogs(false);
-                    setLogs([]);
-                    setProgress(0);
-                    setCurrentPhase('idle');
-                    setLogsCollapsed(false);
-                    setShowCancelConfirm(false);
-                    
-                    // Reset enhanced progress tracking state
-                    setTotalExpectedHosts(0);
-                    setTotalHostsScanned(0);
-                    setCurrentChunk(0);
-                    setTotalChunks(0);
-                    
-                    if (setScanActive) setScanActive(false);
-                    if (typeof window !== 'undefined' && window.dispatchEvent) {
-                      window.dispatchEvent(new CustomEvent('closeScanWindow'));
-                    }
-                  }}
-                >
-                  Discard Results
-                </button>
-              </div>
-            </div>
-          </div>
+          <CancelConfirmDialog
+            onKeep={() => setShowCancelConfirm(false)}
+            onDiscard={() => {
+              // Reset to initial state and close
+              clearSavedScanResults(); // Clear persisted results
+              setScanCompleted(false);
+              setActiveHosts([]);
+              setOpenPorts({});
+              setWebGuis({});
+              setSelectedItems(new Set());
+              setFilterMode('web-devices');
+              setShowLogs(false);
+              setLogs([]);
+              setProgress(0);
+              setCurrentPhase('idle');
+              setLogsCollapsed(false);
+              setShowCancelConfirm(false);
+
+              // Reset enhanced progress tracking state
+              setTotalExpectedHosts(0);
+              setTotalHostsScanned(0);
+              setCurrentChunk(0);
+              setTotalChunks(0);
+
+              if (setScanActive) setScanActive(false);
+              if (typeof window !== 'undefined' && window.dispatchEvent) {
+                window.dispatchEvent(new CustomEvent('closeScanWindow'));
+              }
+            }}
+          />
         )}
       </div>
     </div>,

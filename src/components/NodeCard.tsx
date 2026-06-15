@@ -35,6 +35,8 @@ interface NodeCardProps {
   style?: React.CSSProperties;
   isEditMode?: boolean;
   isInteractable?: boolean;
+  /** When true, render the card as a keyboard-operable button (mobile list — A11Y-3) */
+  interactive?: boolean;
   accentColor?: string;
 }
 
@@ -46,6 +48,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
   style = {},
   isEditMode = false,
   isInteractable = false,
+  interactive = false,
   accentColor
 }) => {
   const { title, subtitle, icon, type } = node;
@@ -77,6 +80,12 @@ const NodeCard: React.FC<NodeCardProps> = ({
   const isMonitoringDisabled = !isNodeMonitored(node);
   const statusColor = getStatusColor(status, !isMonitoringDisabled);
   const isChecking = !isMonitoringDisabled && status?.status === 'checking';
+  // Accessible status (color alone is not sufficient — A11Y-4)
+  const statusLabel = isMonitoringDisabled
+    ? `${title}: monitoring disabled`
+    : status?.status
+      ? `${title}: ${status.status}`
+      : `${title}: status unknown`;
 
   // Get SVG for the icon
   const iconSvg = icon 
@@ -101,9 +110,24 @@ const NodeCard: React.FC<NodeCardProps> = ({
         ...style
       }}
       onClick={() => onClick?.(node)}
+      {...(interactive && onClick
+        ? {
+            role: 'button' as const,
+            tabIndex: 0,
+            'aria-label': subtitle ? `${title}, ${subtitle}` : title,
+            onKeyDown: (e: React.KeyboardEvent) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick?.(node);
+              }
+            },
+          }
+        : {})}
     >
       {/* Status indicator / Icon */}
-      <div 
+      <div
+        role="img"
+        aria-label={statusLabel}
         className={`w-12 h-12 rounded-full flex items-center justify-center mr-3 flex-shrink-0 transition-colors duration-300 ${isChecking ? 'animate-pulse' : ''}`}
         style={{ backgroundColor: statusColor }}
         dangerouslySetInnerHTML={{ __html: iconSvg }}

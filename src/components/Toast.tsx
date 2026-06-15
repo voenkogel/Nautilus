@@ -67,7 +67,12 @@ const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onRemove }) => 
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-50 space-y-2">
+    <div
+      className="fixed top-4 right-4 z-50 space-y-2"
+      role="region"
+      aria-label="Notifications"
+      aria-live="polite"
+    >
       {toasts.map(toast => (
         <ToastItem key={toast.id} toast={toast} onRemove={onRemove} />
       ))}
@@ -125,9 +130,10 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
 
   return (
     <div
+      role={toast.type === 'error' ? 'alert' : 'status'}
       className={`transform transition-all duration-200 ${
-        isVisible 
-          ? 'translate-x-0 opacity-100' 
+        isVisible
+          ? 'translate-x-0 opacity-100'
           : 'translate-x-full opacity-0'
       }`}
     >
@@ -143,6 +149,7 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
         </p>
         <button
           onClick={handleRemove}
+          aria-label="Dismiss notification"
           className="text-gray-400 hover:text-gray-600 transition-colors"
         >
           <X className="w-4 h-4" />

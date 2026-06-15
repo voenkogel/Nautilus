@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import type { TreeNode, AppConfig } from '../types/config';
 import { useNodeStatus } from '../hooks/useNodeStatus';
-import { getVisibleTree, reorderNode, countDescendants, getAllNodes, isNodeMonitored } from '../utils/nodeUtils';
+import { getVisibleTree, reorderNode, countDescendants, getAllNodes, isNodeMonitored, getNodeSiblingPosition } from '../utils/nodeUtils';
 import { useAppearance } from '../hooks/useAppearance';
 import StatusCard from './StatusCard';
 import Settings from './Settings';
@@ -34,6 +34,7 @@ import NodeCard from './NodeCard';
 import DragGhost from './DragGhost';
 import { useDragReorder } from '../hooks/useDragReorder';
 import HistoryModal from './HistoryModal';
+import { IframeOverlay } from './IframeOverlay';
 
 const initialAppConfig: AppConfig = {
   general: {
@@ -1104,6 +1105,19 @@ const Canvas: React.FC = () => {
     }
   }, [currentConfig, addToast]);
 
+  // Keyboard reorder (A11Y-3): move a focused node earlier/later among its siblings.
+  const handleKeyboardReorder = useCallback(async (nodeId: string, direction: 'up' | 'down') => {
+    const pos = getNodeSiblingPosition(currentConfig.tree.nodes, nodeId);
+    if (!pos) return;
+    const { parentId, index, siblingCount } = pos;
+    if (direction === 'up' && index > 0) {
+      await handleNodeReorder(nodeId, parentId, index - 1);
+    } else if (direction === 'down' && index < siblingCount - 1) {
+      // index + 2 accounts for reorderNode removing the node first (see its index adjustment)
+      await handleNodeReorder(nodeId, parentId, index + 2);
+    }
+  }, [currentConfig, handleNodeReorder]);
+
   // Drag and drop reorder hook
   const {
     dragState,
@@ -1453,6 +1467,7 @@ const Canvas: React.FC = () => {
                     onHistoryClick={(n) => {
                       setHistoryModal({ nodeId: n.id, nodeName: n.title });
                     }}
+                    onReorderKeyboard={(n, dir) => handleKeyboardReorder(n.id, dir)}
                   />
                 </div>
                   
@@ -1574,17 +1589,20 @@ const Canvas: React.FC = () => {
             </div>
           )}
           
-          {/* Edit Mode Indicator - Top Center */}
+          {/* Edit Mode Indicator + usage hint - Top Center (UX-5: make drag-reorder discoverable) */}
           {isEditMode && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40">
-              <div 
-                className="text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-pulse"
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1.5">
+              <div
+                className="text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2"
                 style={{ backgroundColor: currentConfig.appearance?.accentColor || '#3b82f6' }}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                 </svg>
                 <span className="text-sm font-medium">Edit Mode Active</span>
+              </div>
+              <div className="bg-white/90 backdrop-blur-sm text-gray-600 text-xs px-3 py-1 rounded-full shadow font-roboto whitespace-nowrap">
+                Drag a node to reorder · Click to edit · <span className="font-semibold">+</span> to add a child
               </div>
             </div>
           )}
@@ -1950,65 +1968,11 @@ const Canvas: React.FC = () => {
 
       {/* Iframe Overlay for all devices */}
       {iframeOverlay && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-2 md:p-8 animate-fade-in">
-          <div className="bg-white rounded-lg shadow-xl w-full h-full max-w-full max-h-full flex flex-col animate-scale-in">
-            {/* Header with title and buttons - reduced height */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-gray-50 rounded-t-lg">
-              <h3 className="text-base font-semibold text-gray-900 truncate flex-1 mr-4">
-                {iframeOverlay.title}
-              </h3>
-              <div className="flex items-center gap-1">
-                {/* History button - only for monitored nodes */}
-                {iframeOverlay.nodeId && (
-                  <button
-                    onClick={() => setHistoryModal({ nodeId: iframeOverlay.nodeId!, nodeName: iframeOverlay.title })}
-                    className="p-1.5 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
-                    aria-label="View history"
-                    title="View status history"
-                  >
-                    <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                      <circle cx="12" cy="12" r="10" />
-                      <polyline points="12 6 12 12 16 14" />
-                    </svg>
-                  </button>
-                )}
-                <button
-                  onClick={() => {
-                    window.open(iframeOverlay.url, '_blank', 'noopener,noreferrer');
-                    setIframeOverlay(null);
-                  }}
-                  className="p-1.5 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
-                  aria-label="Open in new tab"
-                >
-                  <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </button>
-                <button
-                  onClick={() => setIframeOverlay(null)}
-                  className="p-1.5 hover:bg-gray-200 rounded-full transition-colors flex-shrink-0"
-                  aria-label="Close"
-                >
-                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-            
-            {/* Iframe container */}
-            <div className="flex-1 relative">
-              <iframe
-                src={iframeOverlay.url}
-                className="w-full h-full border-0 rounded-b-lg"
-                title={iframeOverlay.title}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                sandbox="allow-same-origin allow-scripts allow-forms allow-navigation allow-popups"
-                loading="lazy"
-              />
-            </div>
-          </div>
-        </div>
+        <IframeOverlay
+          overlay={iframeOverlay}
+          onClose={() => setIframeOverlay(null)}
+          onOpenHistory={(nodeId, nodeName) => setHistoryModal({ nodeId, nodeName })}
+        />
       )}
 
       {/* Drag Ghost - follows cursor while dragging */}

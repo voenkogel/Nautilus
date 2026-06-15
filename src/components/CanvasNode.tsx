@@ -22,6 +22,7 @@ interface CanvasNodeProps {
   onDeleteClick?: (node: PositionedNode) => void;
   onDragStart?: (node: PositionedNode, clientX: number, clientY: number) => void;
   onHistoryClick?: (node: PositionedNode) => void;
+  onReorderKeyboard?: (node: PositionedNode, direction: 'up' | 'down') => void;
 }
 
 const CanvasNode: React.FC<CanvasNodeProps> = ({
@@ -40,6 +41,7 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
   onDeleteClick,
   onDragStart,
   onHistoryClick,
+  onReorderKeyboard,
 }) => {
   const [isAddHovered, setIsAddHovered] = useState(false);
   const [isNodeHovered, setIsNodeHovered] = useState(false);
@@ -169,6 +171,19 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
         setIsDeleteHovered(false);
       }}
       onMouseDown={handleMouseDown}
+      tabIndex={isEditMode ? 0 : undefined}
+      aria-label={isEditMode ? `${node.title} — press Ctrl with the arrow keys to reorder` : undefined}
+      onKeyDown={
+        isEditMode
+          ? (e) => {
+              if ((e.ctrlKey || e.metaKey) && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+                const dir = e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? 'up' : 'down';
+                onReorderKeyboard?.(node, dir);
+              }
+            }
+          : undefined
+      }
     >
       {/* The Node Card */}
       <div className="relative w-full h-full">

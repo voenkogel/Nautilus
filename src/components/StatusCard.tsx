@@ -98,8 +98,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
 
     // Use a single SVG structure for both states to prevent DOM replacement jittering
     return (
-      <div className="relative" style={{ width: size, height: size }}>
-        <svg 
+      <div className="relative" style={{ width: size, height: size }} aria-hidden="true">
+        <svg
           className={isQuerying ? "animate-spin" : "transform -rotate-90"} 
           width={size} 
           height={size}
@@ -185,6 +185,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
             className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 hover:scale-110 rounded-md transition-all duration-200"
+            aria-label={isCollapsed ? "Expand status card" : "Collapse status card"}
+            aria-expanded={!isCollapsed}
             title={isCollapsed ? "Expand status card" : "Collapse status card"}
           >
             {isCollapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
@@ -201,6 +203,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
             <button
               onClick={onOpenHistory}
               className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 hover:scale-110 rounded-md transition-all duration-200"
+              aria-label="View history"
               title="View history"
             >
               <Clock size={18} />
@@ -210,6 +213,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
           <button
             onClick={onOpenSettings}
             className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 hover:scale-110 rounded-md transition-all duration-200"
+            aria-label="Open settings"
             title="Open settings"
           >
             <SettingsIcon size={18} />
@@ -222,7 +226,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
         <div className="px-4 pb-4">
           {/* Health count and timing indicator row */}
           <div className="flex items-center justify-between mb-3">
-            <div>
+            <div aria-live="polite">
               <span className="text-lg font-semibold text-gray-800 font-roboto">
                 {healthyNodes}/{totalNodes}
               </span>
@@ -243,7 +247,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
           </div>
 
           {/* Progress bar with three sections: green (online), gray (checking), red (offline) */}
-          <div className="relative">
+          {/* Decorative — the same counts are available as text in the breakdown below (A11Y-4/6) */}
+          <div className="relative" aria-hidden="true">
             {/* Background for the full bar */}
             <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
               {/* Red portion (offline nodes) - positioned from the right */}
