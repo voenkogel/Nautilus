@@ -37,6 +37,26 @@ export const extractMonitoredNodeIdentifiers = (nodes: TreeNode[]): string[] => 
 };
 
 /**
+ * Extracts the node ids of all monitored nodes (those with a health-check
+ * address and not disabled). Status and history are keyed by node id.
+ */
+export const extractMonitoredNodeIds = (nodes: TreeNode[]): string[] => {
+  const ids: string[] = [];
+  const traverse = (nodeList: TreeNode[]) => {
+    for (const node of nodeList) {
+      const hasInternal = !!node.internalAddress;
+      const hasLegacy = !!(node.healthCheckPort && node.ip);
+      if ((hasInternal || hasLegacy) && !node.disableHealthCheck) {
+        ids.push(node.id);
+      }
+      if (node.children) traverse(node.children);
+    }
+  };
+  traverse(nodes);
+  return ids;
+};
+
+/**
  * Normalizes a node identifier to ensure consistent format for lookups.
  * Removes protocols and trailing slashes for consistent matching.
  */

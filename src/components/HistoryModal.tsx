@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { X, ArrowLeft, Clock, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
 import type { AppConfig } from '../types/config';
-import { getAllNodes, normalizeNodeIdentifier } from '../utils/nodeUtils';
+import { getAllNodes } from '../utils/nodeUtils';
 import {
   useNodeHistory,
   useGlobalHistory,
@@ -547,10 +547,7 @@ const GlobalHistoryView: React.FC<{
       {/* Per-node timelines */}
       <div className="space-y-2">
         {monitoredNodes.map(node => {
-          const rawId = node.internalAddress ||
-            (node.ip && node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : '');
-          const nodeId = normalizeNodeIdentifier(rawId);
-          if (!nodeId) return null;
+          const nodeId = node.id;
 
           const nodeRecords = data?.records[nodeId] || [];
           const stats       = computeStats(nodeRecords);

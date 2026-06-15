@@ -1204,6 +1204,26 @@ function mapHistoryRow(r) {
   };
 }
 
+// Build a map of node id -> normalized health-check identifier for every node
+// that has a monitoring address. Lets us expose status/history keyed by the
+// stable node id instead of the (sensitive) internal address.
+function buildNodeIdToIdentifier() {
+  const map = new Map();
+  const walk = (nodes) => {
+    if (!Array.isArray(nodes)) return;
+    for (const node of nodes) {
+      let identifier = node.internalAddress;
+      if (!identifier && node.healthCheckPort && node.ip) {
+        identifier = `${node.ip}:${node.healthCheckPort}`;
+      }
+      if (identifier) map.set(node.id, normalizeNodeIdentifier(identifier));
+      if (node.children) walk(node.children);
+    }
+  };
+  walk(appConfig.tree?.nodes || []);
+  return map;
+}
+
 // All nodes history
 app.get('/api/history', publicReadLimiter, (req, res) => {
   const period  = req.query.period || '7d';
@@ -1212,11 +1232,23 @@ app.get('/api/history', publicReadLimiter, (req, res) => {
 
   const rows = getAllNodesHistory(sinceMs);
 
-  // Group by node_id
+  // History rows are stored keyed by health-check identifier (address); expose
+  // them keyed by node id. A single address may back more than one node.
+  const identifierToIds = new Map();
+  for (const [id, identifier] of buildNodeIdToIdentifier().entries()) {
+    if (!identifierToIds.has(identifier)) identifierToIds.set(identifier, []);
+    identifierToIds.get(identifier).push(id);
+  }
+
   const grouped = {};
   rows.forEach(r => {
-    if (!grouped[r.node_id]) grouped[r.node_id] = [];
-    grouped[r.node_id].push(mapHistoryRow(r));
+    const ids = identifierToIds.get(r.node_id);
+    if (!ids) return; // orphaned history (node removed or address changed)
+    const mapped = mapHistoryRow(r);
+    for (const id of ids) {
+      if (!grouped[id]) grouped[id] = [];
+      grouped[id].push(mapped);
+    }
   });
 
   res.json({ records: grouped, period, sinceMs, nowMs });
@@ -1234,7 +1266,9 @@ app.get('/api/history/:nodeId', publicReadLimiter, (req, res) => {
   const nowMs   = Date.now();
   const sinceMs = nowMs - parsePeriodMs(period);
 
-  const rows = getNodeHistory(nodeId, sinceMs);
+  // nodeId is the node's id; translate to its stored health-check identifier.
+  const identifier = buildNodeIdToIdentifier().get(nodeId);
+  const rows = identifier ? getNodeHistory(identifier, sinceMs) : [];
 
   res.json({
     nodeId,
@@ -1247,17 +1281,14 @@ app.get('/api/history/:nodeId', publicReadLimiter, (req, res) => {
 
 // API endpoint to get all node statuses
 app.get('/api/status', publicReadLimiter, (req, res) => {
+  // Expose statuses keyed by stable node id (not the internal address), so the
+  // client never needs the address to correlate a node with its status.
   const statusObject = {};
-  
-  // The server stores statuses with normalized keys, but the client may expect 
-  // the original format from the config. To ensure consistency, we'll convert 
-  // back to the original format if needed
-  
-  nodeStatuses.forEach((status, identifier) => {
-    // Just use the normalized identifier as stored in the map
-    statusObject[identifier] = status;
-  });
-  
+  for (const [id, identifier] of buildNodeIdToIdentifier().entries()) {
+    const status = nodeStatuses.get(identifier);
+    if (status) statusObject[id] = status;
+  }
+
   res.json({
     timestamp: new Date().toISOString(),
     statuses: statusObject

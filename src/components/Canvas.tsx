@@ -473,7 +473,7 @@ const Canvas: React.FC = () => {
               : (child.ip || child.url);
           }
           if (identifier) {
-            const status = getNodeStatus(identifier);
+            const status = getNodeStatus(child.id);
             if (status.status === 'online') online++;
             else if (status.status === 'offline') offline++;
             else checking++;
@@ -1257,18 +1257,9 @@ const Canvas: React.FC = () => {
     };
   }, [dragState.isDragging, updateDrag, endDrag, cancelDrag, transform]);
 
-  // Helper to get status for a node
+  // Helper to get status for a node (status is keyed by stable node id)
   const getStatusForNode = (node: PositionedNode) => {
-    let originalIdentifier = node.internalAddress;
-    if (!originalIdentifier) {
-      originalIdentifier = node.healthCheckPort && node.ip 
-        ? `${node.ip}:${node.healthCheckPort}` 
-        : (node.ip || node.url);
-    }
-    
-    return originalIdentifier
-      ? getNodeStatus(originalIdentifier)
-      : { status: 'checking' as const, lastChecked: new Date().toISOString(), statusChangedAt: new Date().toISOString(), progress: 0 };
+    return getNodeStatus(node.id);
   };
 
   // Filtered node list — computed whenever filter or statuses change
@@ -1276,11 +1267,9 @@ const Canvas: React.FC = () => {
     if (!activeFilter) return null;
     const all = getAllNodes(currentConfig.tree.nodes);
     return all.filter(node => {
-      const id = node.internalAddress ||
-        (node.ip && node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : null);
-      if (!id || node.disableHealthCheck) return false;
-      const s = getNodeStatus(id);
-      if (!s) return false;
+      const monitored = (node.internalAddress || (node.ip && node.healthCheckPort)) && !node.disableHealthCheck;
+      if (!monitored) return false;
+      const s = getNodeStatus(node.id);
       if (activeFilter === 'online') return s.status === 'online';
       if (activeFilter === 'offline') return s.status === 'offline';
       if (activeFilter === 'activity')
@@ -1793,9 +1782,7 @@ const Canvas: React.FC = () => {
               <div className="flex flex-wrap justify-center gap-4 px-8 pb-16 -mt-1">
                 {filteredNodes.length > 0 ? (
                   filteredNodes.map(node => {
-                    const nid = node.internalAddress ||
-                      (node.ip && node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : null);
-                    const nodeStatus = nid ? getNodeStatus(nid) : undefined;
+                    const nodeStatus = getNodeStatus(node.id);
                     return (
                       <div key={node.id} style={{ width: NODE_WIDTH }}>
                         <NodeCard

@@ -3,7 +3,7 @@ import type { TreeNode } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
 import NodeCard from './NodeCard';
 import type { AppConfig } from '../types/config';
-import { getNodeTargetUrl, normalizeNodeIdentifier } from '../utils/nodeUtils';
+import { getNodeTargetUrl } from '../utils/nodeUtils';
 
 type NodeFilter = 'online' | 'offline' | 'activity';
 
@@ -38,18 +38,8 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
   const renderNode = useCallback((node: TreeNode, level: number = 0, isLastChild: boolean = true, parentPath: boolean[] = [], childIndex: number = 0) => {
     const { id, children } = node;
     
-    // Get status for this node using the same identifier logic as desktop
-    let nodeIdentifier = node.internalAddress;
-    if (!nodeIdentifier && node.healthCheckPort && node.ip) {
-      nodeIdentifier = `${node.ip}:${node.healthCheckPort}`;
-    }
-    if (!nodeIdentifier) {
-      nodeIdentifier = node.ip || node.url || node.externalAddress;
-    }
-
-    // Normalize the identifier before lookup (same as desktop getNodeStatus does)
-    const normalizedIdentifier = nodeIdentifier ? normalizeNodeIdentifier(nodeIdentifier) : '';
-    const status = normalizedIdentifier ? statuses[normalizedIdentifier] : undefined;
+    // Status is keyed by stable node id.
+    const status = statuses[node.id];
     
     // Calculate connection line offset
     const connectionOffset = 16; // Base indentation per level
@@ -196,12 +186,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
           <div className="px-4 pb-8 pt-2">
             {filteredNodes.length > 0 ? (
               filteredNodes.map(node => {
-                let nodeIdentifier = node.internalAddress;
-                if (!nodeIdentifier && node.healthCheckPort && node.ip) {
-                  nodeIdentifier = `${node.ip}:${node.healthCheckPort}`;
-                }
-                const normalizedId = nodeIdentifier ? normalizeNodeIdentifier(nodeIdentifier) : '';
-                const nodeStatus = normalizedId ? statuses[normalizedId] : undefined;
+                const nodeStatus = statuses[node.id];
                 return (
                   <NodeCard
                     key={node.id}

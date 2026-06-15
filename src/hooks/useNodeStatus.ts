@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { AppConfig } from '../types/config';
-import { extractMonitoredNodeIdentifiers, normalizeNodeIdentifier } from '../utils/nodeUtils';
+import { extractMonitoredNodeIds } from '../utils/nodeUtils';
 
 export interface NodeStatus {
   status: 'online' | 'offline' | 'checking';
@@ -37,7 +37,7 @@ export const useNodeStatus = (appConfig: AppConfig) => {
   const fetchStatuses = useCallback(async () => {
     if (!appConfig || !appConfig.tree.nodes) return;
 
-    const nodeIdentifiers = extractMonitoredNodeIdentifiers(appConfig.tree.nodes);
+    const nodeIdentifiers = extractMonitoredNodeIds(appConfig.tree.nodes);
     if (nodeIdentifiers.length === 0) {
       setStatuses({});
       setIsConnected(true);
@@ -202,9 +202,8 @@ export const useNodeStatus = (appConfig: AppConfig) => {
     };
   }, [appConfig, fetchStatuses]);
 
-  const getNodeStatus = useCallback((identifier: string): NodeStatus => {
-    const normalizedId = normalizeNodeIdentifier(identifier);
-    const status = statuses[normalizedId];
+  const getNodeStatus = useCallback((nodeId: string): NodeStatus => {
+    const status = statuses[nodeId];
     if (status) {
       return status;
     }

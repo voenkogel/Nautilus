@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Settings as SettingsIcon, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import type { AppConfig, NodeStatus } from '../types/config';
-import { extractMonitoredNodeIdentifiers, getAllNodes, normalizeNodeIdentifier } from '../utils/nodeUtils';
+import { extractMonitoredNodeIds, getAllNodes } from '../utils/nodeUtils';
 
 type NodeFilter = 'online' | 'offline' | 'activity';
 
@@ -38,8 +38,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  // Get all monitored node identifiers (only nodes with web GUIs enabled and IP/URL)
-  const monitoredNodes = extractMonitoredNodeIdentifiers(appConfig.tree.nodes);
+  // Get all monitored node ids (only nodes with a health-check address, enabled)
+  const monitoredNodes = extractMonitoredNodeIds(appConfig.tree.nodes);
   const totalNodes = monitoredNodes.length;
   
   // Count healthy nodes (only among monitored nodes)
@@ -70,10 +70,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
   );
 
   const isActive = hasActivityNodes && allNodes.some(node => {
-    const identifier = node.internalAddress ||
-      (node.ip && node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : null);
-    if (!identifier || node.disableHealthCheck) return false;
-    const status = statuses[normalizeNodeIdentifier(identifier)];
+    if (node.disableHealthCheck) return false;
+    const status = statuses[node.id];
     if (!status || status.status !== 'online') return false;
     return (node.healthCheckType === 'plex' && (status.streams ?? 0) > 0) ||
            (node.healthCheckType === 'minecraft' && (status.players?.online ?? 0) > 0);
