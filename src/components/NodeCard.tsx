@@ -3,6 +3,7 @@ import type { TreeNode } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
 import { getIconSvg } from '../utils/iconUtils';
 import { getNodeAddressDisplay, isNodeMonitored } from '../utils/nodeUtils';
+import { getStatusColor } from '../utils/colors';
 import NodeStatusDetails from './NodeStatusDetails';
 
 // Utility function to format time duration since status change
@@ -72,21 +73,10 @@ const NodeCard: React.FC<NodeCardProps> = ({
     return {};
   };
 
-  // Determine status color
-  let statusColor = '#6b7280'; // Default gray
-  let isChecking = false;
+  // Determine status color (neutral when unmonitored / no status)
   const isMonitoringDisabled = !isNodeMonitored(node);
-  
-  if (status && !isMonitoringDisabled) {
-    if (status.status === 'online') {
-      statusColor = '#10b981'; // Green
-    } else if (status.status === 'offline') {
-      statusColor = '#ef4444'; // Red
-    } else if (status.status === 'checking') {
-      statusColor = '#3b82f6'; // Blue
-      isChecking = true;
-    }
-  }
+  const statusColor = getStatusColor(status, !isMonitoringDisabled);
+  const isChecking = !isMonitoringDisabled && status?.status === 'checking';
 
   // Get SVG for the icon
   const iconSvg = icon 

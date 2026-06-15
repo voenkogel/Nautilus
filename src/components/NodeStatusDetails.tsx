@@ -2,6 +2,7 @@ import React from 'react';
 import type { TreeNode } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
 import { isNodeMonitored } from '../utils/nodeUtils';
+import { getStatusColor } from '../utils/colors';
 
 interface NodeStatusDetailsProps {
   node: TreeNode;
@@ -14,27 +15,8 @@ interface NodeStatusDetailsProps {
  * Currently supports Minecraft player counts, but designed to be extensible.
  */
 const NodeStatusDetails: React.FC<NodeStatusDetailsProps> = ({ node, status }) => {
-  // Determine status color based on node status
-  const getStatusColor = () => {
-    if (!status) return '#6b7280'; // Default gray
-    
-    const isMonitoringDisabled = !isNodeMonitored(node);
-    
-    if (isMonitoringDisabled) return '#6b7280';
-    
-    switch (status.status) {
-      case 'online':
-        return '#10b981'; // Green
-      case 'offline':
-        return '#ef4444'; // Red
-      case 'checking':
-        return '#3b82f6'; // Blue
-      default:
-        return '#6b7280'; // Gray
-    }
-  };
-
-  const statusColor = getStatusColor();
+  // Status indicator color (neutral when unmonitored / no status)
+  const statusColor = getStatusColor(status, isNodeMonitored(node));
 
   // Minecraft Player Count
   if (node.healthCheckType === 'minecraft' && status?.players) {

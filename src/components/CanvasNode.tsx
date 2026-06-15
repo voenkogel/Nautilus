@@ -199,6 +199,8 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
         {isEditMode && isNodeHovered && onDeleteClick && !isDragging && (
           <div
             data-no-drag
+            role="button"
+            aria-label="Delete node"
             className="absolute z-20 cursor-pointer flex items-center justify-center transition-all duration-150"
             style={{
               top: '-8px',
@@ -238,6 +240,8 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
         {!isEditMode && isNodeHovered && !isDragging && onHistoryClick && status && status.status !== 'checking' && (
           <div
             data-no-drag
+            role="button"
+            aria-label="View node history"
             className="absolute z-20 cursor-pointer flex items-center justify-center transition-all duration-150"
             style={{ bottom: '-8px', right: '-8px', width: '22px', height: '22px' }}
             onClick={(e) => {
@@ -275,6 +279,8 @@ const CanvasNode: React.FC<CanvasNodeProps> = ({
         {showAddChildButton && (
           <div
             data-no-drag
+            role="button"
+            aria-label="Add child node"
             className="absolute left-1/2 -translate-x-1/2 z-20 cursor-pointer flex items-center justify-center transition-all duration-200 hover:scale-110"
             style={{
               bottom: '-12px', // Half sticking out
