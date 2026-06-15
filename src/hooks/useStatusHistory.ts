@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { api } from '../utils/apiClient';
 
 export interface HistoryRecord {
   status: 'online' | 'offline' | 'checking';
@@ -38,9 +39,8 @@ export function useNodeHistory(nodeId: string | null, period: HistoryPeriod) {
     setLoading(true);
     setError(null);
 
-    fetch(`/api/history/${encodeURIComponent(nodeId)}?period=${period}`)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d: NodeHistoryData) => { setData(d); setLoading(false); })
+    api.get<NodeHistoryData>(`/api/history/${encodeURIComponent(nodeId)}?period=${period}`)
+      .then((d) => { setData(d); setLoading(false); })
       .catch(err => { setError(err.message); setLoading(false); });
   }, [nodeId, period]);
 
@@ -56,9 +56,8 @@ export function useGlobalHistory(period: HistoryPeriod) {
     setLoading(true);
     setError(null);
 
-    fetch(`/api/history?period=${period}`)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d: GlobalHistoryData) => { setData(d); setLoading(false); })
+    api.get<GlobalHistoryData>(`/api/history?period=${period}`)
+      .then((d) => { setData(d); setLoading(false); })
       .catch(err => { setError(err.message); setLoading(false); });
   }, [period]);
 

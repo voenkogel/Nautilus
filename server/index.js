@@ -1401,10 +1401,13 @@ function sanitizeConfig(config, isAdmin = false) {
       const hasAddr = !!node.internalAddress || !!(node.ip && node.healthCheckPort);
       node.monitored = hasAddr && !node.disableHealthCheck && node.healthCheckType !== 'disabled';
 
-      // Non-admins never receive the internal address (network-topology recon).
-      // The external address / URL (user-facing launch link) is intentionally kept.
-      if (!isAdmin) {
-        delete node.internalAddress;
+      // Non-admins never receive the real internal address (network-topology
+      // recon). We MASK internalAddress with a sentinel rather than delete it;
+      // restoreSensitiveFields() re-injects the real address fields on save when
+      // it sees the mask, so a sanitized config saved back can never wipe them.
+      // (External address / URL — the user-facing launch link — is kept.)
+      if (!isAdmin && hasAddr) {
+        node.internalAddress = SENSITIVE_MASK;
         delete node.ip;
         delete node.healthCheckPort;
       }
@@ -1449,7 +1452,20 @@ function restoreSensitiveFields(newConfig, originalConfig) {
         if (newNode.apiKeys === SENSITIVE_MASK && originalNode.apiKeys) {
           newNode.apiKeys = originalNode.apiKeys;
         }
-        
+
+        // Restore internal address fields if internalAddress was masked (SEC-3).
+        // The masked internalAddress is the sentinel that re-injects all of them,
+        // so a sanitized config saved back can never wipe a node's address.
+        if (newNode.internalAddress === SENSITIVE_MASK) {
+          if (originalNode.internalAddress) {
+            newNode.internalAddress = originalNode.internalAddress;
+          } else {
+            delete newNode.internalAddress;
+          }
+          if (originalNode.ip) newNode.ip = originalNode.ip;
+          if (originalNode.healthCheckPort) newNode.healthCheckPort = originalNode.healthCheckPort;
+        }
+
         // Recursively restore in children
         if (newNode.children && originalNode.children) {
           restoreInNodes(newNode.children, originalNode.children);

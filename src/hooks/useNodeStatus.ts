@@ -1,22 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { AppConfig } from '../types/config';
+import type { AppConfig, NodeStatus } from '../types/config';
 import { extractMonitoredNodeIds } from '../utils/nodeUtils';
+import { api } from '../utils/apiClient';
 
-export interface NodeStatus {
-  status: 'online' | 'offline' | 'checking';
-  lastChecked: string;
-  statusChangedAt?: string; // Timestamp when status last changed
-  responseTime?: number;
-  error?: string;
-  players?: {
-    online: number;
-    max: number;
-  };
-  version?: string;
-  motd?: string;
-  favicon?: string;
-  streams?: number;
-}
+// Re-exported so existing `import { NodeStatus } from '../hooks/useNodeStatus'` keeps working.
+export type { NodeStatus };
 
 export interface StatusResponse {
   timestamp: string;
@@ -45,13 +33,8 @@ export const useNodeStatus = (appConfig: AppConfig) => {
     }
 
     try {
-      const response = await fetch('/api/status');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data: StatusResponse = await response.json();
-      
+      const data = await api.get<StatusResponse>('/api/status');
+
       if (data && data.statuses) {
         // Compare with previous statuses to detect changes and preserve statusChangedAt
         setStatuses(() => {

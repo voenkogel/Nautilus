@@ -66,13 +66,17 @@ export interface AppConfig {
 
 export interface NodeStatus {
   status: 'online' | 'offline' | 'checking';
-  latency?: number;
   lastChecked: string;
-  statusChangedAt?: string;
+  statusChangedAt?: string; // Timestamp when status last changed
+  responseTime?: number;
+  error?: string;
   players?: {
     online: number;
     max: number;
   };
+  version?: string;
+  motd?: string;
+  favicon?: string;
   streams?: number;
 }
 

@@ -1,5 +1,9 @@
 import type { TreeNode } from '../types/config';
 
+// Sentinel the server uses to mask secrets and (for non-admins) internal
+// addresses in API responses. Mirrors SENSITIVE_MASK in server/index.js.
+export const SENSITIVE_MASK = '********';
+
 /**
  * Whether a node is health-monitored. Uses the server-derived `monitored` flag
  * when present (sanitized API responses, where internal addresses are stripped),
@@ -94,8 +98,9 @@ export const getNodeTargetUrl = (node: TreeNode): string | null => {
   if (externalUrl) {
     targetUrl = externalUrl.includes('://') ? externalUrl : `https://${externalUrl}`;
   }
-  // For nodes with internalAddress, try to use it
-  else if (node.internalAddress) {
+  // For nodes with internalAddress, try to use it (ignore the SEC-3 mask that
+  // non-admin clients receive in place of the real internal address)
+  else if (node.internalAddress && node.internalAddress !== SENSITIVE_MASK) {
     if (node.internalAddress.includes('://')) {
       targetUrl = node.internalAddress;
     } else {

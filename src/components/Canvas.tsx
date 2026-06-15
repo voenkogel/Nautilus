@@ -26,6 +26,7 @@ import {
   SIBLING_SPACING
 } from '../utils/layoutUtils';
 import { getNodeTargetUrl } from '../utils/nodeUtils';
+import { api, ApiError } from '../utils/apiClient';
 import CanvasNode from './CanvasNode';
 import NodeCard from './NodeCard';
 import DragGhost from './DragGhost';
@@ -142,49 +143,39 @@ const Canvas: React.FC = () => {
   // Reusable function to fetch config with auth headers
   const loadConfig = useCallback(async () => {
     try {
-      const response = await fetch('/api/config', {
-        headers: getAuthHeaders() // Include auth headers to get sensitive data if logged in
-      });
-      if (response.ok) {
-        const serverConfig = await response.json();
-        
-        // Ensure we always have a complete config with proper defaults
-        const completeConfig = {
-          ...initialAppConfig,
-          ...serverConfig,
-          server: { ...initialAppConfig.server, ...serverConfig.server },
-          client: { ...initialAppConfig.client, ...serverConfig.client },
-          appearance: { ...initialAppConfig.appearance, ...serverConfig.appearance },
-          tree: serverConfig.tree || initialAppConfig.tree
-        };
-        
-        setCurrentConfig(completeConfig);
+      // api.get sends auth headers automatically (returns admin config when logged in)
+      const serverConfig = await api.get<AppConfig>('/api/config');
 
-        // Initialize collapsed state from config
-        const collapsedIds = new Set<string>();
-        const traverse = (nodes: TreeNode[]) => {
-          nodes.forEach(node => {
-            if (node.collapsed) collapsedIds.add(node.id);
-            if (node.children) traverse(node.children);
-          });
-        };
-        traverse(completeConfig.tree.nodes);
-        setCollapsedNodeIds(collapsedIds);
-      } else {
-        console.warn('Failed to fetch config from server, using default');
-        setCurrentConfig(initialAppConfig);
-        addToast({
-          type: 'error',
-          message: 'Could not load configuration from the server — showing defaults. Changes may not reflect the live config.',
-          duration: 6000
+      // Ensure we always have a complete config with proper defaults
+      const completeConfig = {
+        ...initialAppConfig,
+        ...serverConfig,
+        server: { ...initialAppConfig.server, ...serverConfig.server },
+        client: { ...initialAppConfig.client, ...serverConfig.client },
+        appearance: { ...initialAppConfig.appearance, ...serverConfig.appearance },
+        tree: serverConfig.tree || initialAppConfig.tree
+      };
+
+      setCurrentConfig(completeConfig);
+
+      // Initialize collapsed state from config
+      const collapsedIds = new Set<string>();
+      const traverse = (nodes: TreeNode[]) => {
+        nodes.forEach(node => {
+          if (node.collapsed) collapsedIds.add(node.id);
+          if (node.children) traverse(node.children);
         });
-      }
+      };
+      traverse(completeConfig.tree.nodes);
+      setCollapsedNodeIds(collapsedIds);
     } catch (error) {
       console.warn('Failed to fetch config from server, using default:', error);
       setCurrentConfig(initialAppConfig);
       addToast({
         type: 'error',
-        message: 'Cannot reach the Nautilus server — showing default configuration. Check that the server is running.',
+        message: error instanceof ApiError
+          ? 'Could not load configuration from the server — showing defaults. Changes may not reflect the live config.'
+          : 'Cannot reach the Nautilus server — showing default configuration. Check that the server is running.',
         duration: 6000
       });
     }
@@ -391,7 +382,7 @@ const Canvas: React.FC = () => {
   useEffect(() => {
     const handleConfigUpdate = async () => {
       try {
-        const response = await fetch('/api/config');
+        const response = await fetch('/api/config', { headers: getAuthHeaders() });
         if (response.ok) {
           const serverConfig = await response.json();
           
@@ -506,7 +497,7 @@ const Canvas: React.FC = () => {
     await response.json();
     
     // After successful save, fetch the updated config from server to ensure sync
-    const configResponse = await fetch('/api/config');
+    const configResponse = await fetch('/api/config', { headers: getAuthHeaders() });
     if (configResponse.ok) {
       const updatedConfig = await configResponse.json();
       setCurrentConfig(updatedConfig);
@@ -540,7 +531,7 @@ const Canvas: React.FC = () => {
     console.log('Backup restore result:', result);
     
     // After successful restore, fetch the updated config from server to ensure sync
-    const configResponse = await fetch('/api/config');
+    const configResponse = await fetch('/api/config', { headers: getAuthHeaders() });
     if (configResponse.ok) {
       const updatedConfig = await configResponse.json();
       setCurrentConfig(updatedConfig);
