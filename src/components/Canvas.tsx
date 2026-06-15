@@ -27,6 +27,7 @@ import {
 } from '../utils/layoutUtils';
 import { getNodeTargetUrl } from '../utils/nodeUtils';
 import { api, ApiError } from '../utils/apiClient';
+import { DonutChart } from './DonutChart';
 import CanvasNode from './CanvasNode';
 import NodeCard from './NodeCard';
 import DragGhost from './DragGhost';
@@ -1510,45 +1511,6 @@ const Canvas: React.FC = () => {
                     
                     // Get stats for all nested children
                     const stats = getNestedNodeStats(originalNode!);
-                    const total = stats.online + stats.offline + stats.checking;
-                    
-                    // Calculate pie chart angles
-                    const onlineAngle = total > 0 ? (stats.online / total) * 360 : 0;
-                    const offlineAngle = total > 0 ? (stats.offline / total) * 360 : 0;
-                    
-                    // Create donut arc path
-                    const createDonutArc = (startAngle: number, endAngle: number, color: string) => {
-                      if (endAngle - startAngle === 0) return null;
-                      const outerR = 7;
-                      const innerR = 4;
-                      if (endAngle - startAngle >= 360) {
-                        // Full circle donut
-                        return (
-                          <>
-                            <circle cx="8" cy="8" r={outerR} fill={color} />
-                            <circle cx="8" cy="8" r={innerR} fill="white" />
-                          </>
-                        );
-                      }
-                      const startRad = (startAngle - 90) * Math.PI / 180;
-                      const endRad = (endAngle - 90) * Math.PI / 180;
-                      const outerX1 = 8 + outerR * Math.cos(startRad);
-                      const outerY1 = 8 + outerR * Math.sin(startRad);
-                      const outerX2 = 8 + outerR * Math.cos(endRad);
-                      const outerY2 = 8 + outerR * Math.sin(endRad);
-                      const innerX1 = 8 + innerR * Math.cos(startRad);
-                      const innerY1 = 8 + innerR * Math.sin(startRad);
-                      const innerX2 = 8 + innerR * Math.cos(endRad);
-                      const innerY2 = 8 + innerR * Math.sin(endRad);
-                      const largeArc = endAngle - startAngle > 180 ? 1 : 0;
-                      return (
-                        <path 
-                          d={`M ${outerX1} ${outerY1} A ${outerR} ${outerR} 0 ${largeArc} 1 ${outerX2} ${outerY2} L ${innerX2} ${innerY2} A ${innerR} ${innerR} 0 ${largeArc} 0 ${innerX1} ${innerY1} Z`} 
-                          fill={color} 
-                        />
-                      );
-                    };
-                    
                     // Only show expand button when collapsed
                     if (!isCollapsed) {
                       return null;
@@ -1608,15 +1570,7 @@ const Canvas: React.FC = () => {
                         >
                           <div className="flex items-center justify-between w-full px-1">
                             {/* Donut Chart Indicator - Size matched to arrow circle */}
-                            <div className="relative w-8 h-8 flex-shrink-0">
-                              <svg width="100%" height="100%" viewBox="0 0 16 16" className="transform -rotate-90">
-                                <circle cx="8" cy="8" r="7" fill="#e5e7eb" />
-                                <circle cx="8" cy="8" r="4" fill="white" />
-                                {createDonutArc(0, onlineAngle, '#22c55e')}
-                                {createDonutArc(onlineAngle, onlineAngle + offlineAngle, '#ef4444')}
-                                {stats.checking > 0 && createDonutArc(onlineAngle + offlineAngle, 360, '#9ca3af')}
-                              </svg>
-                            </div>
+                            <DonutChart online={stats.online} offline={stats.offline} checking={stats.checking} />
                             
                             {/* Text */}
                             <div className="font-medium text-sm text-gray-600 transition-colors" style={{ color: 'inherit' }}>
