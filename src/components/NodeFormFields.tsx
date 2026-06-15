@@ -167,8 +167,9 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Title */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+          <label htmlFor={`${node.id}-title`} className="block text-sm font-medium text-gray-700 mb-1">Title</label>
           <input
+            id={`${node.id}-title`}
             type="text"
             value={node.title}
             onChange={(e) => onChange({ title: e.target.value })}
@@ -179,8 +180,9 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
 
         {/* Subtitle */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Subtitle</label>
+          <label htmlFor={`${node.id}-subtitle`} className="block text-sm font-medium text-gray-700 mb-1">Subtitle</label>
           <input
+            id={`${node.id}-subtitle`}
             type="text"
             value={node.subtitle}
             onChange={(e) => onChange({ subtitle: e.target.value })}
@@ -191,8 +193,9 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
 
         {/* Health Check Type */}
         <div className="col-span-1 md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Health Check Type</label>
+          <label htmlFor={`${node.id}-healthCheckType`} className="block text-sm font-medium text-gray-700 mb-1">Health Check Type</label>
           <select
+            id={`${node.id}-healthCheckType`}
             value={node.healthCheckType || (node.disableHealthCheck ? 'disabled' : 'http')}
             onChange={(e) => {
               const type = e.target.value as 'http' | 'minecraft' | 'plex' | 'disabled';
@@ -247,8 +250,9 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
         {/* Per-node check interval */}
         {node.healthCheckType !== 'disabled' && !node.disableHealthCheck && (
           <div className="col-span-1 md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Check Interval (ms)</label>
+            <label htmlFor={`${node.id}-checkInterval`} className="block text-sm font-medium text-gray-700 mb-1">Check Interval (ms)</label>
             <input
+              id={`${node.id}-checkInterval`}
               type="number"
               min={5000}
               step={1000}
@@ -269,10 +273,11 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
 
         {/* Internal Address */}
         <div className="col-span-1 md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor={`${node.id}-internalAddress`} className="block text-sm font-medium text-gray-700 mb-1">
             Internal Address
           </label>
           <input
+            id={`${node.id}-internalAddress`}
             type="text"
             value={node.internalAddress || (node.ip ? (node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : node.ip) : '')}
             onChange={(e) => {

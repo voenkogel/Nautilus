@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { AlertTriangle } from 'lucide-react';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -23,14 +24,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onCancel,
 }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
-  const confirmButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Focus the cancel button when dialog opens (safer default)
-  useEffect(() => {
-    if (isOpen && confirmButtonRef.current) {
-      confirmButtonRef.current.focus();
-    }
-  }, [isOpen]);
+  // Trap focus within the dialog; focuses its first control (Cancel) on open.
+  useFocusTrap(dialogRef, isOpen);
 
   // Close on Escape key
   useEffect(() => {
@@ -129,7 +125,6 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             {cancelLabel}
           </button>
           <button
-            ref={confirmButtonRef}
             onClick={onConfirm}
             className={`px-4 py-2 text-sm font-medium text-white rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors ${styles.button}`}
           >

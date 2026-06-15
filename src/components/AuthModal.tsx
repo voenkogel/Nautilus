@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Lock, User, X } from 'lucide-react';
 import type { AppConfig } from '../types/config';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -22,6 +23,9 @@ const AuthModal: React.FC<AuthModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const usernameInputRef = useRef<HTMLInputElement>(null);
+
+  // Trap focus within the modal while open (username gets focus below).
+  useFocusTrap(modalRef, isOpen);
 
   // Get accent color from config or use default
   const accentColor = appConfig?.appearance?.accentColor || '#3b82f6';
