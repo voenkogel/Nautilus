@@ -12,7 +12,7 @@ import EmptyNodesFallback from './EmptyNodesFallback';
 import { createStartingNode } from './EmptyNodesFallback';
 import { useToast } from './Toast';
 import NetworkScanWindow from './NetworkScanWindow';
-import { authenticate, getAuthHeaders, hasAuthToken } from '../utils/auth';
+import { authenticate, withAuthGuard, getAuthHeaders, hasAuthToken } from '../utils/auth';
 import { 
   iconImageCache, 
   iconSvgCache
@@ -28,6 +28,7 @@ import {
 import { getNodeTargetUrl } from '../utils/nodeUtils';
 import { api, ApiError } from '../utils/apiClient';
 import { DonutChart } from './DonutChart';
+import { normalizeConfig } from '../utils/configUtils';
 import CanvasNode from './CanvasNode';
 import NodeCard from './NodeCard';
 import DragGhost from './DragGhost';
@@ -61,6 +62,8 @@ const initialAppConfig: AppConfig = {
 const Canvas: React.FC = () => {
   const { addToast } = useToast();
   const containerRef = useRef<HTMLDivElement>(null);
+  // Per-node debounce timestamps for openNodeUrl (replaces a flag previously stashed on window)
+  const lastOpenTimesRef = useRef<Record<string, number>>({});
   
   const [transform, setTransform] = useState({
     x: 0,
@@ -147,15 +150,8 @@ const Canvas: React.FC = () => {
       // api.get sends auth headers automatically (returns admin config when logged in)
       const serverConfig = await api.get<AppConfig>('/api/config');
 
-      // Ensure we always have a complete config with proper defaults
-      const completeConfig = {
-        ...initialAppConfig,
-        ...serverConfig,
-        server: { ...initialAppConfig.server, ...serverConfig.server },
-        client: { ...initialAppConfig.client, ...serverConfig.client },
-        appearance: { ...initialAppConfig.appearance, ...serverConfig.appearance },
-        tree: serverConfig.tree || initialAppConfig.tree
-      };
+      // Merge server config over the local defaults (utils/configUtils)
+      const completeConfig = normalizeConfig(serverConfig, initialAppConfig);
 
       setCurrentConfig(completeConfig);
 
@@ -387,15 +383,8 @@ const Canvas: React.FC = () => {
         if (response.ok) {
           const serverConfig = await response.json();
           
-          // Ensure we always have a complete config with proper defaults
-          const completeConfig = {
-            ...initialAppConfig,
-            ...serverConfig,
-            server: { ...initialAppConfig.server, ...serverConfig.server },
-            client: { ...initialAppConfig.client, ...serverConfig.client },
-            appearance: { ...initialAppConfig.appearance, ...serverConfig.appearance },
-            tree: serverConfig.tree || initialAppConfig.tree
-          };
+          // Merge server config over the local defaults (utils/configUtils)
+          const completeConfig = normalizeConfig(serverConfig, initialAppConfig);
           
           setCurrentConfig(completeConfig);
         }
@@ -590,13 +579,7 @@ const Canvas: React.FC = () => {
     }
   };
   
-  const handleEditNode = async (nodeId: string) => {
-    // Authenticate before allowing node editing
-    const isAuth = await authenticate();
-    if (!isAuth) {
-      return; // User denied access or wrong password
-    }
-
+  const handleEditNode = withAuthGuard(async (nodeId: string) => {
     try {
       const node = findNodeById(currentConfig.tree.nodes, nodeId);
       if (node) {
@@ -622,15 +605,9 @@ const Canvas: React.FC = () => {
         setEditingNode({...node, children: node.children ? [...node.children] : []});
       }
     }
-  };
+  });
 
-  const handleEditChildNode = async (childNode: TreeNode) => {
-    // Authenticate before allowing node editing
-    const isAuth = await authenticate();
-    if (!isAuth) {
-      return; // User denied access or wrong password
-    }
-
+  const handleEditChildNode = withAuthGuard(async (childNode: TreeNode) => {
     // Create a safe copy of the child node before setting it
     // Note: The current node should already be saved by the NodeEditor before calling this
     try {
@@ -649,13 +626,9 @@ const Canvas: React.FC = () => {
         setEditingNode(basicCopy);
       }, 10);
     }
-  };
+  });
 
-  const handleAddChildNode = async (parentNodeId: string) => {
-    // Authenticate first
-    const isAuth = await authenticate();
-    if (!isAuth) return;
-
+  const handleAddChildNode = withAuthGuard(async (parentNodeId: string) => {
     const newNode: TreeNode = {
       id: `node_${Date.now()}`,
       title: "New Node",
@@ -711,17 +684,11 @@ const Canvas: React.FC = () => {
         });
       }
     }
-  };
+  });
 
-  const handleOpenSettings = async () => {
-    // Authenticate before allowing settings access
-    const isAuth = await authenticate();
-    if (!isAuth) {
-      return; // User denied access or wrong password
-    }
-    
+  const handleOpenSettings = withAuthGuard(() => {
     setIsSettingsOpen(true);
-  };
+  });
 
   const handleSaveNode = async (updatedNode: TreeNode) => {
     // Helper function to update node in the tree
@@ -895,13 +862,7 @@ const Canvas: React.FC = () => {
   };
 
   // Handle creating a starting node when there are no nodes
-  const handleCreateStartingNode = async () => {
-    // Authenticate before allowing node creation
-    const isAuth = await authenticate();
-    if (!isAuth) {
-      return; // User denied access or wrong password
-    }
-
+  const handleCreateStartingNode = withAuthGuard(async () => {
     try {
       const startingNode = createStartingNode(currentConfig);
       const newConfig: AppConfig = {
@@ -923,7 +884,7 @@ const Canvas: React.FC = () => {
       console.error('Error creating starting node:', error);
       // Error will be shown in the UI by handleSaveConfig
     }
-  };
+  });
   
   // Calculate positions for tree nodes in a proper vertical tree layout
   const calculateNodePositions = useCallback((): { nodes: PositionedNode[], connections: Connection[] } => {
@@ -940,9 +901,9 @@ const Canvas: React.FC = () => {
     if (targetUrl) {
       const now = Date.now();
       const lastOpenKey = `lastOpen_${node.id}`;
-      const lastOpenTime = (window as any)[lastOpenKey] || 0;
+      const lastOpenTime = lastOpenTimesRef.current[lastOpenKey] || 0;
       if (now - lastOpenTime > 1000) { // 1 second debounce
-        (window as any)[lastOpenKey] = now;
+        lastOpenTimesRef.current[lastOpenKey] = now;
         if (currentConfig.general?.openNodesAsOverlay !== false && !node.disableEmbedded) {
           setIframeOverlay({ url: targetUrl, title: node.title || appTitle, nodeId: node.id });
         } else {
@@ -1097,8 +1058,7 @@ const Canvas: React.FC = () => {
   useEffect(() => {
     const testApiConnectivity = async () => {
       try {
-        const response = await fetch('/api/status');
-        await response.json();
+        await api.get('/api/status');
         // Success is silent - errors will be logged by the error handler
       } catch (error) {
         console.error('API connectivity test failed:', error);

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { X, ArrowLeft, Clock, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
 import type { AppConfig } from '../types/config';
 import { getAllNodes, isNodeMonitored } from '../utils/nodeUtils';
+import { Modal } from './ui/Modal';
 import {
   useNodeHistory,
   useGlobalHistory,
@@ -635,27 +636,20 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ nodeId, nodeName, appConfig
   // Reset drilldown when switching from global to specific node externally
   useEffect(() => { setDrilldown(null); }, [nodeId]);
 
-  // ESC key
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (drilldown) setDrilldown(null);
-      else onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose, drilldown]);
+  // Escape/backdrop: step out of a drilldown first, otherwise close the modal.
+  const handleClose = () => {
+    if (drilldown) setDrilldown(null);
+    else onClose();
+  };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center animate-fade-in">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={() => { if (drilldown) setDrilldown(null); else onClose(); }}
-      />
-
-      {/* Card */}
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[88vh] flex flex-col animate-scale-in overflow-hidden">
+    <Modal
+      isOpen
+      onClose={handleClose}
+      zIndexClassName="z-[60]"
+      ariaLabelledBy="history-modal-title"
+      containerClassName="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4 max-h-[88vh] flex flex-col animate-scale-in overflow-hidden"
+    >
 
         {/* Header */}
         <div className="flex items-center gap-3 px-5 py-3.5 border-b border-gray-100 flex-shrink-0">
@@ -680,7 +674,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ nodeId, nodeName, appConfig
 
           {/* Title */}
           <div className="flex-1 min-w-0">
-            <h2 className="text-sm font-semibold text-gray-900 truncate font-roboto">
+            <h2 id="history-modal-title" className="text-sm font-semibold text-gray-900 truncate font-roboto">
               {showingNode ? activeTitle : 'All Nodes'}
             </h2>
             <p className="text-[11px] text-gray-400 font-roboto">Status History</p>
@@ -692,6 +686,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ nodeId, nodeName, appConfig
           {/* Close */}
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0 ml-1"
           >
             <X className="w-4 h-4" />
@@ -715,8 +710,7 @@ const HistoryModal: React.FC<HistoryModalProps> = ({ nodeId, nodeName, appConfig
             />
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

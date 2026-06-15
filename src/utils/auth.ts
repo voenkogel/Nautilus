@@ -176,6 +176,22 @@ export const authenticate = async (): Promise<boolean> => {
   return showAuthModal();
 };
 
+/**
+ * Wraps an action so it runs only after a successful authenticate().
+ * Centralizes the `const ok = await authenticate(); if (!ok) return;` guard
+ * duplicated across the edit/settings handlers. authenticate() short-circuits
+ * when a valid session already exists, so this never prompts unnecessarily.
+ */
+export function withAuthGuard<A extends unknown[]>(
+  action: (...args: A) => void | Promise<void>
+): (...args: A) => Promise<void> {
+  return async (...args: A) => {
+    if (await authenticate()) {
+      await action(...args);
+    }
+  };
+}
+
 // Clear authentication (logout)
 export const clearAuthentication = async (): Promise<void> => {
   const token = getStoredToken();

@@ -3,6 +3,8 @@ import type { TreeNode, AppearanceConfig } from '../types/config';
 import { X, Trash, Plus, WrenchIcon } from 'lucide-react';
 import { NodeFormFields } from './NodeFormFields';
 import { ConfirmDialog } from './ConfirmDialog';
+import { Modal } from './ui/Modal';
+import { Button } from './ui/Button';
 
 interface NodeEditorProps {
   node: TreeNode;
@@ -114,13 +116,21 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
 
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
-      <div className="bg-white rounded-lg shadow-xl w-96 max-h-[80vh] overflow-y-auto animate-slide-up">
+    <>
+      <Modal
+        isOpen
+        onClose={onClose}
+        closeOnBackdrop={false}
+        closeOnEscape={false}
+        ariaLabelledBy="node-editor-title"
+        containerClassName="bg-white rounded-lg shadow-xl w-96 max-h-[80vh] overflow-y-auto animate-slide-up"
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 className="text-lg font-semibold text-gray-900">Edit Node</h2>
+          <h2 id="node-editor-title" className="text-lg font-semibold text-gray-900">Edit Node</h2>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-1 hover:bg-gray-100 rounded"
           >
             <X size={20} className="text-gray-500" />
@@ -195,26 +205,14 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
 
         {/* Footer */}
         <div className="flex items-center justify-between p-4 border-t bg-gray-50">
-          <button
-            onClick={onDelete}
-            className="px-4 py-2 text-red-600 hover:bg-red-50 rounded-md transition-colors"
-          >
+          <Button variant="ghost" className="text-red-600 hover:bg-red-50" onClick={onDelete}>
             Delete Node
-          </button>
+          </Button>
           <div className="flex space-x-2">
-            <button
-              onClick={onClose}
-              disabled={isSaving}
-              className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+            <Button variant="ghost" onClick={onClose} disabled={isSaving}>
               Cancel
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="px-4 py-2 text-white rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              style={{ backgroundColor: safeAppearance.accentColor }}
-            >
+            </Button>
+            <Button variant="primary" accentColor={safeAppearance.accentColor} onClick={handleSave} disabled={isSaving}>
               {isSaving ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -223,10 +221,10 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
               ) : (
                 <span>Save</span>
               )}
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
+      </Modal>
 
       {/* Delete Child Confirmation Dialog */}
       {deleteConfirmation && (
@@ -244,6 +242,6 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
           onCancel={() => setDeleteConfirmation(null)}
         />
       )}
-    </div>
+    </>
   );
 };

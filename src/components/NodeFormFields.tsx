@@ -5,6 +5,7 @@ import { IconPicker } from './IconPicker';
 import Switch from './Switch';
 import { getAuthHeaders } from '../utils/auth';
 import { iconRegistry } from '../utils/iconUtils';
+import { FormInput } from './ui/FormInput';
 
 interface NodeFormFieldsProps {
   node: TreeNode;
@@ -168,26 +169,24 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
         {/* Title */}
         <div>
           <label htmlFor={`${node.id}-title`} className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-          <input
+          <FormInput
             id={`${node.id}-title`}
+            accentColor={accentColor}
             type="text"
             value={node.title}
             onChange={(e) => onChange({ title: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
-            style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
           />
         </div>
 
         {/* Subtitle */}
         <div>
           <label htmlFor={`${node.id}-subtitle`} className="block text-sm font-medium text-gray-700 mb-1">Subtitle</label>
-          <input
+          <FormInput
             id={`${node.id}-subtitle`}
+            accentColor={accentColor}
             type="text"
             value={node.subtitle}
             onChange={(e) => onChange({ subtitle: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
-            style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
           />
         </div>
 
@@ -225,13 +224,13 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
               Plex Token (X-Plex-Token)
             </label>
             <div className="relative">
-              <input
+              <FormInput
+                accentColor={accentColor}
+                className="pr-10"
                 type={showPlexToken ? "text" : "password"}
                 value={node.plexToken || ''}
                 onChange={(e) => onChange({ plexToken: e.target.value })}
                 placeholder="Enter your Plex Token"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 pr-10"
-                style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
               />
               <button
                 type="button"
@@ -251,8 +250,9 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
         {node.healthCheckType !== 'disabled' && !node.disableHealthCheck && (
           <div className="col-span-1 md:col-span-2">
             <label htmlFor={`${node.id}-checkInterval`} className="block text-sm font-medium text-gray-700 mb-1">Check Interval (ms)</label>
-            <input
+            <FormInput
               id={`${node.id}-checkInterval`}
+              accentColor={accentColor}
               type="number"
               min={5000}
               step={1000}
@@ -262,8 +262,6 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                 onChange({ healthCheckInterval: val > 0 ? val : undefined });
               }}
               placeholder="Default (global setting)"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
-              style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
             />
             <p className="text-xs text-gray-500 mt-1">
               Override the global check interval for this node. Leave empty to use the global setting.
@@ -276,13 +274,14 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
           <label htmlFor={`${node.id}-internalAddress`} className="block text-sm font-medium text-gray-700 mb-1">
             Internal Address
           </label>
-          <input
+          <FormInput
             id={`${node.id}-internalAddress`}
+            accentColor={accentColor}
             type="text"
             value={node.internalAddress || (node.ip ? (node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : node.ip) : '')}
             onChange={(e) => {
               const val = e.target.value;
-              onChange({ 
+              onChange({
                 internalAddress: val || undefined,
                 // Clear legacy fields to complete migration for this node
                 ip: undefined,
@@ -290,8 +289,6 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
               });
             }}
             placeholder="192.168.1.100:8080 or http://internal-service:3000"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
-            style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
           />
           <p className="text-xs text-gray-500 mt-1">
             Address used by the server to check status. Also serves as the default Access URL if not specified below.
@@ -410,12 +407,13 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Access URL
                   </label>
-                  <input
+                  <FormInput
+                    accentColor={accentColor}
                     type="text"
                     value={node.externalAddress || node.url || ''}
                     onChange={(e) => {
                       const val = e.target.value;
-                      onChange({ 
+                      onChange({
                         externalAddress: val || undefined,
                         // Clear legacy field
                         url: undefined
@@ -426,8 +424,6 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                       if (!internal) return "https://myapp.com";
                       return internal.includes('://') ? internal : `http://${internal}`;
                     })()}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
-                    style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Public address for opening the service. If empty, defaults to Internal Address.
