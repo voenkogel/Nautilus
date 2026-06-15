@@ -1,39 +1,15 @@
 import type { TreeNode } from '../types/config';
 
 /**
- * Extracts all node identifiers for health check monitoring.
- * NEW ARCHITECTURE: Only includes nodes with healthCheckPort specified.
- * Nodes without healthCheckPort are excluded from health monitoring.
+ * Whether a node is health-monitored. Uses the server-derived `monitored` flag
+ * when present (sanitized API responses, where internal addresses are stripped),
+ * falling back to address presence for local/admin state where the raw fields
+ * are available.
  */
-export const extractMonitoredNodeIdentifiers = (nodes: TreeNode[]): string[] => {
-  const identifiers: string[] = [];
-  
-  const traverse = (nodeList: TreeNode[]) => {
-    for (const node of nodeList) {
-      // Only monitor nodes with internalAddress (or legacy ip+port) specified, AND not explicitly disabled
-      const hasInternal = !!node.internalAddress;
-      const hasLegacy = !!(node.healthCheckPort && node.ip);
-
-      if ((hasInternal || hasLegacy) && !node.disableHealthCheck) {
-        let identifier = node.internalAddress;
-        // Fallback to legacy format if internalAddress is not set
-        if (!identifier && hasLegacy) {
-          identifier = `${node.ip}:${node.healthCheckPort}`;
-        }
-        
-        if (identifier) {
-          identifiers.push(identifier);
-        }
-      }
-      
-      if (node.children) {
-        traverse(node.children);
-      }
-    }
-  };
-  
-  traverse(nodes);
-  return identifiers;
+export const isNodeMonitored = (node: TreeNode): boolean => {
+  if (typeof node.monitored === 'boolean') return node.monitored;
+  const hasAddr = !!node.internalAddress || !!(node.ip && node.healthCheckPort);
+  return hasAddr && !node.disableHealthCheck && node.healthCheckType !== 'disabled';
 };
 
 /**
@@ -44,11 +20,7 @@ export const extractMonitoredNodeIds = (nodes: TreeNode[]): string[] => {
   const ids: string[] = [];
   const traverse = (nodeList: TreeNode[]) => {
     for (const node of nodeList) {
-      const hasInternal = !!node.internalAddress;
-      const hasLegacy = !!(node.healthCheckPort && node.ip);
-      if ((hasInternal || hasLegacy) && !node.disableHealthCheck) {
-        ids.push(node.id);
-      }
+      if (isNodeMonitored(node)) ids.push(node.id);
       if (node.children) traverse(node.children);
     }
   };

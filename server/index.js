@@ -1382,24 +1382,33 @@ function sanitizeConfig(config, isAdmin = false) {
   // Deep clone to avoid modifying the original in-memory config
   const sanitized = JSON.parse(JSON.stringify(config));
   
-  // Recursive function to strip/mask sensitive fields from nodes
+  // Recursive: mask secrets, add the derived `monitored` flag, and (for
+  // non-admins) strip the internal monitoring address.
   function maskSensitiveFields(nodes) {
     if (!Array.isArray(nodes)) return;
-    
+
     nodes.forEach(node => {
-      // Mask sensitive fields if they exist
+      // Mask secrets for everyone
       if (node.plexToken) {
         node.plexToken = SENSITIVE_MASK;
       }
       if (node.apiKeys) {
         node.apiKeys = SENSITIVE_MASK;
       }
-      
-      // Note: We DO NOT delete internalAddress or monitoring fields for non-admins
-      // These are needed by the frontend to correlate nodes with their status data
-      // The actual health checking is done server-side, so exposing these addresses
-      // doesn't create a security risk - they're just used for matching status to nodes
-      
+
+      // Derive a non-sensitive monitoring flag so the client can correlate status
+      // (keyed by node id) and show monitored state without the internal address.
+      const hasAddr = !!node.internalAddress || !!(node.ip && node.healthCheckPort);
+      node.monitored = hasAddr && !node.disableHealthCheck && node.healthCheckType !== 'disabled';
+
+      // Non-admins never receive the internal address (network-topology recon).
+      // The external address / URL (user-facing launch link) is intentionally kept.
+      if (!isAdmin) {
+        delete node.internalAddress;
+        delete node.ip;
+        delete node.healthCheckPort;
+      }
+
       if (node.children) {
         maskSensitiveFields(node.children);
       }
@@ -1455,6 +1464,19 @@ function restoreSensitiveFields(newConfig, originalConfig) {
   }
   
   return restored;
+}
+
+// Remove the server-derived `monitored` flag from a config tree before persisting
+// (it is recomputed on every read and must never be stored).
+function stripMonitoredFlag(config) {
+  const walk = (nodes) => {
+    if (!Array.isArray(nodes)) return;
+    for (const n of nodes) {
+      delete n.monitored;
+      if (n.children) walk(n.children);
+    }
+  };
+  if (config && config.tree && config.tree.nodes) walk(config.tree.nodes);
 }
 
 // API endpoint to get centralized config (public - read-only, but cleaner for admins)
@@ -1611,6 +1633,9 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     // Restore sensitive fields (unmask) BEFORE merging
     // This looks at the incoming 'masked' values and replaces them with real values from appConfig
     newConfig = restoreSensitiveFields(newConfig, appConfig);
+
+    // Never persist the server-derived `monitored` flag the client received.
+    stripMonitoredFlag(newConfig);
 
     let updatedConfig;
     

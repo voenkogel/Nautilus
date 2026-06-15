@@ -1,6 +1,7 @@
 import React from 'react';
 import type { TreeNode } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
+import { isNodeMonitored } from '../utils/nodeUtils';
 
 interface NodeStatusDetailsProps {
   node: TreeNode;
@@ -17,9 +18,7 @@ const NodeStatusDetails: React.FC<NodeStatusDetailsProps> = ({ node, status }) =
   const getStatusColor = () => {
     if (!status) return '#6b7280'; // Default gray
     
-    const isMonitoringDisabled = (!node.internalAddress && !node.healthCheckPort) || 
-                                 node.healthCheckType === 'disabled' || 
-                                 node.disableHealthCheck;
+    const isMonitoringDisabled = !isNodeMonitored(node);
     
     if (isMonitoringDisabled) return '#6b7280';
     

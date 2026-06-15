@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Settings as SettingsIcon, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import type { AppConfig, NodeStatus } from '../types/config';
-import { extractMonitoredNodeIds, getAllNodes } from '../utils/nodeUtils';
+import { extractMonitoredNodeIds, getAllNodes, isNodeMonitored } from '../utils/nodeUtils';
 
 type NodeFilter = 'online' | 'offline' | 'activity';
 
@@ -65,8 +65,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
 
   const hasActivityNodes = allNodes.some(n =>
     (n.healthCheckType === 'plex' || n.healthCheckType === 'minecraft') &&
-    (n.internalAddress || (n.ip && n.healthCheckPort)) &&
-    !n.disableHealthCheck
+    isNodeMonitored(n)
   );
 
   const isActive = hasActivityNodes && allNodes.some(node => {

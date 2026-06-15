@@ -22,6 +22,8 @@ export interface TreeNode {
   type?: 'square' | 'circular' | 'angular'; // Square (normal cards), circular (pill-shaped cards), or angular (diamond-sided cards)
   
   collapsed?: boolean; // Whether the node's children are hidden (persisted state)
+
+  monitored?: boolean; // Server-derived: present only in sanitized API responses; never persisted
   
   plexToken?: string; // Optional Plex Media Server token (only stored on server, never sent to client)
 

@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import type { TreeNode, AppConfig } from '../types/config';
 import { useNodeStatus } from '../hooks/useNodeStatus';
-import { getVisibleTree, reorderNode, countDescendants, getAllNodes } from '../utils/nodeUtils';
+import { getVisibleTree, reorderNode, countDescendants, getAllNodes, isNodeMonitored } from '../utils/nodeUtils';
 import { useAppearance } from '../hooks/useAppearance';
 import StatusCard from './StatusCard';
 import Settings from './Settings';
@@ -25,7 +25,7 @@ import {
   NODE_WIDTH,
   SIBLING_SPACING
 } from '../utils/layoutUtils';
-import { getNodeTargetUrl, normalizeNodeIdentifier } from '../utils/nodeUtils';
+import { getNodeTargetUrl } from '../utils/nodeUtils';
 import CanvasNode from './CanvasNode';
 import NodeCard from './NodeCard';
 import DragGhost from './DragGhost';
@@ -465,14 +465,8 @@ const Canvas: React.FC = () => {
       if (n.children) {
         for (const child of n.children) {
           total++;
-          // Get status for this child
-          let identifier = child.internalAddress;
-          if (!identifier) {
-            identifier = child.healthCheckPort && child.ip 
-              ? `${child.ip}:${child.healthCheckPort}` 
-              : (child.ip || child.url);
-          }
-          if (identifier) {
+          // Count this child in the stats only if it is monitored
+          if (isNodeMonitored(child)) {
             const status = getNodeStatus(child.id);
             if (status.status === 'online') online++;
             else if (status.status === 'offline') offline++;
@@ -958,9 +952,7 @@ const Canvas: React.FC = () => {
       if (now - lastOpenTime > 1000) { // 1 second debounce
         (window as any)[lastOpenKey] = now;
         if (currentConfig.general?.openNodesAsOverlay !== false && !node.disableEmbedded) {
-          const rawId = node.internalAddress || (node.ip && node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : '');
-          const nid = rawId ? normalizeNodeIdentifier(rawId) : undefined;
-          setIframeOverlay({ url: targetUrl, title: node.title || appTitle, nodeId: nid });
+          setIframeOverlay({ url: targetUrl, title: node.title || appTitle, nodeId: node.id });
         } else {
           window.open(targetUrl, '_blank', 'noopener,noreferrer');
         }
@@ -1267,8 +1259,7 @@ const Canvas: React.FC = () => {
     if (!activeFilter) return null;
     const all = getAllNodes(currentConfig.tree.nodes);
     return all.filter(node => {
-      const monitored = (node.internalAddress || (node.ip && node.healthCheckPort)) && !node.disableHealthCheck;
-      if (!monitored) return false;
+      if (!isNodeMonitored(node)) return false;
       const s = getNodeStatus(node.id);
       if (activeFilter === 'online') return s.status === 'online';
       if (activeFilter === 'offline') return s.status === 'offline';
@@ -1508,9 +1499,7 @@ const Canvas: React.FC = () => {
                     onDeleteClick={(n) => handleQuickDeleteNode(n.id)}
                     onDragStart={handleDragStart}
                     onHistoryClick={(n) => {
-                      const rawId = n.internalAddress || (n.ip && n.healthCheckPort ? `${n.ip}:${n.healthCheckPort}` : '');
-                      const nodeId = rawId ? normalizeNodeIdentifier(rawId) : null;
-                      if (nodeId) setHistoryModal({ nodeId, nodeName: n.title });
+                      setHistoryModal({ nodeId: n.id, nodeName: n.title });
                     }}
                   />
                 </div>

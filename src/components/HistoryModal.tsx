@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { X, ArrowLeft, Clock, TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
 import type { AppConfig } from '../types/config';
-import { getAllNodes } from '../utils/nodeUtils';
+import { getAllNodes, isNodeMonitored } from '../utils/nodeUtils';
 import {
   useNodeHistory,
   useGlobalHistory,
@@ -497,9 +497,7 @@ const GlobalHistoryView: React.FC<{
   const { data, loading, error } = useGlobalHistory(period);
 
   const monitoredNodes = useMemo(() => {
-    return getAllNodes(appConfig.tree.nodes).filter(
-      n => (n.internalAddress || (n.ip && n.healthCheckPort)) && !n.disableHealthCheck
-    );
+    return getAllNodes(appConfig.tree.nodes).filter(isNodeMonitored);
   }, [appConfig.tree.nodes]);
 
   if (loading) return <Spinner />;
