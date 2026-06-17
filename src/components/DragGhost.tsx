@@ -2,11 +2,10 @@ import React from 'react';
 import type { DragState } from '../hooks/useDragReorder';
 import type { PositionedNode } from '../utils/layoutUtils';
 import type { AppConfig } from '../types/config';
-import { 
-  NODE_WIDTH, 
-  NODE_HEIGHT, 
-  VERTICAL_SPACING, 
-  SIBLING_SPACING 
+import {
+  NODE_WIDTH,
+  NODE_HEIGHT,
+  VERTICAL_SPACING
 } from '../utils/layoutUtils';
 
 interface DragGhostProps {
@@ -38,7 +37,7 @@ const DragGhost: React.FC<DragGhostProps> = ({ dragState, nodes, config }) => {
   let ghostY: number;
   
   if (dropTarget.type === 'as-child' && targetNode) {
-    // Dropping as first child of target node - position below
+    // Dropping as a child of target node - position below it
     ghostX = targetNode.x; // Same X as would-be parent
     ghostY = targetNode.y + NODE_HEIGHT + VERTICAL_SPACING;
   } else if (dropTarget.type === 'as-root') {
@@ -48,7 +47,7 @@ const DragGhost: React.FC<DragGhostProps> = ({ dragState, nodes, config }) => {
       return config.tree.nodes.some(root => root.id === n.id);
     });
     if (rootLevelNodes.length > 0) {
-      const rightMost = rootLevelNodes.reduce((prev, curr) => 
+      const rightMost = rootLevelNodes.reduce((prev, curr) =>
         curr.x + curr.width > prev.x + prev.width ? curr : prev
       );
       ghostX = rightMost.x + rightMost.width + 60;
@@ -56,18 +55,6 @@ const DragGhost: React.FC<DragGhostProps> = ({ dragState, nodes, config }) => {
     } else {
       ghostX = 0;
       ghostY = 0;
-    }
-  } else if (targetNode) {
-    // Dropping before or after a sibling - siblings are HORIZONTAL
-    ghostY = targetNode.y; // Same Y position as sibling (same level)
-    
-    if (dropTarget.position === 'before') {
-      // 'before' = to the LEFT of the target node
-      // Ghost takes position to the left, target shifts right
-      ghostX = targetNode.x;
-    } else {
-      // 'after' = to the RIGHT of the target node
-      ghostX = targetNode.x + NODE_WIDTH + SIBLING_SPACING;
     }
   } else {
     return null;

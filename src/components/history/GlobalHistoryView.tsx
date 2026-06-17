@@ -5,6 +5,7 @@ import { useGlobalHistory, type HistoryPeriod } from '../../hooks/useStatusHisto
 import { getAllNodes, isNodeMonitored } from '../../utils/nodeUtils';
 import { computeStats, uptimeColor, formatShortDate } from './historyUtils';
 import { Spinner, StatCard, UptimeTimeline } from './historyCharts';
+import { statusColors } from '../../utils/colors';
 
 export const GlobalHistoryView: React.FC<{
   period: HistoryPeriod;
@@ -18,15 +19,26 @@ export const GlobalHistoryView: React.FC<{
     return getAllNodes(appConfig.tree.nodes).filter(isNodeMonitored);
   }, [appConfig.tree.nodes]);
 
+  // Aggregate once per data change rather than on every render. Tooltip hovers
+  // and parent re-renders were re-flattening + re-reducing the whole dataset and
+  // re-running computeStats for every node row each time.
+  const globalStats = useMemo(
+    () => computeStats(data ? Object.values(data.records).flat() : []),
+    [data]
+  );
+  const nodeStats = useMemo(() => {
+    const stats = new Map<string, ReturnType<typeof computeStats>>();
+    monitoredNodes.forEach(node => {
+      stats.set(node.id, computeStats(data?.records[node.id] || []));
+    });
+    return stats;
+  }, [monitoredNodes, data]);
+
   if (loading) return <Spinner />;
   if (error)   return <div className="text-center text-red-500 text-sm py-12">Error: {error}</div>;
   if (monitoredNodes.length === 0) {
     return <div className="text-center text-gray-400 text-sm py-12">No monitored nodes configured.</div>;
   }
-
-  // Overall stats across all nodes
-  const allRecords = data ? Object.values(data.records).flat() : [];
-  const globalStats = computeStats(allRecords);
 
   return (
     <div className="space-y-5">
@@ -66,7 +78,7 @@ export const GlobalHistoryView: React.FC<{
           const nodeId = node.id;
 
           const nodeRecords = data?.records[nodeId] || [];
-          const stats       = computeStats(nodeRecords);
+          const stats       = nodeStats.get(nodeId)!;
 
           return (
             <div
@@ -113,8 +125,8 @@ export const GlobalHistoryView: React.FC<{
       {/* Legend */}
       <div className="flex items-center gap-4 pt-1">
         {[
-          { color: '#10b981', label: 'Online' },
-          { color: '#ef4444', label: 'Offline' },
+          { color: statusColors.online, label: 'Online' },
+          { color: statusColors.offline, label: 'Offline' },
           { color: '#e5e7eb', label: 'No data' },
         ].map(({ color, label }) => (
           <div key={label} className="flex items-center gap-1.5 text-[10px] text-gray-400 font-roboto">

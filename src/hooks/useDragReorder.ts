@@ -82,49 +82,6 @@ export const useDragReorder = ({ nodes, rootNodes, isEditMode, onReorder }: UseD
     const ZONE_HEIGHT = 30;
     const ZONE_PADDING = 5;
 
-    // Helper to get the parent of a node
-    const getParentId = (nodeId: string, nodes: TreeNode[], parentId: string | null = null): string | null => {
-      for (const node of nodes) {
-        if (node.id === nodeId) return parentId;
-        if (node.children) {
-          const found = getParentId(nodeId, node.children, node.id);
-          if (found !== undefined) return found;
-        }
-      }
-      return undefined as unknown as string | null;
-    };
-
-    // Get siblings (nodes with the same parent)
-    const getSiblings = (nodeId: string): { siblings: TreeNode[], parentId: string | null } => {
-      // Check root level
-      const rootIndex = rootNodes.findIndex(n => n.id === nodeId);
-      if (rootIndex !== -1) {
-        return { siblings: rootNodes, parentId: null };
-      }
-
-      // Check nested levels
-      const findInParent = (treeNodes: TreeNode[]): { siblings: TreeNode[], parentId: string | null } | null => {
-        for (const node of treeNodes) {
-          if (node.children) {
-            const childIndex = node.children.findIndex(c => c.id === nodeId);
-            if (childIndex !== -1) {
-              return { siblings: node.children, parentId: node.id };
-            }
-            const found = findInParent(node.children);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-
-      return findInParent(rootNodes) || { siblings: [], parentId: null };
-    };
-
-    // Get the dragged node's current position to avoid creating zones that would result in no change
-    const draggedNodePosition = getSiblings(draggedNodeId);
-    const draggedNodeIndex = draggedNodePosition.siblings.findIndex(s => s.id === draggedNodeId);
-    const draggedNodeParentId = draggedNodePosition.parentId;
-
     // Create drop zones for each positioned node
     nodes.forEach((node) => {
       // Don't create zones for the dragged node or its descendants
@@ -132,76 +89,25 @@ export const useDragReorder = ({ nodes, rootNodes, isEditMode, onReorder }: UseD
         return;
       }
 
-      // Get node's parent info
-      const parentId = getParentId(node.id, rootNodes);
-      const { siblings } = getSiblings(node.id);
-      const nodeIndexInSiblings = siblings.findIndex(s => s.id === node.id);
+      // Horizontal placement is fully automatic, so the only manual gestures are
+      // functional: drop a node UNDER another node (reparent / regroup / change depth)
+      // or drop it as a new root. Sibling order is derived, not hand-adjustable.
       const originalNode = findNodeById(rootNodes, node.id);
-      const hasChildren = originalNode?.children && originalNode.children.length > 0;
-      
-      // For horizontal tree layout:
-      // - Siblings are arranged horizontally (left to right)
-      // - Children are below their parents (vertical)
-      
-      const ZONE_WIDTH = 40; // Width of drop zone on sides
-      
-      // Check if this "before" zone would result in the same position
-      // Same position if: same parent AND (inserting at current index OR at index+1 which is "after" self)
-      const isBeforeSamePosition = parentId === draggedNodeParentId && 
-        (nodeIndexInSiblings === draggedNodeIndex || nodeIndexInSiblings === draggedNodeIndex + 1);
-      
-      // Zone to the LEFT of the node (insert before this sibling)
-      if (!isBeforeSamePosition) {
-        zones.push({
-          id: `before-${node.id}`,
-          type: 'between-siblings',
-          parentId,
-          insertIndex: nodeIndexInSiblings,
-          targetNodeId: node.id,
-          position: 'before',
-          x: node.x - ZONE_WIDTH / 2 - ZONE_PADDING,
-          y: node.y,
-          width: ZONE_WIDTH,
-          height: node.height,
-        });
-      }
+      const childCount = originalNode?.children?.length ?? 0;
 
-      // Zone to the RIGHT of the node (insert after this sibling) - only for last sibling
-      const isLastSibling = nodeIndexInSiblings === siblings.length - 1;
-      
-      // Check if this "after" zone would result in the same position
-      const isAfterSamePosition = parentId === draggedNodeParentId && 
-        (nodeIndexInSiblings + 1 === draggedNodeIndex || nodeIndexInSiblings === draggedNodeIndex);
-
-      if (isLastSibling && !isAfterSamePosition) {
-        zones.push({
-          id: `after-${node.id}`,
-          type: 'between-siblings',
-          parentId,
-          insertIndex: nodeIndexInSiblings + 1,
-          targetNodeId: node.id,
-          position: 'after',
-          x: node.x + node.width + ZONE_PADDING,
-          y: node.y,
-          width: ZONE_WIDTH,
-          height: node.height,
-        });
-      }
-
-      // Zone BELOW the node for adding as first child (if node doesn't have children)
-      if (!hasChildren) {
-        zones.push({
-          id: `child-${node.id}`,
-          type: 'as-child',
-          parentId: node.id,
-          insertIndex: 0,
-          targetNodeId: node.id,
-          x: node.x,
-          y: node.y + node.height + ZONE_PADDING,
-          width: node.width,
-          height: ZONE_HEIGHT,
-        });
-      }
+      // Zone BELOW the node for adding as a child (works for any node, including
+      // parents that already have children — appends to the end of their children).
+      zones.push({
+        id: `child-${node.id}`,
+        type: 'as-child',
+        parentId: node.id,
+        insertIndex: childCount,
+        targetNodeId: node.id,
+        x: node.x,
+        y: node.y + node.height + ZONE_PADDING,
+        width: node.width,
+        height: ZONE_HEIGHT,
+      });
     });
 
     // Add zone for adding as new root (at the end)

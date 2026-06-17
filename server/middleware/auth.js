@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { logger } from '../utils/logger.js';
 
 // Session storage for authenticated sessions (in production, use Redis or database)
 const authenticatedSessions = new Map();
@@ -79,7 +80,7 @@ export const authenticateRequest = (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    console.log(`❌ [AUTH] Unauthenticated request from ${clientIp} to ${req.method} ${req.path} (missing/invalid auth header)`);
+    logger.info(`❌ [AUTH] Unauthenticated request from ${clientIp} to ${req.method} ${req.path} (missing/invalid auth header)`);
     return res.status(401).json({
       error: 'Unauthorized',
       message: 'Missing or invalid authorization header'
@@ -89,7 +90,7 @@ export const authenticateRequest = (req, res, next) => {
   const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
   if (!authenticatedSessions.has(token)) {
-    console.log(`❌ [AUTH] Invalid session token from ${clientIp} to ${req.method} ${req.path} (token: ${token.substring(0, 8)}...)`);
+    logger.info(`❌ [AUTH] Invalid session token from ${clientIp} to ${req.method} ${req.path} (token: ${token.substring(0, 8)}...)`);
     return res.status(401).json({
       error: 'Unauthorized',
       message: 'Invalid or expired session token'

@@ -11,6 +11,33 @@ export interface StatusResponse {
   statuses: Record<string, NodeStatus>;
 }
 
+// True when two node statuses are field-for-field identical. Used to skip
+// re-renders when a poll returns the same data (the common case between
+// health-check cycles, when no node's lastChecked/status has changed).
+const isSameStatus = (a?: NodeStatus, b?: NodeStatus): boolean => {
+  if (!a || !b) return a === b;
+  return a.status === b.status
+    && a.lastChecked === b.lastChecked
+    && a.statusChangedAt === b.statusChangedAt
+    && a.responseTime === b.responseTime
+    && a.error === b.error
+    && a.streams === b.streams
+    && a.version === b.version
+    && a.motd === b.motd
+    && a.favicon === b.favicon
+    && a.players?.online === b.players?.online
+    && a.players?.max === b.players?.max;
+};
+
+const statusMapsEqual = (
+  a: Record<string, NodeStatus>,
+  b: Record<string, NodeStatus>
+): boolean => {
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every(k => isSameStatus(a[k], b[k]));
+};
+
 export const useNodeStatus = (appConfig: AppConfig) => {
   const [statuses, setStatuses] = useState<Record<string, NodeStatus>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -21,6 +48,13 @@ export const useNodeStatus = (appConfig: AppConfig) => {
   
   // Use a ref to store the performFetch function so it can be called externally
   const performFetchRef = useRef<(() => Promise<void>) | null>(null);
+
+  // Mirror isConnected into a ref so fetchStatuses can read the latest value
+  // WITHOUT listing isConnected in its deps. Otherwise every connect/disconnect
+  // flip changed fetchStatuses' identity, which tore down and restarted the
+  // entire polling effect (countdown reset + immediate refetch) on each flap.
+  const isConnectedRef = useRef(isConnected);
+  useEffect(() => { isConnectedRef.current = isConnected; }, [isConnected]);
 
   const fetchStatuses = useCallback(async () => {
     if (!appConfig || !appConfig.tree.nodes) return;
@@ -37,9 +71,9 @@ export const useNodeStatus = (appConfig: AppConfig) => {
 
       if (data && data.statuses) {
         // Compare with previous statuses to detect changes and preserve statusChangedAt
-        setStatuses(() => {
+        setStatuses(prev => {
           const newStatuses: Record<string, NodeStatus> = {};
-          
+
           Object.entries(data.statuses).forEach(([nodeId, newStatus]) => {
             // Always use server-provided statusChangedAt when available
             // Server timestamps are authoritative for status duration tracking
@@ -48,15 +82,17 @@ export const useNodeStatus = (appConfig: AppConfig) => {
               statusChangedAt: newStatus.statusChangedAt || new Date().toISOString()
             };
           });
-          
-          return newStatuses;
+
+          // Skip the state update (and the canvas-wide re-render it triggers)
+          // when nothing changed since the last poll.
+          return statusMapsEqual(prev, newStatuses) ? prev : newStatuses;
         });
         setIsConnected(true);
       } else {
         console.warn('Received empty or invalid status data from server');
       }
     } catch (err) {
-      if (isConnected) {
+      if (isConnectedRef.current) {
         console.error('❌ Lost connection to status server:', err instanceof Error ? err.message : 'Unknown error');
       }
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -66,28 +102,36 @@ export const useNodeStatus = (appConfig: AppConfig) => {
       setStatuses(prevStatuses => {
         const offlineStatuses: Record<string, NodeStatus> = {};
         const now = new Date().toISOString();
-        
+
         nodeIdentifiers.forEach((id: string) => {
           const prevStatus = prevStatuses[id];
-          
+          const wasOffline = prevStatus && prevStatus.status === 'offline';
+
           offlineStatuses[id] = {
             status: 'offline',
-            lastChecked: now,
+            // Once a node is already shown offline, keep its prior timestamps so
+            // the object stays byte-for-byte stable across polls — otherwise a
+            // fresh `lastChecked` every cycle defeats the equality check below
+            // and re-renders the whole canvas on each poll while the server is
+            // down.
+            lastChecked: wasOffline ? (prevStatus.lastChecked || now) : now,
             error: 'Server unreachable',
-            statusChangedAt: (prevStatus && prevStatus.status === 'offline') 
+            statusChangedAt: wasOffline
               ? prevStatus.statusChangedAt || now  // Keep existing timestamp if already offline
               : now  // Update timestamp if status changed to offline
           };
         });
-        
-        return offlineStatuses;
+
+        // Skip the state update (and the canvas-wide re-render) when every node
+        // is already in this offline state — mirrors the success path's de-dupe.
+        return statusMapsEqual(prevStatuses, offlineStatuses) ? prevStatuses : offlineStatuses;
       });
     } finally {
       // Note: We don't set isQuerying to false here anymore
       // This is now handled by the timer mechanism to ensure clean transitions
       setIsLoading(false);
     }
-  }, [appConfig, isConnected]);
+  }, [appConfig]);
 
   useEffect(() => {
     // Track if the component is mounted

@@ -23,6 +23,11 @@ export interface TreeNode {
   
   collapsed?: boolean; // Whether the node's children are hidden (persisted state)
 
+  // Layout-internal, transient: set by getVisibleTree on a collapsed node that
+  // actually has children, so calculateTreeLayout reserves a row for the
+  // "N hidden nodes" pill rendered below it. Never persisted.
+  hasHiddenChildren?: boolean;
+
   monitored?: boolean; // Server-derived: present only in sanitized API responses; never persisted
   
   plexToken?: string; // Optional Plex Media Server token (only stored on server, never sent to client)

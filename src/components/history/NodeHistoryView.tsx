@@ -10,6 +10,7 @@ import {
   UptimeTimeline,
   ResponseSparkline,
 } from './historyCharts';
+import { statusColors } from '../../utils/colors';
 
 export const NodeHistoryView: React.FC<{
   nodeId: string;
@@ -63,8 +64,8 @@ export const NodeHistoryView: React.FC<{
         {/* Legend */}
         <div className="flex items-center gap-4 mt-2">
           {[
-            { color: '#10b981', label: 'Online' },
-            { color: '#ef4444', label: 'Offline' },
+            { color: statusColors.online, label: 'Online' },
+            { color: statusColors.offline, label: 'Offline' },
             { color: '#e5e7eb', label: 'No data' },
           ].map(({ color, label }) => (
             <div key={label} className="flex items-center gap-1.5 text-[10px] text-gray-500 font-roboto">

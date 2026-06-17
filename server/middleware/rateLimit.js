@@ -25,6 +25,13 @@ export function createRateLimiter({ windowMs, max }) {
   };
 }
 
-// 300 requests/min per IP across the public read endpoints — well above normal
-// dashboard polling, low enough to blunt scraping/DoS.
-export const publicReadLimiter = createRateLimiter({ windowMs: 60_000, max: 300 });
+// Per-IP cap for the public read endpoints. The default (1000/min) is generous
+// enough that many dashboards behind a single NAT or reverse-proxy IP won't be
+// throttled during normal polling, yet low enough to blunt scraping/DoS. Tune
+// with NAUTILUS_PUBLIC_RATE_LIMIT.
+//
+// NOTE: per-client limiting only works when req.ip is the real client. Behind a
+// reverse proxy, set NAUTILUS_TRUST_PROXY (see server/index.js) — otherwise
+// every client is bucketed under the proxy's address and shares this limit.
+const PUBLIC_MAX = parseInt(process.env.NAUTILUS_PUBLIC_RATE_LIMIT, 10) || 1000;
+export const publicReadLimiter = createRateLimiter({ windowMs: 60_000, max: PUBLIC_MAX });

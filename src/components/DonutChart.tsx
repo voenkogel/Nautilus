@@ -1,4 +1,5 @@
 import React from 'react';
+import { statusColors } from '../utils/colors';
 
 interface DonutChartProps {
   online: number;
@@ -8,7 +9,9 @@ interface DonutChartProps {
 
 /**
  * Small donut chart summarizing a collapsed node's hidden-children status.
- * Uses its own palette to preserve the original on-canvas appearance.
+ * Status hues come from the shared statusColors tokens (utils/colors) so the
+ * donut stays in sync with the status dots and history timelines. The light
+ * track ring (#e5e7eb) is the shared "no-data" shade.
  */
 export const DonutChart: React.FC<DonutChartProps> = ({ online, offline, checking }) => {
   const total = online + offline + checking;
@@ -51,9 +54,9 @@ export const DonutChart: React.FC<DonutChartProps> = ({ online, offline, checkin
       <svg width="100%" height="100%" viewBox="0 0 16 16" className="transform -rotate-90">
         <circle cx="8" cy="8" r="7" fill="#e5e7eb" />
         <circle cx="8" cy="8" r="4" fill="white" />
-        {arc(0, onlineAngle, '#22c55e')}
-        {arc(onlineAngle, onlineAngle + offlineAngle, '#ef4444')}
-        {checking > 0 && arc(onlineAngle + offlineAngle, 360, '#9ca3af')}
+        {arc(0, onlineAngle, statusColors.online)}
+        {arc(onlineAngle, onlineAngle + offlineAngle, statusColors.offline)}
+        {checking > 0 && arc(onlineAngle + offlineAngle, 360, statusColors.checking)}
       </svg>
     </div>
   );

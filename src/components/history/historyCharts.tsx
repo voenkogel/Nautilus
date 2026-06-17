@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { Clock } from 'lucide-react';
 import type { HistoryRecord, HistoryPeriod } from '../../hooks/useStatusHistory';
 import { formatTimestamp, PERIODS, BUCKETS } from './historyUtils';
+import { statusColors } from '../../utils/colors';
 
 // --- Period selector ---
 
@@ -25,10 +26,13 @@ export const PeriodPicker: React.FC<{ active: HistoryPeriod; onChange: (p: Histo
 
 // --- Uptime timeline bar ---
 
+// Timeline bucket colors: the shared status tokens plus an "empty" (no-data)
+// shade specific to the timeline. Single source of truth for the status hues —
+// previously these were duplicated here and had drifted from statusColors.
 const colorMap: Record<string, string> = {
-  online:   '#10b981',
-  offline:  '#ef4444',
-  checking: '#9ca3af',
+  online:   statusColors.online,
+  offline:  statusColors.offline,
+  checking: statusColors.checking,
   empty:    '#e5e7eb',
 };
 
@@ -42,15 +46,28 @@ export const UptimeTimeline: React.FC<{
   const bucketMs = (nowMs - sinceMs) / BUCKETS;
 
   const buckets = useMemo((): ('online' | 'offline' | 'checking' | 'empty')[] => {
-    return Array.from({ length: BUCKETS }, (_, i) => {
-      const start = sinceMs + i * bucketMs;
-      const end   = start + bucketMs;
-      const slice = records.filter(r => r.timestamp >= start && r.timestamp < end);
-      if (slice.length === 0) return 'empty';
-      if (slice.some(r => r.status === 'offline'))  return 'offline';
-      if (slice.some(r => r.status === 'online'))   return 'online';
-      return 'checking';
-    });
+    // Single O(records) pass into fixed buckets instead of O(BUCKETS × records)
+    // — the old Array.from(160) re-filtered the whole records array per bucket,
+    // and GlobalHistoryView renders one timeline per node.
+    const result: ('online' | 'offline' | 'checking' | 'empty')[] = new Array(BUCKETS).fill('empty');
+    const sawOffline  = new Uint8Array(BUCKETS);
+    const sawOnline   = new Uint8Array(BUCKETS);
+    const sawChecking = new Uint8Array(BUCKETS);
+    for (const r of records) {
+      if (r.timestamp < sinceMs || r.timestamp >= nowMs) continue;
+      const idx = Math.min(BUCKETS - 1, Math.floor((r.timestamp - sinceMs) / bucketMs));
+      if (idx < 0) continue;
+      if (r.status === 'offline')      sawOffline[idx]  = 1;
+      else if (r.status === 'online')  sawOnline[idx]   = 1;
+      else                             sawChecking[idx] = 1;
+    }
+    // Priority matches the previous logic: offline > online > checking > empty.
+    for (let i = 0; i < BUCKETS; i++) {
+      if (sawOffline[i])       result[i] = 'offline';
+      else if (sawOnline[i])   result[i] = 'online';
+      else if (sawChecking[i]) result[i] = 'checking';
+    }
+    return result;
   }, [records, sinceMs, nowMs, bucketMs]);
 
   const hovered = tooltip !== null ? buckets[tooltip.index] : null;
@@ -240,9 +257,9 @@ export const UptimeRing: React.FC<{ pct: number | null }> = ({ pct }) => {
   const filled = pct !== null ? (pct / 100) * circumference : 0;
 
   const color = pct === null ? '#9ca3af'
-    : pct >= 99 ? '#10b981'
+    : pct >= 99 ? statusColors.online
     : pct >= 95 ? '#f59e0b'
-    : '#ef4444';
+    : statusColors.offline;
 
   return (
     <svg width="72" height="72" viewBox="0 0 72 72">

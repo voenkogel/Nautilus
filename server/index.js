@@ -1,26 +1,16 @@
 import express from 'express';
 import { NetworkScanService } from './network_scan_service.js';
 import cors from 'cors';
-import fetch from 'node-fetch';
-import https from 'https';
-import { readFileSync, writeFileSync, existsSync, chmodSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { execSync, execFile } from 'child_process';
-import { promisify } from 'util';
-import os from 'os';
+import { execSync } from 'child_process';
 import dotenv from 'dotenv';
 
-// execFile (not exec) runs the binary directly without a shell, so interpolated
-// arguments can never be interpreted as shell commands.
-const execFileAsync = promisify(execFile);
-
-// Import the webhook utility
-import { sendStatusWebhook } from './utils/webhooks.js';
 import { queryJavaServer, queryBedrockServer } from './utils/minecraft.js';
-import { queryPlexServer } from './utils/plex.js';
-import { initHistoryDb, recordStatusHistory, getNodeHistory, getAllNodesHistory, pruneOldHistory } from './utils/historyDb.js';
+import { initHistoryDb, getNodeHistory, getAllNodesHistory, pruneOldHistory } from './utils/historyDb.js';
 import { isValidHost, validateScanSubnet } from './utils/validation.js';
+import { isNodeMonitored, getNodeIdentifier } from './utils/nodeMonitoring.js';
 import {
   authenticateRequest,
   generateSessionToken,
@@ -33,6 +23,19 @@ import {
   touchSession,
 } from './middleware/auth.js';
 import { publicReadLimiter } from './middleware/rateLimit.js';
+import { sanitizeConfig, restoreSensitiveFields, stripMonitoredFlag } from './services/configSanitize.js';
+import { deepMerge, validateConfig } from './services/configValidation.js';
+import { securityHeaders } from './middleware/security.js';
+import { logger } from './utils/logger.js';
+import {
+  setMonitoringConfig,
+  initializeNodeStatuses,
+  scheduleNextCheck,
+  checkAllNodes,
+  performNodeCheck,
+  normalizeNodeIdentifier,
+  nodeStatuses,
+} from './services/healthCheck.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -57,42 +60,42 @@ const ADMIN_PASSWORD = process.env.NAUTILUS_ADMIN_PASSWORD;
 
 // Check if admin password is set and strong
 if (!ADMIN_PASSWORD || ADMIN_PASSWORD === '1234') {
-  console.log('');
-  console.log('╔═══════════════════════════════════════════════════════════════════════════════╗');
-  console.log('║                                                                               ║');
-  console.log('║                    ❌ CRITICAL: SECURITY CONFIGURATION ERROR ❌                ║');
-  console.log('║                                                                               ║');
-  console.log('╠═══════════════════════════════════════════════════════════════════════════════╣');
-  console.log('║                                                                               ║');
-  console.log('║  The NAUTILUS_ADMIN_PASSWORD environment variable is NOT SET or is using      ║');
-  console.log('║  the insecure default value "1234".                                           ║');
-  console.log('║                                                                               ║');
-  console.log('║  🛑 THE SERVER CANNOT START WITHOUT A SECURE PASSWORD 🛑                      ║');
-  console.log('║                                                                               ║');
-  console.log('╠═══════════════════════════════════════════════════════════════════════════════╣');
-  console.log('║                                                                               ║');
-  console.log('║  📋 HOW TO FIX:                                                               ║');
-  console.log('║                                                                               ║');
-  console.log('║  1. Create or edit the .env file in your project root                        ║');
-  console.log('║                                                                               ║');
-  console.log('║  2. Add the following line with a STRONG password:                           ║');
-  console.log('║     NAUTILUS_ADMIN_PASSWORD=your_secure_password_here                        ║');
-  console.log('║                                                                               ║');
-  console.log('║  3. Restart the Nautilus server                                              ║');
-  console.log('║                                                                               ║');
-  console.log('║  💡 TIP: Use a password with at least 12 characters including uppercase,     ║');
-  console.log('║     lowercase, numbers, and special characters.                              ║');
-  console.log('║                                                                               ║');
-  console.log('║  📁 Your .env file location: ./.env                                          ║');
-  console.log('║                                                                               ║');
-  console.log('╚═══════════════════════════════════════════════════════════════════════════════╝');
-  console.log('');
+  logger.info('');
+  logger.info('╔═══════════════════════════════════════════════════════════════════════════════╗');
+  logger.info('║                                                                               ║');
+  logger.info('║                    ❌ CRITICAL: SECURITY CONFIGURATION ERROR ❌                ║');
+  logger.info('║                                                                               ║');
+  logger.info('╠═══════════════════════════════════════════════════════════════════════════════╣');
+  logger.info('║                                                                               ║');
+  logger.info('║  The NAUTILUS_ADMIN_PASSWORD environment variable is NOT SET or is using      ║');
+  logger.info('║  the insecure default value "1234".                                           ║');
+  logger.info('║                                                                               ║');
+  logger.info('║  🛑 THE SERVER CANNOT START WITHOUT A SECURE PASSWORD 🛑                      ║');
+  logger.info('║                                                                               ║');
+  logger.info('╠═══════════════════════════════════════════════════════════════════════════════╣');
+  logger.info('║                                                                               ║');
+  logger.info('║  📋 HOW TO FIX:                                                               ║');
+  logger.info('║                                                                               ║');
+  logger.info('║  1. Create or edit the .env file in your project root                        ║');
+  logger.info('║                                                                               ║');
+  logger.info('║  2. Add the following line with a STRONG password:                           ║');
+  logger.info('║     NAUTILUS_ADMIN_PASSWORD=your_secure_password_here                        ║');
+  logger.info('║                                                                               ║');
+  logger.info('║  3. Restart the Nautilus server                                              ║');
+  logger.info('║                                                                               ║');
+  logger.info('║  💡 TIP: Use a password with at least 12 characters including uppercase,     ║');
+  logger.info('║     lowercase, numbers, and special characters.                              ║');
+  logger.info('║                                                                               ║');
+  logger.info('║  📁 Your .env file location: ./.env                                          ║');
+  logger.info('║                                                                               ║');
+  logger.info('╚═══════════════════════════════════════════════════════════════════════════════╝');
+  logger.info('');
   process.exit(1);
 } else {
-  console.log('');
-  console.log('✅ Security: Admin password successfully loaded from environment variable');
-  console.log('🔒 Authentication: Password protection is ENABLED');
-  console.log('');
+  logger.info('');
+  logger.info('✅ Security: Admin password successfully loaded from environment variable');
+  logger.info('🔒 Authentication: Password protection is ENABLED');
+  logger.info('');
 }
 
 
@@ -137,21 +140,21 @@ try {
     configPath = '/data/config.json';
     // Check if production path exists, fallback to app directory if not
     if (!existsSync(dirname(configPath))) {
-      console.warn(`⚠️  Production config directory ${dirname(configPath)} does not exist, falling back to app config`);
+      logger.warn(`⚠️  Production config directory ${dirname(configPath)} does not exist, falling back to app config`);
       configPath = './data/config.json';
     }
   } else {
     configPath = './config.json';
   }
   
-  console.log(`🔧 NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
-  console.log(`🔧 Config path: ${configPath}`);
-  console.log(`🔧 Working directory: ${process.cwd()}`);
+  logger.info(`🔧 NODE_ENV: ${process.env.NODE_ENV || 'undefined'}`);
+  logger.info(`🔧 Config path: ${configPath}`);
+  logger.info(`🔧 Working directory: ${process.cwd()}`);
   
   const configContent = readFileSync(configPath, 'utf8');
   const savedConfig = JSON.parse(configContent);
   
-  console.log(`🔧 Loaded config with ${savedConfig.tree?.nodes?.length || 0} nodes`);
+  logger.info(`🔧 Loaded config with ${savedConfig.tree?.nodes?.length || 0} nodes`);
   
   // Deep merge saved config over default config
   appConfig = {
@@ -163,7 +166,7 @@ try {
     tree: savedConfig.tree || defaultConfig.tree
   };
 
-  console.log('✅ Loaded and merged config from config.json and environment variables.');
+  logger.info('✅ Loaded and merged config from config.json and environment variables.');
 
   // --- MIGRATION: Convert legacy fields to new address fields ---
   function migrateNode(node) {
@@ -173,14 +176,14 @@ try {
     if (!node.internalAddress && node.ip && node.healthCheckPort) {
       node.internalAddress = `${node.ip}:${node.healthCheckPort}`;
       modified = true;
-      console.log(`🔄 [MIGRATION] Migrated node "${node.title}" to internalAddress: ${node.internalAddress}`);
+      logger.info(`🔄 [MIGRATION] Migrated node "${node.title}" to internalAddress: ${node.internalAddress}`);
     }
     
     // Migrate URL -> externalAddress
     if (!node.externalAddress && node.url) {
       node.externalAddress = node.url;
       modified = true;
-      console.log(`🔄 [MIGRATION] Migrated node "${node.title}" to externalAddress: ${node.externalAddress}`);
+      logger.info(`🔄 [MIGRATION] Migrated node "${node.title}" to externalAddress: ${node.externalAddress}`);
     }
     
     if (node.children && Array.isArray(node.children)) {
@@ -199,11 +202,11 @@ try {
     });
     
     if (treeModified) {
-      console.log('✅ Configuration migrated to new address format (in-memory)');
+      logger.info('✅ Configuration migrated to new address format (in-memory)');
     }
   }
 } catch (error) {
-  console.log('No config.json found or error reading it. Using environment variables or defaults.');
+  logger.info('No config.json found or error reading it. Using environment variables or defaults.');
   appConfig = defaultConfig;
 }
 
@@ -220,37 +223,15 @@ app.use((req, res, next) => {
   
   // Only log API requests, not static file requests
   if (req.path.startsWith('/api/')) {
-    console.log(`🌐 [CLIENT] ${clientIp} → ${req.method} ${req.path} (${userAgent.substring(0, 50)}...)`);
+    logger.info(`🌐 [CLIENT] ${clientIp} → ${req.method} ${req.path} (${userAgent.substring(0, 50)}...)`);
   }
   
   next();
 });
 
-// Security headers
-app.use((req, res, next) => {
-  // Prevent XSS attacks
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  
-  // Content Security Policy
-  res.setHeader('Content-Security-Policy', 
-    "default-src 'self'; " +
-    "script-src 'self'; " +
-    "style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data:; " +
-    "connect-src 'self'; " +
-    "font-src 'self'; " +
-    "object-src 'none'; " +
-    "media-src 'self'; " +
-    "frame-src 'none';"
-  );
-  
-  // Remove server info
-  res.removeHeader('X-Powered-By');
-  
-  next();
-});
+
+// Security headers (CSP, anti-clickjacking, MIME-sniffing) — see middleware/security.js
+app.use(securityHeaders);
 
 // Increase JSON payload limit for image uploads (base64 encoded images can be large)
 app.use(express.json({ limit: '1mb' }));
@@ -259,804 +240,18 @@ app.use(express.urlencoded({ limit: '1mb', extended: true }));
 // ── Rate limiting ──────────────────────────────────────────────────────────────
 // Implemented in middleware/rateLimit.js (publicReadLimiter imported above).
 
-// Store for node statuses
-const nodeStatuses = new Map();
-
-// Track consecutive failures per node to suppress transient offline flips
-const consecutiveFailures = new Map();
-const OFFLINE_THRESHOLD = 2; // require this many consecutive failures before marking offline
-
-// Offline notification cooldown tracking (feature: notifyAfterSeconds)
-const offlineSince = new Map();    // identifier -> timestamp when first confirmed offline
-const offlineNotified = new Set(); // identifiers where offline webhook has already been sent this outage
-
-// Per-node check interval tracking
-const nodeLastChecked = new Map(); // identifier -> timestamp of last check
-const MIN_LOOP_INTERVAL = 5000;    // Base scheduling loop runs every 5 s minimum
-
-// Function to normalize a node identifier (IP or URL)
-function normalizeNodeIdentifier(identifier) {
-  if (!identifier) return '';
-  
-  // Remove protocols (http://, https://)
-  let normalized = identifier.replace(/^https?:\/\//, '');
-  // Remove trailing slashes
-  normalized = normalized.replace(/\/+$/, '');
-  
-  return normalized;
-}
-
-// Function to extract all node identifiers for health check monitoring
-// NEW ARCHITECTURE: Only includes nodes with healthCheckPort specified
-function extractAllNodeIdentifiers(nodes = appConfig.tree?.nodes) {
-  const identifiers = [];
-  
-  // Check if appConfig and tree structure exist
-  if (!appConfig || !appConfig.tree || !appConfig.tree.nodes) {
-    console.warn('⚠️  Warning: appConfig.tree.nodes is not available, using empty node list');
-    return identifiers;
-  }
-  
-  function traverse(nodeList) {
-    if (!Array.isArray(nodeList)) {
-      console.warn('⚠️  Warning: nodeList is not an array, skipping');
-      return;
-    }
-    
-    for (const node of nodeList) {
-      try {
-        // Only monitor nodes with internalAddress (or legacy ip+port) specified, AND not explicitly disabled
-        const hasInternal = !!node.internalAddress;
-        const hasLegacy = !!(node.healthCheckPort && node.ip);
-
-        if ((hasInternal || hasLegacy) && !node.disableHealthCheck) {
-          let identifier = node.internalAddress;
-          // Fallback to legacy format if internalAddress is not set
-          if (!identifier && hasLegacy) {
-            identifier = `${node.ip}:${node.healthCheckPort}`;
-          }
-
-          console.log(`📍 [MONITOR] Node "${node.title || node.id}": monitoring "${identifier}"`);
-          
-          // Normalize the identifier to ensure consistent format
-          const normalizedIdentifier = normalizeNodeIdentifier(identifier);
-          identifiers.push(normalizedIdentifier);
-        } else {
-          const reason = node.disableHealthCheck ? 'explicitly disabled' : 'missing internalAddress (or ip+port)';
-          console.log(`⏭️  [SKIP] Node "${node.title || node.id}": ${reason}, excluded from monitoring`);
-        }
-        
-        if (node.children && Array.isArray(node.children)) {
-          traverse(node.children);
-        }
-      } catch (nodeError) {
-        console.warn(`⚠️  Warning: Error processing node ${node.id || 'unknown'}:`, nodeError.message);
-        continue;
-      }
-    }
-  }
-  
-  try {
-    traverse(nodes || appConfig.tree.nodes);
-  } catch (error) {
-    console.error('❌ Error in extractAllNodeIdentifiers:', error);
-    throw error;
-  }
-  
-  return identifiers;
-}
-
-// Initialize statuses code (moved before health check)
-function initializeNodeStatuses(preserveExisting = false) {
-  try {
-    // Get fresh list of node identifiers
-    const nodeIdentifiers = extractAllNodeIdentifiers();
-    
-    if (preserveExisting) {
-      // Preserve existing statuses and only add new nodes or remove deleted ones
-      const existingStatuses = new Map(nodeStatuses);
-      nodeStatuses.clear();
-      consecutiveFailures.clear();
-
-      // Add back statuses for nodes that still exist, or initialize new ones
-      nodeIdentifiers.forEach(identifier => {
-        if (existingStatuses.has(identifier)) {
-          // Preserve existing status
-          nodeStatuses.set(identifier, existingStatuses.get(identifier));
-        } else {
-          // Initialize new node as checking (loading state)
-          nodeStatuses.set(identifier, {
-            status: 'checking',
-            lastChecked: new Date().toISOString(),
-            statusChangedAt: new Date().toISOString(),
-            error: 'Initial check pending'
-          });
-        }
-      });
-    } else {
-      // Clear existing statuses (initial startup behavior)
-      nodeStatuses.clear();
-      consecutiveFailures.clear();
-      
-      // Initialize all nodes as checking with normalized keys
-      nodeIdentifiers.forEach(identifier => {
-        // The identifier is already normalized by extractAllNodeIdentifiers
-        nodeStatuses.set(identifier, { 
-          status: 'checking', 
-          lastChecked: new Date().toISOString(),
-          statusChangedAt: new Date().toISOString(),
-          error: 'Initial check pending'
-        });
-      });
-    }
-    
-    console.log(`🔄 Initialized monitoring for ${nodeIdentifiers.length} nodes`);
-    return nodeIdentifiers;
-  } catch (error) {
-    console.error('❌ Error in initializeNodeStatuses:', error);
-    throw error;
-  }
-}
-
-// Load node identifiers from centralized config and initialize statuses
-let nodeIdentifiers = initializeNodeStatuses();
-let initialHealthCheck = true;
-
-// Create HTTPS agent that ignores self-signed certificates
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: false // Accept self-signed certificates
-});
-
-// Helper function to find node data by identifier (IP:port format)
-function findNodeByIdentifier(targetIdentifier) {
-  // Normalize the target identifier for consistent matching
-  const normalizedTarget = normalizeNodeIdentifier(targetIdentifier);
-  
-  function searchNodes(nodes) {
-    for (const node of nodes) {
-      // NEW ARCHITECTURE: Check internalAddress and legacy
-      let nodeIdentifier = node.internalAddress;
-      if (!nodeIdentifier && node.healthCheckPort && node.ip) {
-        nodeIdentifier = `${node.ip}:${node.healthCheckPort}`;
-      }
-
-      if (nodeIdentifier) {
-        const normalizedNodeId = normalizeNodeIdentifier(nodeIdentifier);
-        if (normalizedNodeId === normalizedTarget) {
-          return node;
-        }
-      }
-      if (node.children) {
-        const found = searchNodes(node.children);
-        if (found) return found;
-      }
-    }
-    return null;
-  }
-  
-  return searchNodes(appConfig.tree.nodes);
-}
-
-// Function to check a single node's status (Pure logic, no side effects)
-async function performNodeCheck(nodeData) {
-  if (!nodeData) {
-    return {
-      status: 'offline',
-      lastChecked: new Date().toISOString(),
-      responseTime: 0,
-      error: 'Node data not provided'
-    };
-  }
-
-  // Only nodes with healthCheckPort or internalAddress should be checked
-  let baseEndpoint;
-  let host, port;
-  let protocol = 'http';
-  
-  if (nodeData.internalAddress) {
-    baseEndpoint = nodeData.internalAddress;
-    
-    // Parse protocol, host, and port
-    let cleanAddress = baseEndpoint;
-    if (baseEndpoint.startsWith('https://')) {
-      protocol = 'https';
-      cleanAddress = baseEndpoint.substring(8);
-    } else if (baseEndpoint.startsWith('http://')) {
-      protocol = 'http';
-      cleanAddress = baseEndpoint.substring(7);
-    }
-    
-    const parts = cleanAddress.split(':');
-    host = parts[0];
-    port = parts[1] ? parseInt(parts[1]) : undefined;
-    
-  } else if (nodeData.healthCheckPort && nodeData.ip) {
-    baseEndpoint = `${nodeData.ip}:${nodeData.healthCheckPort}`;
-    host = nodeData.ip;
-    port = nodeData.healthCheckPort;
-  }
-  
-  // If Plex, we don't strictly need internalAddress if we have host/port via other means, 
-  // but the current architecture assumes internalAddress or ip+port is the source of truth.
-  // We'll proceed if we have a baseEndpoint OR if it's a type that might handle itself (though strictly we need a host).
-
-  if (!baseEndpoint) {
-     return {
-      status: 'offline',
-      lastChecked: new Date().toISOString(),
-      responseTime: 0,
-      error: 'Invalid node configuration - missing internalAddress'
-    };
-  }
-  
-  let finalResult;
-
-  // Check based on type
-  if (nodeData.healthCheckType === 'minecraft') {
-    try {
-      const startTime = Date.now();
-      // Default ports if not specified
-      const mcPort = port || 25565;
-      const result = await queryJavaServer(host, mcPort);
-      
-      finalResult = {
-        status: 'online',
-        lastChecked: new Date().toISOString(),
-        responseTime: Date.now() - startTime,
-        players: result.players,
-        version: result.version,
-        motd: result.motd,
-        favicon: result.favicon
-      };
-    } catch (err) {
-      finalResult = {
-        status: 'offline',
-        lastChecked: new Date().toISOString(),
-        responseTime: 0,
-        error: err.message
-      };
-    }
-  } else if (nodeData.healthCheckType === 'plex') {
-    try {
-      const startTime = Date.now();
-      const plexPort = port || 32400;
-      
-      const result = await queryPlexServer(host, plexPort, nodeData.plexToken, protocol);
-      
-      finalResult = {
-        status: 'online',
-        lastChecked: new Date().toISOString(),
-        responseTime: Date.now() - startTime,
-        streams: result.streams
-      };
-    } catch (err) {
-      finalResult = {
-        status: 'offline',
-        lastChecked: new Date().toISOString(),
-        responseTime: 0,
-        error: err.message,
-        streams: 0 // Ensure streams is defined even on error so UI can show it if needed (or at least not crash)
-      };
-    }
-  } else if (nodeData.healthCheckType === 'ping') {
-    // ICMP ping check. The host is validated and ping is invoked via execFile
-    // (no shell), so a host value can never be reinterpreted as a shell command
-    // or a command-line flag.
-    if (!isValidHost(host)) {
-      finalResult = {
-        status: 'offline',
-        lastChecked: new Date().toISOString(),
-        responseTime: 0,
-        error: 'Invalid host',
-      };
-    } else {
-      try {
-        const startTime = Date.now();
-        const isWindows = os.platform() === 'win32';
-        const pingArgs = isWindows
-          ? ['-n', '1', '-w', '2000', host]
-          : ['-c', '1', '-W', '2', host];
-        const { stdout } = await execFileAsync('ping', pingArgs, { timeout: 5000 });
-        const elapsed = Date.now() - startTime;
-        // Extract RTT from output: "time=1.23 ms" (Linux) or "time=1ms" (Windows)
-        const match = stdout.match(/time[<=](\d+\.?\d*)\s*ms/i);
-        const pingTime = match ? parseFloat(match[1]) : elapsed;
-        finalResult = {
-          status: 'online',
-          lastChecked: new Date().toISOString(),
-          responseTime: Math.round(pingTime),
-        };
-      } catch {
-        finalResult = {
-          status: 'offline',
-          lastChecked: new Date().toISOString(),
-          responseTime: 0,
-          error: 'Host unreachable',
-        };
-      }
-    }
-  } else if (nodeData.healthCheckType === 'disabled' || nodeData.disableHealthCheck) {
-     finalResult = {
-       status: 'offline',
-       lastChecked: new Date().toISOString(),
-       responseTime: 0,
-       error: 'Monitoring disabled'
-     };
-  } else {
-    // HTTP/TCP Check
-    // If protocol is already specified, use it directly
-    if (baseEndpoint.includes('://')) {
-      // Use the identifier from nodeData if available, otherwise just use endpoint as ID for logging
-      const id = nodeData.internalAddress || 'unknown';
-      finalResult = await attemptHealthCheck(baseEndpoint, id, nodeData);
-    } else {
-      // Always try HTTPS first, then HTTP fallback
-      const id = normalizeNodeIdentifier(baseEndpoint);
-      
-      // Try HTTPS first
-      let result = await attemptHealthCheck(`https://${baseEndpoint}`, id, nodeData);
-      
-      // If HTTPS failed with connection errors, try HTTP
-      if (result.status === 'offline' && result.error && 
-          (result.error.includes('Connection refused') || 
-           result.error.includes('Connection timeout') ||
-           result.error.includes('ECONNREFUSED') ||
-           result.error.includes('ETIMEDOUT') ||
-           result.error.includes('EPROTO') ||
-           result.error.includes('SSL routines') ||
-           result.error.includes('wrong version number') ||
-           result.error.includes('certificate'))) {
-        const httpResult = await attemptHealthCheck(`http://${baseEndpoint}`, id, nodeData);
-        
-        // Use HTTP result if it's successful
-        if (httpResult.status === 'online') {
-          finalResult = httpResult;
-        } else {
-          finalResult = result; // Keep original HTTPS error if HTTP also failed
-        }
-      } else {
-        finalResult = result;
-      }
-    }
-  }
-  
-  return finalResult;
-}
-
-// Function to check a single node's health with automatic HTTP/HTTPS fallback
-async function checkNodeHealth(identifier) {
-  const normalizedIdentifier = normalizeNodeIdentifier(identifier);
-  
-  console.log(`🔍 [HEALTH_CHECK] Checking "${identifier}" → normalized: "${normalizedIdentifier}"`);
-  
-  // Get the node data to access IP, URL, and healthCheckPort
-  const nodeData = findNodeByIdentifier(normalizedIdentifier);
-  
-  if (!nodeData) {
-     console.log(`⚠️  [ENDPOINT] Node not found for "${normalizedIdentifier}"`);
-     return {
-      status: 'offline',
-      lastChecked: new Date().toISOString(),
-      responseTime: 0,
-      error: 'Node not found'
-    };
-  }
-
-  // Use the new pure function
-  const finalResult = await performNodeCheck(nodeData);
-
-  // Record every actual check result to history (before suppression, to capture true state)
-  recordStatusHistory(normalizedIdentifier, finalResult);
-
-  const previousStatus = nodeStatuses.get(normalizedIdentifier);
-
-  // Suppress transient offline flips: require OFFLINE_THRESHOLD consecutive failures
-  // before actually marking a node offline and notifying.
-  if (finalResult.status === 'offline') {
-    const failures = (consecutiveFailures.get(normalizedIdentifier) || 0) + 1;
-    consecutiveFailures.set(normalizedIdentifier, failures);
-
-    if (previousStatus?.status === 'online' && failures < OFFLINE_THRESHOLD) {
-      console.log(`⚠️  [HEALTH_CHECK] Transient failure ${failures}/${OFFLINE_THRESHOLD} for "${normalizedIdentifier}", suppressing offline`);
-      const suppressedResult = { ...previousStatus, lastChecked: finalResult.lastChecked };
-      nodeStatuses.set(normalizedIdentifier, suppressedResult);
-      return { ...suppressedResult, notification: null };
-    }
-  } else if (finalResult.status === 'online') {
-    consecutiveFailures.set(normalizedIdentifier, 0);
-  }
-
-  // NOW handle status change notifications AFTER all attempts are complete
-  const statusChanged = !previousStatus || previousStatus.status !== finalResult.status;
-  
-  // Preserve statusChangedAt timestamp if status hasn't changed, otherwise set to now
-  if (previousStatus && !statusChanged) {
-    // Status hasn't changed, preserve the original statusChangedAt timestamp
-    finalResult.statusChangedAt = previousStatus.statusChangedAt;
-  } else {
-    // Status has changed (or this is first check), set statusChangedAt to now
-    finalResult.statusChangedAt = new Date().toISOString();
-  }
-  
-  // Only send notifications for transitions between 'online' and 'offline' states
-  // Exclude transitions from 'checking' to prevent initial startup notifications
-  const shouldNotify = statusChanged && 
-                      previousStatus && 
-                      previousStatus.status !== 'checking' && 
-                      (finalResult.status === 'online' || finalResult.status === 'offline') &&
-                      (previousStatus.status === 'online' || previousStatus.status === 'offline');
-  
-  // Store using normalized identifier for consistent lookups
-  nodeStatuses.set(normalizedIdentifier, finalResult);
-
-  // Clear cooldown tracking when a node recovers
-  if (finalResult.status === 'online') {
-    offlineSince.delete(normalizedIdentifier);
-    offlineNotified.delete(normalizedIdentifier);
-  }
-
-  let notification = null;
-
-  if (shouldNotify && appConfig.webhooks?.statusNotifications) {
-    const nodeName = nodeData?.title || nodeData?.id || normalizedIdentifier;
-    const event = finalResult.status === 'online' ? 'online' : 'offline';
-    console.log(`📢 [NOTIFICATION] Status change for "${nodeName}": ${previousStatus.status} → ${finalResult.status}`);
-
-    const notifyDetails = {
-      error: finalResult.error,
-      responseTime: finalResult.responseTime,
-      endpoint: finalResult.endpoint,
-      statusCode: finalResult.statusCode,
-    };
-
-    if (event === 'online') {
-      // Online: always notify immediately
-      notification = {
-        identifier: normalizedIdentifier,
-        nodeName,
-        event,
-        timestamp: new Date().toISOString(),
-        details: notifyDetails,
-      };
-    } else {
-      // Offline: respect notifyAfterSeconds cooldown
-      const notifyAfterMs = (appConfig.webhooks.statusNotifications.notifyAfterSeconds || 0) * 1000;
-      if (notifyAfterMs === 0) {
-        // Immediate (default behaviour — no change from before)
-        notification = {
-          identifier: normalizedIdentifier,
-          nodeName,
-          event,
-          timestamp: new Date().toISOString(),
-          details: notifyDetails,
-        };
-        offlineSince.set(normalizedIdentifier, Date.now());
-        offlineNotified.add(normalizedIdentifier);
-      } else {
-        // Deferred — record start time, notify later
-        if (!offlineSince.has(normalizedIdentifier)) {
-          offlineSince.set(normalizedIdentifier, Date.now());
-          console.log(`⏳ [NOTIFY] "${nodeName}" offline — notification deferred ${notifyAfterMs / 1000}s`);
-        }
-      }
-    }
-  }
-
-  // Return both result and notification
-  return { ...finalResult, notification };
-}
-
-// Helper function to attempt health check for a specific endpoint
-async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
-  const nodeName = nodeData?.title || nodeData?.id || normalizedIdentifier;
-  console.log(`🚀 [ATTEMPT] Trying ${endpoint} for node "${nodeName}"`);
-  
-  let result;
-  let timeoutId;
-  const attemptStart = Date.now();
-  
-  try {
-    // Use AbortController for proper timeout handling and resource cleanup
-    const controller = new AbortController();
-    timeoutId = setTimeout(() => controller.abort(), 5000);
-    
-    const response = await fetch(endpoint, {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Nautilus-Monitor/1.0'
-      },
-      agent: endpoint.startsWith('https://') ? httpsAgent : undefined,
-      signal: controller.signal
-    });
-    
-    clearTimeout(timeoutId);
-    const responseTime = Date.now() - attemptStart;
-    
-    // Consider 2xx, 3xx, and some 4xx responses as "online"
-    const isOnline = response.status < 500;
-    
-    result = {
-      status: isOnline ? 'online' : 'offline',
-      lastChecked: new Date().toISOString(),
-      responseTime: responseTime,
-      statusCode: response.status,
-      endpoint: endpoint,
-      error: isOnline ? undefined : `HTTP ${response.status}`
-    };
-    
-  } catch (error) {
-    if (timeoutId) clearTimeout(timeoutId);
-    const responseTime = Date.now() - attemptStart;
-    
-    let errorMessage = 'Unknown error';
-    
-    if (error.name === 'AbortError' || error.message === 'Request timeout (5s)') {
-      errorMessage = 'Request timeout (5s)';
-    } else if (error.code === 'ENOTFOUND') {
-      errorMessage = 'Host not found (DNS failed)';
-    } else if (error.code === 'ECONNREFUSED') {
-      errorMessage = 'Connection refused (service down)';
-    } else if (error.code === 'ECONNRESET') {
-      errorMessage = 'Connection reset (network issue)';
-    } else if (error.code === 'ETIMEDOUT') {
-      errorMessage = 'Connection timeout';
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
-    
-    result = {
-      status: 'offline',
-      lastChecked: new Date().toISOString(),
-      responseTime: responseTime,
-      endpoint: endpoint,
-      error: errorMessage
-    };
-  }
-  
-  // Just return the result without updating status or sending notifications
-  return result;
-}
-
-// Helper to find monitored children for a given node
-function getMonitoredChildren(node) {
-  if (!node.children || !Array.isArray(node.children)) return [];
-  return node.children.filter(child => 
-    child.ip && 
-    child.healthCheckPort && 
-    !child.disableHealthCheck
-  );
-}
-
-// Process notifications with bundling logic
-async function processNotifications(notifications) {
-  if (!notifications || notifications.length === 0) return;
-  
-  const notificationMap = new Map(notifications.map(n => [n.identifier, n]));
-  const consumedIds = new Set();
-  const bundles = [];
-  
-  // Recursive function to find bundles
-  function findBundles(nodes) {
-    if (!nodes || !Array.isArray(nodes)) return;
-
-    for (const node of nodes) {
-      // Construct normalized identifier for this node
-      let nodeIdentifier = null;
-      if (node.ip && node.healthCheckPort) {
-         nodeIdentifier = normalizeNodeIdentifier(`${node.ip}:${node.healthCheckPort}`);
-      }
-      
-      const nodeNotification = nodeIdentifier ? notificationMap.get(nodeIdentifier) : null;
-      
-      // Check if this node is a candidate for being a parent of a bundle
-      if (nodeNotification && !consumedIds.has(nodeIdentifier)) {
-        const monitoredChildren = getMonitoredChildren(node);
-        
-        if (monitoredChildren.length > 0) {
-          // Check if ALL monitored children have the SAME status change
-          const childrenNotifications = [];
-          let allChildrenMatch = true;
-          
-          for (const child of monitoredChildren) {
-            const childId = normalizeNodeIdentifier(`${child.ip}:${child.healthCheckPort}`);
-            const childNotif = notificationMap.get(childId);
-            
-            if (!childNotif || childNotif.event !== nodeNotification.event || consumedIds.has(childId)) {
-              allChildrenMatch = false;
-              break;
-            }
-            childrenNotifications.push({ id: childId, name: child.title || child.id });
-          }
-          
-          if (allChildrenMatch) {
-            // Create Bundle
-            consumedIds.add(nodeIdentifier);
-            childrenNotifications.forEach(c => consumedIds.add(c.id));
-            
-            bundles.push({
-              type: 'bundle',
-              parentName: node.title || node.id,
-              childrenCount: childrenNotifications.length,
-              event: nodeNotification.event,
-              timestamp: nodeNotification.timestamp,
-              baseNotification: nodeNotification
-            });
-          }
-        }
-      }
-      
-      // Recurse into children
-      if (node.children) {
-        findBundles(node.children);
-      }
-    }
-  }
-  
-  // Start traversal from root
-  if (appConfig.tree && appConfig.tree.nodes) {
-    findBundles(appConfig.tree.nodes);
-  }
-  
-  // Send Bundles
-  for (const bundle of bundles) {
-    const emoji = bundle.event === 'online' ? '✅' : '❌';
-    const message = `${emoji} ${bundle.parentName} and its ${bundle.childrenCount} children have gone ${bundle.event}`;
-    
-    console.log(`📦 [BUNDLE] Sending bundled notification: "${message}"`);
-
-    if (appConfig.webhooks?.statusNotifications) {
-       sendStatusWebhook(
-         appConfig.webhooks.statusNotifications,
-         bundle.parentName, 
-         bundle.event,
-         {
-           messageOverride: message,
-           isBundle: true,
-           childrenCount: bundle.childrenCount,
-           ...bundle.baseNotification.details
-         }
-       ).catch(e => console.error(`❌ [WEBHOOK] Bundle send failed: ${e.message}`));
-    }
-  }
-  
-  // Send Remaining Individual Notifications
-  for (const notif of notifications) {
-    if (!consumedIds.has(notif.identifier)) {
-       if (appConfig.webhooks?.statusNotifications) {
-         sendStatusWebhook(
-           appConfig.webhooks.statusNotifications,
-           notif.nodeName,
-           notif.event,
-           notif.details
-         ).catch(e => console.error(`❌ [WEBHOOK] Send failed: ${e.message}`));
-       }
-    }
-  }
-}
-
-// Build deferred offline notifications whose cooldown has now elapsed
-function checkDeferredOfflineNotifications() {
-  if (!appConfig.webhooks?.statusNotifications) return [];
-  const notifyAfterMs = (appConfig.webhooks.statusNotifications.notifyAfterSeconds || 0) * 1000;
-  if (notifyAfterMs === 0) return []; // Nothing deferred when cooldown is 0
-
-  const now = Date.now();
-  const deferred = [];
-
-  for (const [identifier, since] of offlineSince.entries()) {
-    if (offlineNotified.has(identifier)) continue;       // Already sent
-    if (now - since < notifyAfterMs) continue;           // Cooldown not elapsed
-    const currentStatus = nodeStatuses.get(identifier);
-    if (currentStatus?.status !== 'offline') continue;  // Recovered before cooldown elapsed
-
-    offlineNotified.add(identifier);
-    const nodeData = findNodeByIdentifier(identifier);
-    const nodeName = nodeData?.title || nodeData?.id || identifier;
-    console.log(`📢 [NOTIFY] Deferred offline: "${nodeName}" (offline ${Math.round((now - since) / 1000)}s)`);
-
-    deferred.push({
-      identifier,
-      nodeName,
-      event: 'offline',
-      timestamp: new Date().toISOString(),
-      details: {
-        error: currentStatus?.error,
-        responseTime: currentStatus?.responseTime,
-      },
-    });
-  }
-
-  return deferred;
-}
-
-// Function to check all nodes
-async function checkAllNodes() {
-  const now = Date.now();
-  const BATCH_SIZE = 10;
-
-  // Only check nodes whose individual (or global) interval has elapsed
-  const dueIdentifiers = nodeIdentifiers.filter(id => {
-    const node = findNodeByIdentifier(normalizeNodeIdentifier(id));
-    const interval = (node?.healthCheckInterval != null && node.healthCheckInterval > 0)
-      ? node.healthCheckInterval
-      : appConfig.server.healthCheckInterval;
-    return now - (nodeLastChecked.get(id) || 0) >= interval;
-  });
-
-  // Mark all due nodes as checked now
-  dueIdentifiers.forEach(id => nodeLastChecked.set(id, now));
-
-  const cycleNotifications = [];
-  const queue = [...dueIdentifiers];
-
-  while (queue.length > 0) {
-    const batch = queue.splice(0, BATCH_SIZE);
-
-    const promises = batch.map(async (identifier) => {
-      const { notification, ...result } = await checkNodeHealth(identifier);
-
-      if (notification) {
-        cycleNotifications.push(notification);
-      }
-
-      const normalizedIdentifier = normalizeNodeIdentifier(identifier);
-
-      // Only log offline nodes with details
-      if (result.status === 'offline') {
-        const nodeData = findNodeByIdentifier(normalizedIdentifier);
-        const displayName = nodeData?.title || normalizedIdentifier;
-        const errorDetail = result.error ? ` (${result.error})` : '';
-        console.log(`❌ ${displayName} (${normalizedIdentifier}): offline${errorDetail}`);
-      }
-
-      return result;
-    });
-
-    await Promise.allSettled(promises);
-  }
-
-  // Merge deferred offline notifications whose cooldown has now elapsed
-  const deferred = checkDeferredOfflineNotifications();
-  const allNotifications = [...cycleNotifications, ...deferred];
-
-  if (allNotifications.length > 0) {
-    await processNotifications(allNotifications);
-  }
-
-  if (dueIdentifiers.length > 0) {
-    const statuses = Array.from(nodeStatuses.entries());
-    const onlineCount = statuses.filter(([_, s]) => s.status === 'online').length;
-    console.log(`✨ Health check complete: ${onlineCount}/${nodeIdentifiers.length} nodes online (${dueIdentifiers.length} checked this cycle)`);
-  }
-
-  // Reset the initial health check flag after the first complete cycle to enable notifications
-  if (initialHealthCheck) {
-    initialHealthCheck = false;
-    console.log('🔔 Initial health check complete - status notifications enabled for future changes');
-  }
-}
-
-// Recursive scheduling function to prevent overlapping checks.
-// Runs at MIN_LOOP_INTERVAL so nodes with custom shorter intervals are serviced promptly.
-// Each node is only actually checked when its own interval has elapsed.
-async function scheduleNextCheck() {
-  try {
-    await checkAllNodes();
-  } catch (error) {
-    console.error('❌ Critical error in health check loop:', error);
-  } finally {
-    const loopInterval = Math.min(appConfig.server.healthCheckInterval, MIN_LOOP_INTERVAL);
-    setTimeout(scheduleNextCheck, loopInterval);
-  }
-}
 
 // Initialize history database, then start health checks.
 // History is non-critical: never let a DB failure take down the whole server.
 try {
   await initHistoryDb();
 } catch (err) {
-  console.error('❌ [HISTORY] Initialization failed, continuing without history:', err.message);
+  logger.error('❌ [HISTORY] Initialization failed, continuing without history:', err.message);
 }
+
+// Configure and start the monitoring engine (services/healthCheck.js)
+setMonitoringConfig(appConfig);
+const monitoredNodeIds = initializeNodeStatuses();
 
 // Start the health checking loop
 scheduleNextCheck();
@@ -1090,25 +285,42 @@ function mapHistoryRow(r) {
   };
 }
 
-// Build a map of node id -> normalized health-check identifier for every node
-// that has a monitoring address. Lets us expose status/history keyed by the
-// stable node id instead of the (sensitive) internal address.
+// Build a map of node id -> normalized health-check identifier for every
+// monitored node. Lets us expose status/history keyed by the stable node id
+// instead of the (sensitive) internal address. Uses the shared isNodeMonitored
+// predicate so a disabled node is never surfaced here (it would otherwise leak
+// stale status/history that the client considers unmonitored).
 function buildNodeIdToIdentifier() {
   const map = new Map();
   const walk = (nodes) => {
     if (!Array.isArray(nodes)) return;
     for (const node of nodes) {
-      let identifier = node.internalAddress;
-      if (!identifier && node.healthCheckPort && node.ip) {
-        identifier = `${node.ip}:${node.healthCheckPort}`;
+      if (isNodeMonitored(node)) {
+        map.set(node.id, normalizeNodeIdentifier(getNodeIdentifier(node)));
       }
-      if (identifier) map.set(node.id, normalizeNodeIdentifier(identifier));
       if (node.children) walk(node.children);
     }
   };
   walk(appConfig.tree?.nodes || []);
   return map;
 }
+
+// Cached id->identifier and identifier->ids views, rebuilt only when the config
+// changes (startup and on save) instead of re-walking the tree on every
+// status/history request.
+let nodeIdToIdentifier = new Map();
+let identifierToNodeIds = new Map();
+function refreshNodeIdMaps() {
+  nodeIdToIdentifier = buildNodeIdToIdentifier();
+  identifierToNodeIds = new Map();
+  for (const [id, identifier] of nodeIdToIdentifier.entries()) {
+    if (!identifierToNodeIds.has(identifier)) identifierToNodeIds.set(identifier, []);
+    identifierToNodeIds.get(identifier).push(id);
+  }
+}
+
+// Initial build for the config loaded at startup (setMonitoringConfig above).
+refreshNodeIdMaps();
 
 // All nodes history
 app.get('/api/history', publicReadLimiter, (req, res) => {
@@ -1120,15 +332,9 @@ app.get('/api/history', publicReadLimiter, (req, res) => {
 
   // History rows are stored keyed by health-check identifier (address); expose
   // them keyed by node id. A single address may back more than one node.
-  const identifierToIds = new Map();
-  for (const [id, identifier] of buildNodeIdToIdentifier().entries()) {
-    if (!identifierToIds.has(identifier)) identifierToIds.set(identifier, []);
-    identifierToIds.get(identifier).push(id);
-  }
-
   const grouped = {};
   rows.forEach(r => {
-    const ids = identifierToIds.get(r.node_id);
+    const ids = identifierToNodeIds.get(r.node_id);
     if (!ids) return; // orphaned history (node removed or address changed)
     const mapped = mapHistoryRow(r);
     for (const id of ids) {
@@ -1153,7 +359,7 @@ app.get('/api/history/:nodeId', publicReadLimiter, (req, res) => {
   const sinceMs = nowMs - parsePeriodMs(period);
 
   // nodeId is the node's id; translate to its stored health-check identifier.
-  const identifier = buildNodeIdToIdentifier().get(nodeId);
+  const identifier = nodeIdToIdentifier.get(nodeId);
   const rows = identifier ? getNodeHistory(identifier, sinceMs) : [];
 
   res.json({
@@ -1170,7 +376,7 @@ app.get('/api/status', publicReadLimiter, (req, res) => {
   // Expose statuses keyed by stable node id (not the internal address), so the
   // client never needs the address to correlate a node with its status.
   const statusObject = {};
-  for (const [id, identifier] of buildNodeIdToIdentifier().entries()) {
+  for (const [id, identifier] of nodeIdToIdentifier.entries()) {
     const status = nodeStatuses.get(identifier);
     if (status) statusObject[id] = status;
   }
@@ -1259,127 +465,6 @@ app.post('/api/auth/logout', (req, res) => {
 
 // --- Configuration API (Protected) ---
 
-const SENSITIVE_MASK = '********';
-
-// Helper function to sanitize config for client consumption
-function sanitizeConfig(config, isAdmin = false) {
-  if (!config) return config;
-  
-  // Deep clone to avoid modifying the original in-memory config
-  const sanitized = JSON.parse(JSON.stringify(config));
-  
-  // Recursive: mask secrets, add the derived `monitored` flag, and (for
-  // non-admins) strip the internal monitoring address.
-  function maskSensitiveFields(nodes) {
-    if (!Array.isArray(nodes)) return;
-
-    nodes.forEach(node => {
-      // Mask secrets for everyone
-      if (node.plexToken) {
-        node.plexToken = SENSITIVE_MASK;
-      }
-      if (node.apiKeys) {
-        node.apiKeys = SENSITIVE_MASK;
-      }
-
-      // Derive a non-sensitive monitoring flag so the client can correlate status
-      // (keyed by node id) and show monitored state without the internal address.
-      const hasAddr = !!node.internalAddress || !!(node.ip && node.healthCheckPort);
-      node.monitored = hasAddr && !node.disableHealthCheck && node.healthCheckType !== 'disabled';
-
-      // Non-admins never receive the real internal address (network-topology
-      // recon). We MASK internalAddress with a sentinel rather than delete it;
-      // restoreSensitiveFields() re-injects the real address fields on save when
-      // it sees the mask, so a sanitized config saved back can never wipe them.
-      // (External address / URL — the user-facing launch link — is kept.)
-      if (!isAdmin && hasAddr) {
-        node.internalAddress = SENSITIVE_MASK;
-        delete node.ip;
-        delete node.healthCheckPort;
-      }
-
-      if (node.children) {
-        maskSensitiveFields(node.children);
-      }
-    });
-  }
-  
-  if (sanitized.tree && sanitized.tree.nodes) {
-    maskSensitiveFields(sanitized.tree.nodes);
-  }
-  
-  return sanitized;
-}
-
-// Helper function to restore sensitive fields from the original config
-// When a client sends back a config with masked fields (e.g., plexToken: '********'),
-// we need to restore the actual values from the current config before saving
-function restoreSensitiveFields(newConfig, originalConfig) {
-  if (!newConfig || !originalConfig) return newConfig;
-  
-  // Deep clone to avoid modifying the passed config
-  const restored = JSON.parse(JSON.stringify(newConfig));
-  
-  // Recursive function to restore sensitive fields in nodes
-  function restoreInNodes(newNodes, originalNodes) {
-    if (!Array.isArray(newNodes) || !Array.isArray(originalNodes)) return;
-    
-    newNodes.forEach(newNode => {
-      // Find the corresponding original node by ID
-      const originalNode = originalNodes.find(n => n.id === newNode.id);
-      
-      if (originalNode) {
-        // Restore plexToken if it was masked
-        if (newNode.plexToken === SENSITIVE_MASK && originalNode.plexToken) {
-          newNode.plexToken = originalNode.plexToken;
-        }
-        
-        // Restore apiKeys if it was masked
-        if (newNode.apiKeys === SENSITIVE_MASK && originalNode.apiKeys) {
-          newNode.apiKeys = originalNode.apiKeys;
-        }
-
-        // Restore internal address fields if internalAddress was masked (SEC-3).
-        // The masked internalAddress is the sentinel that re-injects all of them,
-        // so a sanitized config saved back can never wipe a node's address.
-        if (newNode.internalAddress === SENSITIVE_MASK) {
-          if (originalNode.internalAddress) {
-            newNode.internalAddress = originalNode.internalAddress;
-          } else {
-            delete newNode.internalAddress;
-          }
-          if (originalNode.ip) newNode.ip = originalNode.ip;
-          if (originalNode.healthCheckPort) newNode.healthCheckPort = originalNode.healthCheckPort;
-        }
-
-        // Recursively restore in children
-        if (newNode.children && originalNode.children) {
-          restoreInNodes(newNode.children, originalNode.children);
-        }
-      }
-    });
-  }
-  
-  // Restore sensitive fields in the tree nodes
-  if (restored.tree && restored.tree.nodes && originalConfig.tree && originalConfig.tree.nodes) {
-    restoreInNodes(restored.tree.nodes, originalConfig.tree.nodes);
-  }
-  
-  return restored;
-}
-
-// Remove the server-derived `monitored` flag from a config tree before persisting
-// (it is recomputed on every read and must never be stored).
-function stripMonitoredFlag(config) {
-  const walk = (nodes) => {
-    if (!Array.isArray(nodes)) return;
-    for (const n of nodes) {
-      delete n.monitored;
-      if (n.children) walk(n.children);
-    }
-  };
-  if (config && config.tree && config.tree.nodes) walk(config.tree.nodes);
-}
 
 // API endpoint to get centralized config (public - read-only, but cleaner for admins)
 app.get('/api/config', publicReadLimiter, (req, res) => {
@@ -1397,123 +482,6 @@ app.get('/api/config', publicReadLimiter, (req, res) => {
   res.json(sanitizeConfig(appConfig, isAdmin));
 });
 
-// Helper function to deep merge objects
-function deepMerge(target, source) {
-  const result = { ...target };
-  
-  for (const key in source) {
-    if (source.hasOwnProperty(key)) {
-      if (source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
-        // If both target and source have this key as objects, merge them recursively
-        result[key] = result[key] && typeof result[key] === 'object' && !Array.isArray(result[key])
-          ? deepMerge(result[key], source[key])
-          : source[key];
-      } else {
-        // For arrays and primitive values, replace completely
-        result[key] = source[key];
-      }
-    }
-  }
-  
-  return result;
-}
-
-// Helper function to validate configuration structure
-function validateConfig(config) {
-  if (!config || typeof config !== 'object') {
-    return { valid: false, error: 'Configuration must be an object' };
-  }
-  
-  // Check for required top-level properties
-  const requiredFields = ['appearance', 'tree'];
-  for (const field of requiredFields) {
-    if (!config[field] || typeof config[field] !== 'object') {
-      return { valid: false, error: `Missing or invalid ${field} configuration` };
-    }
-  }
-  
-  // Validate tree structure
-  if (!Array.isArray(config.tree.nodes)) {
-    return { valid: false, error: 'tree.nodes must be an array' };
-  }
-  
-  // Recursive function to validate nodes and their children
-  function validateNode(node, path = '') {
-    if (!node.id || typeof node.id !== 'string') {
-      return { valid: false, error: `Node at ${path || 'root'} missing valid id` };
-    }
-    if (!node.title || typeof node.title !== 'string') {
-      return { valid: false, error: `Node at ${path || 'root'} missing valid title` };
-    }
-    if (node.ip && typeof node.ip !== 'string') {
-      return { valid: false, error: `Node at ${path || 'root'} ip must be a string` };
-    }
-    if (node.url && typeof node.url !== 'string') {
-      return { valid: false, error: `Node at ${path || 'root'} url must be a string` };
-    }
-    if (node.subtitle && typeof node.subtitle !== 'string') {
-      return { valid: false, error: `Node at ${path || 'root'} subtitle must be a string` };
-    }
-    if (node.icon && typeof node.icon !== 'string') {
-      return { valid: false, error: `Node at ${path || 'root'} icon must be a string` };
-    }
-    if (node.type && typeof node.type !== 'string') {
-      return { valid: false, error: `Node at ${path || 'root'} type must be a string` };
-    }
-    if (node.disableEmbedded && typeof node.disableEmbedded !== 'boolean') {
-      return { valid: false, error: `Node at ${path || 'root'} disableEmbedded must be a boolean` };
-    }
-
-    // Length and range caps to reject oversized/abusive payloads.
-    const MAX_STR = 2048;
-    const stringFields = ['id', 'title', 'subtitle', 'icon', 'type', 'ip', 'url',
-      'internalAddress', 'externalAddress', 'healthCheckType', 'plexToken', 'apiKeys'];
-    for (const f of stringFields) {
-      if (typeof node[f] === 'string' && node[f].length > MAX_STR) {
-        return { valid: false, error: `Node at ${path || 'root'} ${f} exceeds ${MAX_STR} characters` };
-      }
-    }
-    if (node.healthCheckPort != null) {
-      const p = Number(node.healthCheckPort);
-      if (!Number.isInteger(p) || p < 1 || p > 65535) {
-        return { valid: false, error: `Node at ${path || 'root'} healthCheckPort must be between 1 and 65535` };
-      }
-    }
-    if (node.healthCheckInterval != null) {
-      const iv = Number(node.healthCheckInterval);
-      if (!Number.isFinite(iv) || iv < 0 || iv > 86_400_000) {
-        return { valid: false, error: `Node at ${path || 'root'} healthCheckInterval is out of range` };
-      }
-    }
-
-    // Validate children if they exist
-    if (node.children) {
-      if (!Array.isArray(node.children)) {
-        return { valid: false, error: `Node at ${path || 'root'} children must be an array` };
-      }
-      
-      for (let i = 0; i < node.children.length; i++) {
-        const childPath = path ? `${path}.children[${i}]` : `children[${i}]`;
-        const childValidation = validateNode(node.children[i], childPath);
-        if (!childValidation.valid) {
-          return childValidation;
-        }
-      }
-    }
-    
-    return { valid: true };
-  }
-  
-  // Validate each top-level node
-  for (let i = 0; i < config.tree.nodes.length; i++) {
-    const validation = validateNode(config.tree.nodes[i], `nodes[${i}]`);
-    if (!validation.valid) {
-      return validation;
-    }
-  }
-  
-  return { valid: true };
-}
 
 // Endpoint to update the configuration
 app.post('/api/config', authenticateRequest, (req, res) => {
@@ -1523,7 +491,7 @@ app.post('/api/config', authenticateRequest, (req, res) => {
   // Validate configuration structure
   const validation = validateConfig(newConfig);
   if (!validation.valid) {
-    console.error('Configuration validation failed:', validation.error);
+    logger.error('Configuration validation failed:', validation.error);
     return res.status(400).json({
       success: false,
       message: `Invalid configuration: ${validation.error}`
@@ -1541,12 +509,15 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     let updatedConfig;
     
     if (replaceMode) {
-      // Complete replacement mode (for backup restoration)
-      console.log('🔄 Performing complete configuration replacement');
-      updatedConfig = newConfig;
+      // Complete replacement mode (for backup restoration). Merge over the
+      // defaults so required sections (notably `server`) are always present —
+      // a restored backup that omits `server` would otherwise leave
+      // currentConfig.server undefined and crash the health-check loop.
+      logger.info('🔄 Performing complete configuration replacement');
+      updatedConfig = deepMerge(defaultConfig, newConfig);
     } else {
       // Deep merge new config with existing config (for partial updates)
-      console.log('🔄 Performing configuration merge');
+      logger.info('🔄 Performing configuration merge');
       updatedConfig = deepMerge(appConfig, newConfig);
     }
     
@@ -1557,51 +528,55 @@ app.post('/api/config', authenticateRequest, (req, res) => {
       configPath = '/data/config.json';
       // Check if production path exists, fallback to app directory if not
       if (!existsSync(dirname(configPath))) {
-        console.warn(`⚠️  Production config directory ${dirname(configPath)} does not exist, falling back to app config`);
+        logger.warn(`⚠️  Production config directory ${dirname(configPath)} does not exist, falling back to app config`);
         configPath = './data/config.json';
         // Ensure the local data directory exists
         if (!existsSync('./data')) {
-          console.log('📁 Creating local data directory');
-          require('fs').mkdirSync('./data', { recursive: true });
+          logger.info('📁 Creating local data directory');
+          mkdirSync('./data', { recursive: true });
         }
       }
     } else {
       configPath = './config.json';
     }
     
-    console.log(`🔧 NODE_ENV for config write: "${process.env.NODE_ENV}", using path: "${configPath}"`);
+    logger.info(`🔧 NODE_ENV for config write: "${process.env.NODE_ENV}", using path: "${configPath}"`);
     writeFileSync(configPath, JSON.stringify(updatedConfig, null, 2), 'utf8');
     // config.json holds secrets (plexToken/apiKeys) — restrict to owner-only.
     // Best-effort: no-op on platforms without POSIX permissions.
     try { chmodSync(configPath, 0o600); } catch { /* ignore */ }
-    console.log('📁 Configuration file written successfully');
+    logger.info('📁 Configuration file written successfully');
     
     // Update the in-memory config only after successful file write
     appConfig = updatedConfig;
-    
+    // Push the new config into the monitoring engine so the loop reads fresh values
+    setMonitoringConfig(appConfig);
+    // Rebuild the cached id<->identifier maps for the status/history endpoints
+    refreshNodeIdMaps();
+
     // Reinitialize node monitoring with new config and update nodeIdentifiers
     try {
-      nodeIdentifiers = initializeNodeStatuses(true);
-      console.log('🔄 Node monitoring reinitialized successfully');
+      initializeNodeStatuses(true);
+      logger.info('🔄 Node monitoring reinitialized successfully');
       
       // Force an immediate health check for all nodes to update status
       // Run in background so we don't block the response
-      console.log('⚡ Triggering immediate health check for updated configuration');
-      checkAllNodes().catch(err => console.error('❌ Error in forced health check:', err));
+      logger.info('⚡ Triggering immediate health check for updated configuration');
+      checkAllNodes().catch(err => logger.error('❌ Error in forced health check:', err));
       
     } catch (nodeError) {
-      console.warn('⚠️  Warning: Node monitoring reinitialization failed:', nodeError.message);
+      logger.warn('⚠️  Warning: Node monitoring reinitialization failed:', nodeError.message);
       // Don't fail the entire operation if node monitoring fails
     }
     
-    console.log('✅ Configuration updated successfully');
+    logger.info('✅ Configuration updated successfully');
     res.json({ 
       success: true, 
       message: 'Configuration updated successfully' 
     });
   } catch (error) {
-    console.error('❌ Error updating configuration:', error);
-    console.error('Error stack:', error.stack);
+    logger.error('❌ Error updating configuration:', error);
+    logger.error('Error stack:', error.stack);
     // Generic message to the client; full details stay in the server log only.
     res.status(500).json({
       success: false,
@@ -1642,19 +617,25 @@ app.get('/api/minecraft/status', authenticateRequest, async (req, res) => {
   }
 });
 
-// API endpoint to get status for a specific node
-app.get('/api/status/:ip', publicReadLimiter, (req, res) => {
-  const ip = req.params.ip;
-  const status = nodeStatuses.get(ip);
-  
+// API endpoint to get status for a specific node, keyed by node id (consistent
+// with /api/status and /api/history/:nodeId — the internal address is never
+// part of the public contract).
+app.get('/api/status/:nodeId', publicReadLimiter, (req, res) => {
+  let nodeId;
+  try {
+    nodeId = decodeURIComponent(req.params.nodeId);
+  } catch {
+    return res.status(400).json({ error: 'Invalid nodeId encoding' });
+  }
+
+  const identifier = nodeIdToIdentifier.get(nodeId);
+  const status = identifier ? nodeStatuses.get(identifier) : null;
+
   if (!status) {
     return res.status(404).json({ error: 'Node not found' });
   }
-  
-  res.json({
-    ip,
-    ...status
-  });
+
+  res.json({ nodeId, ...status });
 });
 
 // Health check endpoint for the monitoring server itself
@@ -1698,18 +679,18 @@ app.post('/api/network-scan/start', authenticateRequest, (req, res) => {
     // exhaustion, and scanning of arbitrary external networks).
     const validated = validateScanSubnet(requested);
     if (!validated.valid) {
-      console.warn(`⚠️  [NETWORK-SCAN] Rejected subnet "${requested}": ${validated.error}`);
+      logger.warn(`⚠️  [NETWORK-SCAN] Rejected subnet "${requested}": ${validated.error}`);
       return res.status(400).json({ success: false, error: validated.error });
     }
     const subnet = validated.subnet;
-    console.log(`🔍 [NETWORK-SCAN] Starting scan for subnet: ${subnet}`);
+    logger.info(`🔍 [NETWORK-SCAN] Starting scan for subnet: ${subnet}`);
 
     networkScanService.start_scan({ subnet });
     
-    console.log(`✅ [NETWORK-SCAN] Scan started successfully for subnet: ${subnet}`);
+    logger.info(`✅ [NETWORK-SCAN] Scan started successfully for subnet: ${subnet}`);
     res.json({ success: true });
   } catch (err) {
-    console.error(`❌ [NETWORK-SCAN] Failed to start scan:`, err);
+    logger.error(`❌ [NETWORK-SCAN] Failed to start scan:`, err);
     res.status(400).json({ success: false, error: err.message });
   }
 });
@@ -1745,14 +726,14 @@ app.post('/api/test-connection', authenticateRequest, async (req, res) => {
        return res.status(400).json({ error: 'Invalid node configuration' });
     }
     
-    console.log(`🧪 [TEST-CONNECTION] Testing configuration for "${nodeConfig.title || 'Unknown'}"`);
+    logger.info(`🧪 [TEST-CONNECTION] Testing configuration for "${nodeConfig.title || 'Unknown'}"`);
     
     // Perform check using the provided config (not stored config)
     const result = await performNodeCheck(nodeConfig);
     
     res.json(result);
   } catch (err) {
-    console.error(`❌ [TEST-CONNECTION] Error:`, err);
+    logger.error(`❌ [TEST-CONNECTION] Error:`, err);
     res.status(500).json({ 
       status: 'offline', 
       error: err.message,
@@ -1763,16 +744,16 @@ app.post('/api/test-connection', authenticateRequest, async (req, res) => {
 
 app.listen(appConfig.server.port, () => {
   const { version } = getVersionInfo();
-  console.log(`📌 Version: ${version}`);
-  console.log(` Monitoring ${nodeIdentifiers.length} nodes every ${appConfig.server.healthCheckInterval / 1000}s`);
-  console.log(`🔍 Using HTTP GET requests with 5s timeout (URL preferred over IP)`);
-  console.log('');
-  console.log(`🚀 Server ready at: http://localhost:${appConfig.server.port}`);
+  logger.info(`📌 Version: ${version}`);
+  logger.info(` Monitoring ${monitoredNodeIds.length} nodes every ${appConfig.server.healthCheckInterval / 1000}s`);
+  logger.info(`🔍 Using HTTP GET requests with 5s timeout (URL preferred over IP)`);
+  logger.info('');
+  logger.info(`🚀 Server ready at: http://localhost:${appConfig.server.port}`);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`❌ Port ${appConfig.server.port} is already in use. Please close other applications using this port.`);
+    logger.error(`❌ Port ${appConfig.server.port} is already in use. Please close other applications using this port.`);
   } else {
-    console.error('❌ Server failed to start:', err);
+    logger.error('❌ Server failed to start:', err);
   }
   process.exit(1);
 });

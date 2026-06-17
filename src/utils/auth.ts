@@ -1,9 +1,4 @@
 // Server-side session-based authentication utility
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import AuthModal from '../components/AuthModal';
-import type { AppConfig } from '../types/config';
-
 const AUTH_TOKEN_KEY = 'nautilus_auth_token';
 
 export interface AuthSession {
@@ -12,9 +7,20 @@ export interface AuthSession {
   timestamp: number;
 }
 
-// Global state for auth modal
-let authModalRoot: HTMLDivElement | null = null;
-let currentAppConfig: AppConfig | null = null;
+// In-tree auth modal opener, registered by <AuthModalHost> on mount (ARCH-5).
+// Lets the standalone authenticate() trigger the modal without an imperative root.
+let authModalOpener: (() => Promise<boolean>) | null = null;
+
+export function registerAuthModalOpener(opener: () => Promise<boolean>): void {
+  authModalOpener = opener;
+}
+
+// Clears the registered opener, but only if it still points at `opener` — so a
+// re-mounting host (React StrictMode double-invoke, or an App remount) that has
+// already registered a newer opener is not clobbered by the old one's cleanup.
+export function unregisterAuthModalOpener(opener: () => Promise<boolean>): void {
+  if (authModalOpener === opener) authModalOpener = null;
+}
 
 // Get stored auth token
 const getStoredToken = (): string | null => {
@@ -42,11 +48,6 @@ const removeToken = (): void => {
   } catch (error) {
     console.warn('Error removing token:', error);
   }
-};
-
-// Set the app config for the auth modal (optional - auth modal will auto-fetch if not set)
-export const setAuthModalAppConfig = (config: AppConfig): void => {
-  currentAppConfig = config;
 };
 
 // Check if user is currently authenticated
@@ -77,103 +78,37 @@ export const isAuthenticated = async (): Promise<boolean> => {
   }
 };
 
-// Show auth modal and return a promise that resolves when authenticated
-const showAuthModal = (): Promise<boolean> => {
-  return new Promise(async (resolve) => {
-    // Fetch current config before showing modal to ensure we have the latest accent color
-    try {
-      const configResponse = await fetch('/api/config');
-      if (configResponse.ok) {
-        const config = await configResponse.json();
-        currentAppConfig = config;
-        console.log('🎨 Auth modal: Fetched current config for accent color');
-      } else {
-        console.warn('⚠️ Auth modal: Failed to fetch config, using existing config');
-      }
-    } catch (error) {
-      console.warn('⚠️ Auth modal: Error fetching config:', error);
+
+// Perform a login request. Returns success + an optional error message for the modal.
+export async function performLogin(username: string, password: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await response.json();
+    if (response.ok && data.success && data.token) {
+      storeToken(data.token);
+      return { success: true };
     }
+    return { success: false, error: data.message || 'Authentication failed. Please check your credentials.' };
+  } catch (error) {
+    console.error('Authentication error:', error);
+    return { success: false, error: 'Authentication failed due to a network error. Please try again.' };
+  }
+}
 
-    // Create modal container if it doesn't exist
-    if (!authModalRoot) {
-      authModalRoot = document.createElement('div');
-      authModalRoot.id = 'auth-modal-root';
-      document.body.appendChild(authModalRoot);
-    }
-
-    // Create React root
-    const root = createRoot(authModalRoot);
-    
-    // Track error state
-    let errorMessage: string | null = null;
-
-    // Handle form submission
-    const handleSubmit = async (username: string, password: string) => {
-      try {
-        const response = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ username, password })
-        });
-        
-        const data = await response.json();
-        
-        if (response.ok && data.success && data.token) {
-          // Store the token and close modal
-          storeToken(data.token);
-          closeModal(true);
-        } else {
-          // Authentication failed - show error and re-render
-          errorMessage = data.message || 'Authentication failed. Please check your credentials.';
-          renderModal();
-        }
-      } catch (error) {
-        console.error('Authentication error:', error);
-        errorMessage = 'Authentication failed due to a network error. Please try again.';
-        renderModal();
-      }
-    };
-
-    // Close modal and resolve promise
-    const closeModal = (success: boolean = false) => {
-      if (authModalRoot) {
-        root.unmount();
-        if (authModalRoot.parentNode) {
-          authModalRoot.parentNode.removeChild(authModalRoot);
-        }
-        authModalRoot = null;
-      }
-      resolve(success);
-    };
-
-    // Render modal
-    const renderModal = () => {
-      root.render(
-        React.createElement(AuthModal, {
-          isOpen: true,
-          onClose: () => closeModal(false),
-          onSubmit: handleSubmit,
-          error: errorMessage,
-          appConfig: currentAppConfig || undefined
-        })
-      );
-    };
-
-    renderModal();
-  });
-};
-
-// Authenticate user with modal
+// Authenticate user — resolves true if already authed, or after a successful in-tree modal login.
 export const authenticate = async (): Promise<boolean> => {
-  // Check if already authenticated
   if (await isAuthenticated()) {
     return true;
   }
-  
-  // Show authentication modal
-  return showAuthModal();
+  if (authModalOpener) {
+    return authModalOpener();
+  }
+  console.warn('Auth modal not mounted; cannot prompt for login.');
+  return false;
 };
 
 /**

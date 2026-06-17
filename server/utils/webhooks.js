@@ -73,9 +73,13 @@ export async function sendStatusWebhook(config, nodeName, event, details = {}) {
         'User-Agent': 'Nautilus-Monitor/1.0'
       },
       body: JSON.stringify(payload),
-      // Do not follow redirects: a malicious/compromised receiver could 3xx us
-      // toward an internal address (SSRF). A redirect is treated as a failure.
-      redirect: 'manual',
+      // Follow redirects but cap the hops. Self-hosted receivers commonly answer
+      // a POST with a 301/302 (e.g. http->https upgrade), which must not be
+      // treated as a delivery failure. Private/LAN webhook targets are
+      // intentionally allowed (see the URL check above), so following a redirect
+      // to an internal address is not an additional exposure here.
+      redirect: 'follow',
+      follow: 3,
       signal: controller.signal
     });
     

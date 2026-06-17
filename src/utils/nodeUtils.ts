@@ -60,7 +60,11 @@ export const getVisibleTree = (nodes: TreeNode[], collapsedIds: Set<string>): Tr
     const newNode = { ...node };
     
     if (collapsedIds.has(node.id)) {
-      // If collapsed, remove children for layout purposes
+      // If collapsed, remove children for layout purposes. When the node really
+      // had children, flag it so the layout reserves space for the "N hidden
+      // nodes" pill that Canvas renders one row below it; otherwise sibling
+      // subtrees pack into that row and the pill overlaps them.
+      newNode.hasHiddenChildren = !!(node.children && node.children.length > 0);
       newNode.children = [];
     } else if (node.children) {
       // If not collapsed, recursively process children

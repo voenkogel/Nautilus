@@ -19,11 +19,12 @@ import {
 } from '../utils/iconUtils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { 
-  calculateTreeLayout, 
-  type PositionedNode, 
+  calculateTreeLayout,
+  type PositionedNode,
   type Connection,
   NODE_WIDTH,
-  SIBLING_SPACING
+  SIBLING_SPACING,
+  WRAP_ROW_SPACING
 } from '../utils/layoutUtils';
 import { getNodeTargetUrl } from '../utils/nodeUtils';
 import { api, ApiError } from '../utils/apiClient';
@@ -447,14 +448,16 @@ const Canvas: React.FC = () => {
       if (n.children) {
         for (const child of n.children) {
           total++;
-          // Count this child in the stats only if it is monitored
+          // Only monitored children have a health status. Unmonitored nodes
+          // (no health-check address, or disabled) still count toward `total`
+          // for the "N hidden nodes" label, but must NOT be folded into
+          // `checking` — that inflated the donut's gray slice with nodes that
+          // were never actually being checked.
           if (isNodeMonitored(child)) {
             const status = getNodeStatus(child.id);
             if (status.status === 'online') online++;
             else if (status.status === 'offline') offline++;
             else checking++;
-          } else {
-            checking++;
           }
           // Recurse into grandchildren
           countNodes(child);
@@ -467,69 +470,57 @@ const Canvas: React.FC = () => {
   }, [getNodeStatus]);
 
   const handleSaveConfig = async (newConfig: AppConfig) => {
-    // Send the config to the server to update the config.json file
-    const response = await fetch('/api/config', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders()
-      },
-      body: JSON.stringify(newConfig),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (response.status === 401) {
+    // Send the config to the server to update the config.json file.
+    try {
+      await api.post('/api/config', newConfig);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
         throw new Error('Authentication required. Please log in again.');
       }
-      throw new Error(`Server responded with ${response.status}: ${errorText}`);
+      throw err;
     }
 
-    await response.json();
-    
-    // After successful save, fetch the updated config from server to ensure sync
-    const configResponse = await fetch('/api/config', { headers: getAuthHeaders() });
-    if (configResponse.ok) {
-      const updatedConfig = await configResponse.json();
-      setCurrentConfig(updatedConfig);
-      
+    // Re-fetch through the SAME path as the initial load (api.get +
+    // normalizeConfig) so the stored config gets the default section-merge; a
+    // raw fetch here left save state diverging from load (missing
+    // server/client/appearance defaults). Best-effort: a failed re-fetch must
+    // not undo the successful save.
+    try {
+      const serverConfig = await api.get<AppConfig>('/api/config');
+      setCurrentConfig(normalizeConfig(serverConfig, initialAppConfig));
+
       // Clear icon caches when config changes to force reload of icons with new colors/content
       iconImageCache.clear();
       iconSvgCache.clear();
+    } catch (err) {
+      console.warn('Config saved but re-fetch failed:', err);
     }
   };
 
   const handleRestoreConfig = async (newConfig: AppConfig) => {
-    // Send the config to the server with replace mode for complete restoration
-    const response = await fetch('/api/config?replace=true', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...getAuthHeaders()
-      },
-      body: JSON.stringify(newConfig),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      if (response.status === 401) {
+    // Send the config to the server with replace mode for complete restoration.
+    try {
+      await api.post('/api/config?replace=true', newConfig);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
         throw new Error('Authentication required. Please log in again.');
       }
-      throw new Error(`Server responded with ${response.status}: ${errorText}`);
+      throw err;
     }
 
-    const result = await response.json();
-    console.log('Backup restore result:', result);
-    
-    // After successful restore, fetch the updated config from server to ensure sync
-    const configResponse = await fetch('/api/config', { headers: getAuthHeaders() });
-    if (configResponse.ok) {
-      const updatedConfig = await configResponse.json();
-      setCurrentConfig(updatedConfig);
-      
+    // Re-fetch through the same normalize path as the initial load so the
+    // restored config gets the default section-merge (otherwise restore state
+    // diverges from load). Best-effort: a failed re-fetch must not surface as a
+    // restore failure since the server already accepted it.
+    try {
+      const serverConfig = await api.get<AppConfig>('/api/config');
+      setCurrentConfig(normalizeConfig(serverConfig, initialAppConfig));
+
       // Clear icon caches when config changes to force reload of icons with new colors/content
       iconImageCache.clear();
       iconSvgCache.clear();
+    } catch (err) {
+      console.warn('Config restored but re-fetch failed:', err);
     }
   };
 
@@ -892,7 +883,8 @@ const Canvas: React.FC = () => {
     // In edit mode, ignore collapse state to show full tree
     const effectiveCollapsedIds = isEditMode ? new Set<string>() : collapsedNodeIds;
     const visibleTree = getVisibleTree(currentConfig.tree.nodes, effectiveCollapsedIds);
-    return calculateTreeLayout(visibleTree);
+    // Disable leaf-fan wrapping in edit mode: drop zones / DragGhost assume single-row siblings.
+    return calculateTreeLayout(visibleTree, { disableWrap: isEditMode });
   }, [currentConfig, collapsedNodeIds, isEditMode]);
 
   // Function to open node URL with debouncing to prevent double-opens
@@ -1073,8 +1065,11 @@ const Canvas: React.FC = () => {
     fitToContent();
   }, [fitToContent]);
 
-  // Calculate nodes and connections for rendering
-  const { nodes, connections } = calculateNodePositions();
+  // Calculate nodes and connections for rendering. Memoized on the layout
+  // inputs (via calculateNodePositions' identity, which only changes when
+  // currentConfig/collapsedNodeIds/isEditMode change) so pan/zoom — which only
+  // update `transform` — don't re-run the recursive tree layout every frame.
+  const { nodes, connections } = useMemo(() => calculateNodePositions(), [calculateNodePositions]);
 
   // Handle node reordering via drag and drop
   const handleNodeReorder = useCallback(async (nodeId: string, newParentId: string | null, insertIndex: number) => {
@@ -1303,12 +1298,28 @@ const Canvas: React.FC = () => {
 
                   // Construct path
                   let d = `M ${startX} ${startY}`;
-                  
-                  if (startX === endX) {
+
+                  if (connection.isWrapped) {
+                    // Wrapped leaf block: vertical trunk from parent center down to this
+                    // child's row, then a horizontal sub-bus out to the child top-center.
+                    const trunkX = connection.wrapTrunkX ?? startX;
+                    const busY = endY - WRAP_ROW_SPACING / 2;
+                    d = `M ${startX} ${startY}`;
+                    d += ` L ${trunkX} ${startY}`; // (no-op when already centered)
+                    d += ` L ${trunkX} ${busY}`; // vertical trunk down to this row's bus
+                    if (trunkX === endX) {
+                      d += ` L ${endX} ${endY}`;
+                    } else {
+                      const isMovingRight = endX > trunkX;
+                      d += ` L ${endX + (isMovingRight ? -cornerRadius : cornerRadius)} ${busY}`;
+                      d += ` Q ${endX} ${busY} ${endX} ${busY + cornerRadius}`;
+                      d += ` L ${endX} ${endY}`;
+                    }
+                  } else if (startX === endX) {
                     d += ` L ${endX} ${endY}`;
                   } else {
                     const isMovingRight = endX > startX;
-                    
+
                     if (isFirstChild || isLastChild) {
                       d += ` L ${startX} ${midY - cornerRadius}`;
                       d += ` Q ${startX} ${midY} ${startX + (isMovingRight ? cornerRadius : -cornerRadius)} ${midY}`;
