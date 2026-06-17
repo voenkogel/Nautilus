@@ -1,5 +1,3 @@
-import fetch from 'node-fetch';
-
 /**
  * Send a webhook notification for node status changes
  * 
@@ -73,13 +71,13 @@ export async function sendStatusWebhook(config, nodeName, event, details = {}) {
         'User-Agent': 'Nautilus-Monitor/1.0'
       },
       body: JSON.stringify(payload),
-      // Follow redirects but cap the hops. Self-hosted receivers commonly answer
-      // a POST with a 301/302 (e.g. http->https upgrade), which must not be
-      // treated as a delivery failure. Private/LAN webhook targets are
-      // intentionally allowed (see the URL check above), so following a redirect
-      // to an internal address is not an additional exposure here.
+      // Follow redirects. Self-hosted receivers commonly answer a POST with a
+      // 301/302 (e.g. http->https upgrade), which must not be treated as a
+      // delivery failure. Private/LAN webhook targets are intentionally allowed
+      // (see the URL check above), so following a redirect to an internal
+      // address is not an additional exposure here. (Native fetch caps redirect
+      // hops at 20 internally; node-fetch's `follow` option no longer applies.)
       redirect: 'follow',
-      follow: 3,
       signal: controller.signal
     });
     

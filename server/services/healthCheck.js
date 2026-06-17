@@ -1,8 +1,7 @@
 // Health-check engine (ARCH-1). Extracted from index.js. The current config is
 // injected via setMonitoringConfig() whenever index.js loads/saves config, so the
 // loop always reads fresh values (port, intervals, webhook settings, node tree).
-import fetch from 'node-fetch';
-import https from 'https';
+import { Agent } from 'undici';
 import os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -187,9 +186,10 @@ export function initializeNodeStatuses(preserveExisting = false) {
 let nodeIdentifiers = [];
 let initialHealthCheck = true;
 
-// Create HTTPS agent that ignores self-signed certificates
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: false // Accept self-signed certificates
+// undici dispatcher that ignores self-signed certificates. Native fetch (Node's
+// built-in, backed by undici) takes a `dispatcher` rather than node-fetch's `agent`.
+const insecureDispatcher = new Agent({
+  connect: { rejectUnauthorized: false } // Accept self-signed certificates
 });
 
 // Helper function to find node data by identifier (IP:port format).
@@ -526,7 +526,7 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
       headers: {
         'User-Agent': 'Nautilus-Monitor/1.0'
       },
-      agent: endpoint.startsWith('https://') ? httpsAgent : undefined,
+      dispatcher: endpoint.startsWith('https://') ? insecureDispatcher : undefined,
       signal: controller.signal
     });
     

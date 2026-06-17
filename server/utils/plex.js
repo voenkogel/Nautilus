@@ -1,8 +1,9 @@
-import fetch from 'node-fetch';
-import https from 'https';
+import { Agent } from 'undici';
 
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: false
+// undici dispatcher that ignores self-signed certificates. Native fetch takes a
+// `dispatcher` rather than node-fetch's `agent`.
+const insecureDispatcher = new Agent({
+  connect: { rejectUnauthorized: false }
 });
 
 /**
@@ -21,14 +22,17 @@ export async function queryPlexServer(host, port = 32400, token, protocol = 'htt
 
   const url = `${protocol}://${host}:${port}/status/sessions`;
   
+  // Native fetch ignores node-fetch's `timeout` option, so enforce it via AbortController.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
   try {
     const response = await fetch(url, {
       headers: {
         'Accept': 'application/json',
         'X-Plex-Token': token
       },
-      agent: protocol === 'https' ? httpsAgent : undefined,
-      timeout: 5000 // 5s timeout
+      dispatcher: protocol === 'https' ? insecureDispatcher : undefined,
+      signal: controller.signal
     });
 
     if (!response.ok) {
@@ -54,6 +58,11 @@ export async function queryPlexServer(host, port = 32400, token, protocol = 'htt
     };
 
   } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('Request timeout (5s)');
+    }
     throw error;
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
