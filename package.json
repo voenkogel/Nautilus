@@ -21,7 +21,7 @@
     "react": "^19.1.2",
     "react-dom": "^19.1.2",
     "sql.js": "^1.14.1",
-    "undici": "^8.5.0"
+    "undici": "^7.28.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.29.0",
