@@ -60,6 +60,12 @@ const StatusCard: React.FC<StatusCardProps> = ({
     return status && status.status === 'checking';
   }).length;
 
+  // Count nodes currently in a backup window (planned downtime, shown violet)
+  const backupNodes = monitoredNodes.filter(identifier => {
+    const status = statuses[identifier];
+    return status && status.status === 'backup';
+  }).length;
+
   // Activity tracking — Plex streams & Minecraft players
   const allNodes = getAllNodes(appConfig.tree.nodes);
 
@@ -68,18 +74,37 @@ const StatusCard: React.FC<StatusCardProps> = ({
     isNodeMonitored(n)
   );
 
-  const isActive = hasActivityNodes && allNodes.some(node => {
+  // Nodes currently reporting live activity (a Plex stream or a Minecraft player)
+  const activeNodes = hasActivityNodes ? allNodes.filter(node => {
     if (node.disableHealthCheck) return false;
     const status = statuses[node.id];
     if (!status || status.status !== 'online') return false;
     return (node.healthCheckType === 'plex' && (status.streams ?? 0) > 0) ||
            (node.healthCheckType === 'minecraft' && (status.players?.online ?? 0) > 0);
-  });
+  }) : [];
+
+  const isActive = activeNodes.length > 0;
+
+  // Aggregate what's happening into a pronounced, human-readable summary
+  const totalStreams = activeNodes.reduce(
+    (sum, n) => (n.healthCheckType === 'plex' ? sum + (statuses[n.id]?.streams ?? 0) : sum),
+    0
+  );
+  const totalPlayers = activeNodes.reduce(
+    (sum, n) => (n.healthCheckType === 'minecraft' ? sum + (statuses[n.id]?.players?.online ?? 0) : sum),
+    0
+  );
+  const activityParts: string[] = [];
+  if (totalStreams > 0) activityParts.push(`${totalStreams} stream${totalStreams === 1 ? '' : 's'}`);
+  if (totalPlayers > 0) activityParts.push(`${totalPlayers} player${totalPlayers === 1 ? '' : 's'}`);
+  const activitySummary = activityParts.join(' · ');
+  const accent = appConfig.appearance?.accentColor || '#3b82f6';
 
   // Calculate percentages for the progress bar
   const healthPercentage = totalNodes > 0 ? (healthyNodes / totalNodes) * 100 : 100; // Green portion
   const offlinePercentage = totalNodes > 0 ? (offlineNodes / totalNodes) * 100 : 0; // Red portion
   const checkingPercentage = totalNodes > 0 ? (checkingNodes / totalNodes) * 100 : 0; // Gray portion
+  const backupPercentage = totalNodes > 0 ? (backupNodes / totalNodes) * 100 : 0; // Violet portion
 
   // Calculate progress for countdown (0 to 1)
   // Simpler calculation with smoother transitions
@@ -261,11 +286,22 @@ const StatusCard: React.FC<StatusCardProps> = ({
               
               {/* Gray portion (checking nodes) - positioned after green */}
               {checkingPercentage > 0 && (
-                <div 
+                <div
                   className="absolute top-0 h-full bg-gray-300 transition-all duration-500 ease-out"
-                  style={{ 
-                    left: `${healthPercentage}%`, 
-                    width: `${checkingPercentage}%` 
+                  style={{
+                    left: `${healthPercentage}%`,
+                    width: `${checkingPercentage}%`
+                  }}
+                ></div>
+              )}
+
+              {/* Violet portion (backing-up nodes) - positioned after checking */}
+              {backupPercentage > 0 && (
+                <div
+                  className="absolute top-0 h-full bg-violet-400 transition-all duration-500 ease-out"
+                  style={{
+                    left: `${healthPercentage + checkingPercentage}%`,
+                    width: `${backupPercentage}%`
                   }}
                 ></div>
               )}
@@ -306,6 +342,16 @@ const StatusCard: React.FC<StatusCardProps> = ({
               </span>
             )}
 
+            {backupNodes > 0 && (
+              <span
+                className="flex items-center gap-1.5 px-2 py-1 text-violet-700"
+                title={`${backupNodes} node${backupNodes === 1 ? '' : 's'} backing up`}
+              >
+                <span className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0" />
+                <span>{backupNodes} backing up</span>
+              </span>
+            )}
+
             <button
               onClick={() => onFilterChange?.(activeFilter === 'offline' ? null : 'offline')}
               className={`flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all duration-150 ${
@@ -320,38 +366,53 @@ const StatusCard: React.FC<StatusCardProps> = ({
             </button>
           </div>
 
-          {/* Activity section — Plex streams & Minecraft players */}
-          {hasActivityNodes && (
+          {/* Live activity — a pronounced pill, shown ONLY when a Plex stream or Minecraft player is active */}
+          {hasActivityNodes && isActive && (
             <div className="mt-3 pt-3 border-t border-gray-100">
-              {/* Clickable header row acts as activity filter toggle */}
               <button
                 onClick={() => onFilterChange?.(activeFilter === 'activity' ? null : 'activity')}
-                className={`w-full flex items-center justify-between mb-1.5 px-2 py-1 rounded-lg transition-all duration-150 ${
-                  activeFilter === 'activity' ? '' : 'hover:bg-gray-50'
-                }`}
-                style={activeFilter === 'activity' ? {
-                  backgroundColor: `${appConfig.appearance.accentColor}12`,
-                  boxShadow: `0 0 0 1px ${appConfig.appearance.accentColor}40`,
-                } : {}}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 hover:brightness-[1.03]"
+                style={{
+                  background: `linear-gradient(135deg, ${accent}1F 0%, ${accent}0A 100%)`,
+                  boxShadow: activeFilter === 'activity'
+                    ? `inset 0 0 0 1.5px ${accent}, 0 4px 14px -3px ${accent}66`
+                    : `inset 0 0 0 1px ${accent}33`,
+                }}
                 title="Filter to active nodes"
+                aria-label={`Live activity: ${activitySummary || 'in use'}. Click to filter to active nodes.`}
               >
-                <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide font-roboto">Activity</span>
-                {isActive ? (
+                {/* Radar ping — the pronounced "live" beacon */}
+                <span className="relative flex h-3 w-3 flex-shrink-0">
                   <span
-                    className="flex items-center gap-1 text-[11px] font-semibold font-roboto"
-                    style={{ color: appConfig.appearance.accentColor }}
-                  >
-                    <span
-                      className="w-1.5 h-1.5 rounded-full animate-pulse"
-                      style={{ backgroundColor: appConfig.appearance.accentColor }}
-                    />
-                    In Use
-                  </span>
-                ) : (
-                  <span className="text-[11px] text-gray-400 font-roboto">Idle</span>
-                )}
-              </button>
+                    className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping"
+                    style={{ backgroundColor: accent }}
+                  />
+                  <span
+                    className="relative inline-flex h-3 w-3 rounded-full"
+                    style={{ backgroundColor: accent }}
+                  />
+                </span>
 
+                {/* Label + human-readable summary of what's active */}
+                <span className="flex flex-col items-start leading-tight min-w-0">
+                  <span
+                    className="text-[11px] font-bold uppercase tracking-wider font-roboto"
+                    style={{ color: accent }}
+                  >
+                    Live Activity
+                  </span>
+                  <span className="text-xs font-medium text-gray-700 font-roboto truncate">
+                    {activitySummary || 'In use'}
+                  </span>
+                </span>
+
+                {/* Drill-in affordance */}
+                <ChevronRight
+                  size={16}
+                  className="ml-auto flex-shrink-0 transition-transform duration-200"
+                  style={{ color: accent, opacity: activeFilter === 'activity' ? 0.9 : 0.45 }}
+                />
+              </button>
             </div>
           )}
         </div>

@@ -66,6 +66,7 @@ export const NodeHistoryView: React.FC<{
           {[
             { color: statusColors.online, label: 'Online' },
             { color: statusColors.offline, label: 'Offline' },
+            { color: statusColors.backup, label: 'Backup' },
             { color: '#e5e7eb', label: 'No data' },
           ].map(({ color, label }) => (
             <div key={label} className="flex items-center gap-1.5 text-[10px] text-gray-500 font-roboto">
@@ -102,17 +103,17 @@ export const NodeHistoryView: React.FC<{
               >
                 <div
                   className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
-                    t.status === 'online' ? 'bg-green-500' : 'bg-red-500'
+                    t.status === 'online' ? 'bg-green-500' : t.status === 'backup' ? 'bg-violet-500' : 'bg-red-500'
                   }`}
                 />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline gap-2 flex-wrap">
                     <span
                       className={`text-sm font-semibold capitalize font-roboto ${
-                        t.status === 'online' ? 'text-green-700' : 'text-red-700'
+                        t.status === 'online' ? 'text-green-700' : t.status === 'backup' ? 'text-violet-700' : 'text-red-700'
                       }`}
                     >
-                      Went {t.status}
+                      {t.status === 'backup' ? 'Entered backup' : `Went ${t.status}`}
                     </span>
                     <span className="text-xs text-gray-400 font-roboto">
                       {formatTimestamp(t.timestamp)}

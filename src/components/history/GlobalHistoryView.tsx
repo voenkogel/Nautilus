@@ -127,6 +127,7 @@ export const GlobalHistoryView: React.FC<{
         {[
           { color: statusColors.online, label: 'Online' },
           { color: statusColors.offline, label: 'Offline' },
+          { color: statusColors.backup, label: 'Backup' },
           { color: '#e5e7eb', label: 'No data' },
         ].map(({ color, label }) => (
           <div key={label} className="flex items-center gap-1.5 text-[10px] text-gray-400 font-roboto">

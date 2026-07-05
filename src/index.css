@@ -179,6 +179,20 @@ body, html {
   animation: make-space-down 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
+/* Backup state: slow "breathing" pulse, distinct from checking's fast pulse */
+@keyframes backup-pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
+.animate-backup-pulse {
+  animation: backup-pulse 2.5s ease-in-out infinite;
+}
+
 /* Drag ghost styling */
 .drag-ghost {
   position: fixed;

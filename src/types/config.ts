@@ -32,7 +32,24 @@ export interface TreeNode {
   
   plexToken?: string; // Optional Plex Media Server token (only stored on server, never sent to client)
 
+  // Backup window: during this recurring window the node is reported as 'backup'
+  // (violet) instead of offline and status notifications are suppressed. A manual
+  // window (source:'manual') lives in config.json; an auto-detected window
+  // (source:'auto') is injected server-side for display and never persisted here.
+  backupWindow?: BackupWindow;
+  disableBackupDetection?: boolean; // Opt this node out of backup-window autodetection
+
   children?: TreeNode[];
+}
+
+export interface BackupWindow {
+  enabled: boolean;
+  frequency: 'daily' | 'weekly';
+  startMinute: number;          // minutes since local midnight, 0..1439
+  durationMinutes: number;      // window length (auto: already includes drift padding)
+  dayOfWeek?: number;           // 0=Sun..6=Sat, weekly only
+  source?: 'manual' | 'auto';   // manual takes precedence over auto
+  detectedAt?: string;          // ISO timestamp, set by autodetection
 }
 
 export interface ServerConfig {
@@ -67,10 +84,20 @@ export interface AppConfig {
     nodes: TreeNode[];
   };
   webhooks?: WebhookSettings;
+  backupDetection?: BackupDetectionConfig;
+}
+
+export interface BackupDetectionConfig {
+  enabled: boolean;         // master switch for backup-window autodetection
+  minEvents: number;        // downtime events required before arming (default 3)
+  timezone?: string;        // IANA tz for window math; default = resolved server tz
+  lookbackDays: number;     // history window to analyse (default 30)
+  minDurationMs: number;    // ignore downtimes shorter than this (noise)
+  maxDurationMs: number;    // ignore downtimes longer than this (real outages)
 }
 
 export interface NodeStatus {
-  status: 'online' | 'offline' | 'checking';
+  status: 'online' | 'offline' | 'checking' | 'backup';
   lastChecked: string;
   statusChangedAt?: string; // Timestamp when status last changed
   responseTime?: number;

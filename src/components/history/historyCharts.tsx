@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { Clock } from 'lucide-react';
 import type { HistoryRecord, HistoryPeriod } from '../../hooks/useStatusHistory';
 import { formatTimestamp, PERIODS, BUCKETS } from './historyUtils';
-import { statusColors } from '../../utils/colors';
+import { statusColors, statusLabels } from '../../utils/colors';
 
 // --- Period selector ---
 
@@ -33,6 +33,7 @@ const colorMap: Record<string, string> = {
   online:   statusColors.online,
   offline:  statusColors.offline,
   checking: statusColors.checking,
+  backup:   statusColors.backup,
   empty:    '#e5e7eb',
 };
 
@@ -45,25 +46,29 @@ export const UptimeTimeline: React.FC<{
   const [tooltip, setTooltip] = useState<{ index: number; clientX: number; clientY: number } | null>(null);
   const bucketMs = (nowMs - sinceMs) / BUCKETS;
 
-  const buckets = useMemo((): ('online' | 'offline' | 'checking' | 'empty')[] => {
+  const buckets = useMemo((): ('online' | 'offline' | 'checking' | 'backup' | 'empty')[] => {
     // Single O(records) pass into fixed buckets instead of O(BUCKETS × records)
     // — the old Array.from(160) re-filtered the whole records array per bucket,
     // and GlobalHistoryView renders one timeline per node.
-    const result: ('online' | 'offline' | 'checking' | 'empty')[] = new Array(BUCKETS).fill('empty');
+    const result: ('online' | 'offline' | 'checking' | 'backup' | 'empty')[] = new Array(BUCKETS).fill('empty');
     const sawOffline  = new Uint8Array(BUCKETS);
     const sawOnline   = new Uint8Array(BUCKETS);
     const sawChecking = new Uint8Array(BUCKETS);
+    const sawBackup   = new Uint8Array(BUCKETS);
     for (const r of records) {
       if (r.timestamp < sinceMs || r.timestamp >= nowMs) continue;
       const idx = Math.min(BUCKETS - 1, Math.floor((r.timestamp - sinceMs) / bucketMs));
       if (idx < 0) continue;
       if (r.status === 'offline')      sawOffline[idx]  = 1;
       else if (r.status === 'online')  sawOnline[idx]   = 1;
+      else if (r.status === 'backup')  sawBackup[idx]   = 1;
       else                             sawChecking[idx] = 1;
     }
-    // Priority matches the previous logic: offline > online > checking > empty.
+    // Priority: offline > backup > online > checking > empty. A genuine outage
+    // in a nominal backup window still shows red (offline wins over backup).
     for (let i = 0; i < BUCKETS; i++) {
       if (sawOffline[i])       result[i] = 'offline';
+      else if (sawBackup[i])   result[i] = 'backup';
       else if (sawOnline[i])   result[i] = 'online';
       else if (sawChecking[i]) result[i] = 'checking';
     }
@@ -108,7 +113,7 @@ export const UptimeTimeline: React.FC<{
               className="w-2 h-2 rounded-full flex-shrink-0"
               style={{ backgroundColor: colorMap[hovered!] }}
             />
-            {hovered === 'empty' ? 'No data' : hovered}
+            {hovered === 'empty' ? 'No data' : (statusLabels[hovered as keyof typeof statusLabels] ?? hovered)}
           </div>
           <div className="text-gray-400 mt-0.5">
             {formatTimestamp(sinceMs + tooltip.index * bucketMs)}

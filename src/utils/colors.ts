@@ -6,8 +6,18 @@ export const statusColors = {
   online: '#10b981',
   offline: '#ef4444',
   checking: '#3b82f6',
+  backup: '#8b5cf6',
   neutral: '#6b7280',
 } as const;
+
+// Human-readable status labels — single source for the display strings so the
+// raw enum value ('backup') isn't shown to users.
+export const statusLabels: Record<NonNullable<NodeStatus['status']>, string> = {
+  online: 'online',
+  offline: 'offline',
+  checking: 'checking',
+  backup: 'backing up',
+};
 
 /**
  * Resolves the indicator color for a node's status.
@@ -25,6 +35,8 @@ export const getStatusColor = (
       return statusColors.offline;
     case 'checking':
       return statusColors.checking;
+    case 'backup':
+      return statusColors.backup;
     default:
       return statusColors.neutral;
   }

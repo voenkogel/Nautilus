@@ -11,39 +11,62 @@ import { queryPlexServer } from '../utils/plex.js';
 import { recordStatusHistory } from '../utils/historyDb.js';
 import { isValidHost } from '../utils/validation.js';
 import { isNodeMonitored, getNodeIdentifier } from '../utils/nodeMonitoring.js';
+import { effectiveBackupWindow, isWithinBackupWindow, setBackupDetectionConfig } from '../utils/backupWindow.js';
 import { logger } from '../utils/logger.js';
 
 const execFileAsync = promisify(execFile);
 
 let currentConfig = null;
-// Cached map of normalized identifier -> node, rebuilt only when the config
+// Cached maps of normalized identifier -> node(s), rebuilt only when the config
 // changes (here) rather than re-walking the whole tree on every lookup. The
 // health-check loop calls findNodeByIdentifier several times per node per
 // cycle, so this turns those tree searches into O(1) map gets.
-let identifierToNode = new Map();
+let identifierToNode = new Map();   // first node at an address (drives the check itself)
+let identifierToNodes = new Map();  // every node at an address (backup-window aggregation)
 
 export function setMonitoringConfig(config) {
   currentConfig = config;
-  identifierToNode = buildIdentifierToNodeMap(config);
+  const built = buildIdentifierToNodeMap(config);
+  identifierToNode = built.first;
+  identifierToNodes = built.all;
+  // Keep backup-window detection settings (enabled flag, timezone) in sync with
+  // the freshest config so isWithinBackupWindow/effectiveBackupWindow read them.
+  setBackupDetectionConfig(config?.backupDetection);
 }
 
-// Build normalized-identifier -> node, first match wins (matching the previous
-// depth-first searchNodes behaviour when two nodes share an address).
+// Build normalized-identifier -> node. `first` keeps first-match-wins (matching
+// the previous depth-first searchNodes behaviour when two nodes share an
+// address); `all` keeps every node at the address so backup-window suppression
+// can honour an opt-out/manual window set on ANY card, not just the first.
 function buildIdentifierToNodeMap(config) {
-  const map = new Map();
+  const first = new Map();
+  const all = new Map();
   const walk = (nodes) => {
     if (!Array.isArray(nodes)) return;
     for (const node of nodes) {
       const identifier = getNodeIdentifier(node);
       if (identifier) {
         const normalized = normalizeNodeIdentifier(identifier);
-        if (!map.has(normalized)) map.set(normalized, node);
+        if (!first.has(normalized)) first.set(normalized, node);
+        if (!all.has(normalized)) all.set(normalized, []);
+        all.get(normalized).push(node);
       }
       if (node.children) walk(node.children);
     }
   };
   walk(config?.tree?.nodes);
-  return map;
+  return { first, all };
+}
+
+// Resolve the effective backup window for an address, honouring EVERY node that
+// shares it: a manual window on any card applies, and if any card opts out then
+// autodetection is off for the address. Health checks run once per address, so
+// the suppression decision must not depend on which card happens to be first.
+function backupWindowForIdentifier(normalizedIdentifier) {
+  const nodes = identifierToNodes.get(normalizedIdentifier) || [];
+  const manual = nodes.map((n) => n.backupWindow).find((w) => w && w.source !== 'auto');
+  const disableBackupDetection = nodes.some((n) => n.disableBackupDetection);
+  return effectiveBackupWindow({ backupWindow: manual, disableBackupDetection }, normalizedIdentifier);
 }
 
 // Store for node statuses
@@ -405,100 +428,112 @@ async function checkNodeHealth(identifier) {
 
   // Use the new pure function
   const finalResult = await performNodeCheck(nodeData);
+  const now = Date.now();
 
-  // Record every actual check result to history (before suppression, to capture true state)
-  recordStatusHistory(normalizedIdentifier, finalResult);
+  // realStatus = genuine reachability from this check ('online' | 'offline').
+  const realStatus = finalResult.status;
 
   const previousStatus = nodeStatuses.get(normalizedIdentifier);
+  const prevRaw = previousStatus?.status;
+  // Previous *real* status: unwrap a 'backup' display back to 'offline'.
+  const prevReal = previousStatus
+    ? (previousStatus.realStatus ?? (prevRaw === 'backup' ? 'offline' : prevRaw))
+    : undefined;
+
+  // Is the node currently inside a backup window? Only relabel a genuine offline,
+  // and never repaint an outage we've already alerted on (keep it red, still recover).
+  const win = realStatus === 'offline' ? backupWindowForIdentifier(normalizedIdentifier) : null;
+  const inBackup = !!win && isWithinBackupWindow(win, now) && !offlineNotified.has(normalizedIdentifier);
+
+  // Record every check to history (before suppression, to capture true state).
+  // Inside a backup window, record 'backup' so uptime math excludes it and
+  // autodetection treats it as known/expected downtime.
+  recordStatusHistory(normalizedIdentifier, { ...finalResult, status: inBackup ? 'backup' : realStatus });
 
   // Suppress transient offline flips: require OFFLINE_THRESHOLD consecutive failures
-  // before actually marking a node offline and notifying.
-  if (finalResult.status === 'offline') {
+  // before flipping a previously-up node offline. Skipped inside a backup window so
+  // 'backup' shows promptly (it never notifies).
+  if (realStatus === 'offline') {
     const failures = (consecutiveFailures.get(normalizedIdentifier) || 0) + 1;
     consecutiveFailures.set(normalizedIdentifier, failures);
 
-    if (previousStatus?.status === 'online' && failures < OFFLINE_THRESHOLD) {
+    const wasUp = prevReal === 'online' || prevRaw === 'backup';
+    if (!inBackup && wasUp && failures < OFFLINE_THRESHOLD) {
       logger.info(`⚠️  [HEALTH_CHECK] Transient failure ${failures}/${OFFLINE_THRESHOLD} for "${normalizedIdentifier}", suppressing offline`);
       const suppressedResult = { ...previousStatus, lastChecked: finalResult.lastChecked };
       nodeStatuses.set(normalizedIdentifier, suppressedResult);
       return { ...suppressedResult, notification: null };
     }
-  } else if (finalResult.status === 'online') {
+  } else if (realStatus === 'online') {
     consecutiveFailures.set(normalizedIdentifier, 0);
   }
 
-  // NOW handle status change notifications AFTER all attempts are complete
-  const statusChanged = !previousStatus || previousStatus.status !== finalResult.status;
-  
-  // Preserve statusChangedAt timestamp if status hasn't changed, otherwise set to now
-  if (previousStatus && !statusChanged) {
-    // Status hasn't changed, preserve the original statusChangedAt timestamp
-    finalResult.statusChangedAt = previousStatus.statusChangedAt;
-  } else {
-    // Status has changed (or this is first check), set statusChangedAt to now
-    finalResult.statusChangedAt = new Date().toISOString();
-  }
-  
-  // Only send notifications for transitions between 'online' and 'offline' states
-  // Exclude transitions from 'checking' to prevent initial startup notifications
-  const shouldNotify = statusChanged && 
-                      previousStatus && 
-                      previousStatus.status !== 'checking' && 
-                      (finalResult.status === 'online' || finalResult.status === 'offline') &&
-                      (previousStatus.status === 'online' || previousStatus.status === 'offline');
-  
+  // Compute the display status (may be 'backup') and stamp it onto the result.
+  finalResult.realStatus = realStatus;
+  if (inBackup) finalResult.status = 'backup';
+
+  // statusChangedAt tracks the *display* status transitions (for "backing up for 5m").
+  const statusChanged = !previousStatus || prevRaw !== finalResult.status;
+  finalResult.statusChangedAt = (previousStatus && !statusChanged)
+    ? previousStatus.statusChangedAt
+    : new Date().toISOString();
+
   // Store using normalized identifier for consistent lookups
   nodeStatuses.set(normalizedIdentifier, finalResult);
 
-  // Clear cooldown tracking when a node recovers
-  if (finalResult.status === 'online') {
-    offlineSince.delete(normalizedIdentifier);
-    offlineNotified.delete(normalizedIdentifier);
-  }
+  // Notifications are driven by the *real* online<->offline transition, never by
+  // the backup mask. Transitions out of 'checking'/startup never notify.
+  const realTransition = (prevReal === 'online' || prevReal === 'offline') && prevReal !== realStatus;
+  const nodeName = nodeData?.title || nodeData?.id || normalizedIdentifier;
+  const notifyDetails = {
+    error: finalResult.error,
+    responseTime: finalResult.responseTime,
+    endpoint: finalResult.endpoint,
+    statusCode: finalResult.statusCode,
+  };
+  const buildNotif = (event) => ({
+    identifier: normalizedIdentifier,
+    nodeName,
+    event,
+    timestamp: new Date().toISOString(),
+    details: notifyDetails,
+  });
 
   let notification = null;
 
-  if (shouldNotify && currentConfig.webhooks?.statusNotifications) {
-    const nodeName = nodeData?.title || nodeData?.id || normalizedIdentifier;
-    const event = finalResult.status === 'online' ? 'online' : 'offline';
-    logger.info(`📢 [NOTIFICATION] Status change for "${nodeName}": ${previousStatus.status} → ${finalResult.status}`);
-
-    const notifyDetails = {
-      error: finalResult.error,
-      responseTime: finalResult.responseTime,
-      endpoint: finalResult.endpoint,
-      statusCode: finalResult.statusCode,
-    };
-
-    if (event === 'online') {
-      // Online: always notify immediately
-      notification = {
-        identifier: normalizedIdentifier,
-        nodeName,
-        event,
-        timestamp: new Date().toISOString(),
-        details: notifyDetails,
-      };
-    } else {
-      // Offline: respect notifyAfterSeconds cooldown
+  if (realStatus === 'online') {
+    // Recovery: notify only if we actually alerted this outage (so a pure nightly
+    // backup — never alerted — recovers silently).
+    const wasNotified = offlineNotified.has(normalizedIdentifier);
+    offlineSince.delete(normalizedIdentifier);
+    offlineNotified.delete(normalizedIdentifier);
+    if (realTransition && wasNotified && currentConfig?.webhooks?.statusNotifications) {
+      logger.info(`📢 [NOTIFICATION] "${nodeName}" recovered: offline → online`);
+      notification = buildNotif('online');
+    }
+  } else if (realStatus === 'offline') {
+    // Mark the outage start only on a genuine online → offline transition, so a
+    // node that was already offline at startup never triggers a deferred alert.
+    // Gate on notifications being configured: otherwise offlineSince accumulates
+    // silently and, the moment webhooks are later enabled, the deferred checker
+    // fires a retroactive alert storm for outages that began before then.
+    if (prevReal === 'online' && currentConfig?.webhooks?.statusNotifications) {
+      offlineSince.set(normalizedIdentifier, now);
+    }
+    if (inBackup) {
+      // Suppressed: no notification. offlineSince (if set) lets the deferred
+      // checker alert once the window ends should the outage persist past it.
+      if (realTransition) {
+        logger.info(`🟣 [BACKUP] "${nodeName}" offline within backup window — notification suppressed`);
+      }
+    } else if (realTransition && currentConfig?.webhooks?.statusNotifications) {
       const notifyAfterMs = (currentConfig.webhooks.statusNotifications.notifyAfterSeconds || 0) * 1000;
       if (notifyAfterMs === 0) {
-        // Immediate (default behaviour — no change from before)
-        notification = {
-          identifier: normalizedIdentifier,
-          nodeName,
-          event,
-          timestamp: new Date().toISOString(),
-          details: notifyDetails,
-        };
-        offlineSince.set(normalizedIdentifier, Date.now());
         offlineNotified.add(normalizedIdentifier);
+        logger.info(`📢 [NOTIFICATION] "${nodeName}" went offline`);
+        notification = buildNotif('offline');
       } else {
-        // Deferred — record start time, notify later
-        if (!offlineSince.has(normalizedIdentifier)) {
-          offlineSince.set(normalizedIdentifier, Date.now());
-          logger.info(`⏳ [NOTIFY] "${nodeName}" offline — notification deferred ${notifyAfterMs / 1000}s`);
-        }
+        logger.info(`⏳ [NOTIFY] "${nodeName}" offline — notification deferred ${notifyAfterMs / 1000}s`);
       }
     }
   }
@@ -697,9 +732,11 @@ async function processNotifications(notifications) {
 
 // Build deferred offline notifications whose cooldown has now elapsed
 function checkDeferredOfflineNotifications() {
-  if (!currentConfig.webhooks?.statusNotifications) return [];
+  if (!currentConfig?.webhooks?.statusNotifications) return [];
   const notifyAfterMs = (currentConfig.webhooks.statusNotifications.notifyAfterSeconds || 0) * 1000;
-  if (notifyAfterMs === 0) return []; // Nothing deferred when cooldown is 0
+  // Note: we no longer early-return when notifyAfterMs === 0. A backup-window
+  // suppression sets offlineSince without notifying; once the window ends and the
+  // node is genuinely offline this checker fires the (possibly zero-cooldown) alert.
 
   const now = Date.now();
   const deferred = [];
@@ -708,7 +745,9 @@ function checkDeferredOfflineNotifications() {
     if (offlineNotified.has(identifier)) continue;       // Already sent
     if (now - since < notifyAfterMs) continue;           // Cooldown not elapsed
     const currentStatus = nodeStatuses.get(identifier);
-    if (currentStatus?.status !== 'offline') continue;  // Recovered before cooldown elapsed
+    // Skip nodes that recovered OR are still masked as 'backup' (in-window). Once
+    // a backup window ends and the node is genuinely offline, we alert here.
+    if (currentStatus?.status !== 'offline') continue;
 
     offlineNotified.add(identifier);
     const nodeData = findNodeByIdentifier(identifier);

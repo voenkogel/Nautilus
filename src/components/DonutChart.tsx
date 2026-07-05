@@ -5,6 +5,7 @@ interface DonutChartProps {
   online: number;
   offline: number;
   checking: number;
+  backup?: number;
 }
 
 /**
@@ -13,10 +14,11 @@ interface DonutChartProps {
  * donut stays in sync with the status dots and history timelines. The light
  * track ring (#e5e7eb) is the shared "no-data" shade.
  */
-export const DonutChart: React.FC<DonutChartProps> = ({ online, offline, checking }) => {
-  const total = online + offline + checking;
+export const DonutChart: React.FC<DonutChartProps> = ({ online, offline, checking, backup = 0 }) => {
+  const total = online + offline + checking + backup;
   const onlineAngle = total > 0 ? (online / total) * 360 : 0;
   const offlineAngle = total > 0 ? (offline / total) * 360 : 0;
+  const backupAngle = total > 0 ? (backup / total) * 360 : 0;
 
   const arc = (startAngle: number, endAngle: number, color: string): React.ReactNode => {
     if (endAngle - startAngle === 0) return null;
@@ -56,7 +58,8 @@ export const DonutChart: React.FC<DonutChartProps> = ({ online, offline, checkin
         <circle cx="8" cy="8" r="4" fill="white" />
         {arc(0, onlineAngle, statusColors.online)}
         {arc(onlineAngle, onlineAngle + offlineAngle, statusColors.offline)}
-        {checking > 0 && arc(onlineAngle + offlineAngle, 360, statusColors.checking)}
+        {backup > 0 && arc(onlineAngle + offlineAngle, onlineAngle + offlineAngle + backupAngle, statusColors.backup)}
+        {checking > 0 && arc(onlineAngle + offlineAngle + backupAngle, 360, statusColors.checking)}
       </svg>
     </div>
   );

@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { TreeNode, AppearanceConfig } from '../types/config';
+import type { TreeNode, AppearanceConfig, BackupWindow } from '../types/config';
 import * as LucideIcons from 'lucide-react';
 import { IconPicker } from './IconPicker';
 import Switch from './Switch';
 import { getAuthHeaders } from '../utils/auth';
 import { iconRegistry } from '../utils/iconUtils';
 import { FormInput } from './ui/FormInput';
+import { statusColors } from '../utils/colors';
+import { describeBackupWindow, minutesToHHMM, hhmmToMinutes, DEFAULT_BACKUP_WINDOW, DAYS } from '../utils/backupWindow';
 
 interface NodeFormFieldsProps {
   node: TreeNode;
@@ -22,10 +24,17 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
   const intervalInvalid = typeof node.healthCheckInterval === 'number' && node.healthCheckInterval < MIN_CHECK_INTERVAL;
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [showPlexToken, setShowPlexToken] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionTestStatus>('idle');
   const [connectionDetails, setConnectionDetails] = useState<string>('');
   const testTimeoutRef = useRef<number | null>(null);
   const lastTestedConfigRef = useRef<string>('');
+
+  // Backup window (optional, advanced). Any edit marks the window as 'manual' so
+  // server-side autodetection stops overriding it.
+  const bw = node.backupWindow;
+  const updateBackup = (patch: Partial<BackupWindow>) =>
+    onChange({ backupWindow: { ...DEFAULT_BACKUP_WINDOW, ...bw, source: 'manual', ...patch } });
 
   // Test connection function
   const testConnection = async (nodeToTest: TreeNode) => {
@@ -463,6 +472,130 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
               </div>
             )}
           </div>
+
+        {/* Backup window (advanced, optional) — subtle, collapsed by default */}
+        <div className="col-span-1 md:col-span-2 pt-4 border-t border-gray-200">
+          <button
+            type="button"
+            onClick={() => setShowBackup(v => !v)}
+            className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
+            aria-expanded={showBackup}
+          >
+            {showBackup ? <LucideIcons.ChevronDown size={14} /> : <LucideIcons.ChevronRight size={14} />}
+            Backup window
+            {bw?.enabled && (
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: statusColors.backup }} />
+            )}
+            {bw?.source === 'auto' && (
+              <span className="px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[10px] font-medium">
+                Auto-detected
+              </span>
+            )}
+          </button>
+
+          {showBackup && (
+            <div className="mt-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-700">
+                  Suppress status &amp; notifications during backups
+                </label>
+                <Switch
+                  id={`backupEnabled-${node.id}`}
+                  checked={!!bw?.enabled}
+                  onChange={(checked) => updateBackup({ enabled: checked })}
+                  accentColor={accentColor}
+                />
+              </div>
+
+              {bw?.enabled && (
+                <div className="space-y-3 pl-4 border-l-2 border-gray-100">
+                  {bw.source === 'auto' && (
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-violet-50 text-violet-700 text-xs">
+                      <span>
+                        Auto-detected{bw.detectedAt ? ` on ${new Date(bw.detectedAt).toLocaleDateString()}` : ''}. Editing switches it to manual.
+                      </span>
+                      <button
+                        type="button"
+                        className="underline whitespace-nowrap"
+                        onClick={() => onChange({ backupWindow: undefined, disableBackupDetection: true })}
+                      >
+                        Stop auto-detecting
+                      </button>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Repeat</label>
+                    <select
+                      value={bw.frequency}
+                      onChange={(e) => updateBackup({ frequency: e.target.value as BackupWindow['frequency'] })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 text-sm"
+                      style={{ ['--tw-ring-color' as string]: accentColor } as React.CSSProperties}
+                    >
+                      <option value="daily">Every day</option>
+                      <option value="weekly">Weekly</option>
+                    </select>
+                  </div>
+
+                  {bw.frequency === 'weekly' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Day</label>
+                      <select
+                        value={bw.dayOfWeek ?? 0}
+                        onChange={(e) => updateBackup({ dayOfWeek: parseInt(e.target.value) })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 text-sm"
+                        style={{ ['--tw-ring-color' as string]: accentColor } as React.CSSProperties}
+                      >
+                        {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Start</label>
+                      <input
+                        type="time"
+                        value={minutesToHHMM(bw.startMinute)}
+                        onChange={(e) => {
+                          // Ignore a cleared/invalid field so it can't silently snap to 00:00.
+                          const mins = hhmmToMinutes(e.target.value);
+                          if (mins !== null) updateBackup({ startMinute: mins });
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 text-sm"
+                        style={{ ['--tw-ring-color' as string]: accentColor } as React.CSSProperties}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-600 mb-1">Duration (min)</label>
+                      <FormInput
+                        accentColor={accentColor}
+                        type="number"
+                        min={1}
+                        step={15}
+                        value={bw.durationMinutes}
+                        onChange={(e) => updateBackup({ durationMinutes: Math.max(1, parseInt(e.target.value) || 0) })}
+                      />
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-gray-500">{describeBackupWindow(bw)}</p>
+                  <p className="text-[11px] text-gray-400">
+                    Start time uses the server’s timezone (the container’s local time), which may
+                    differ from your browser.
+                  </p>
+                </div>
+              )}
+
+              {!bw?.enabled && (
+                <p className="text-xs text-gray-400">
+                  When a node goes down inside this window it shows as “backing up” (violet) and no
+                  notifications are sent. Left off, backup windows are detected automatically.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

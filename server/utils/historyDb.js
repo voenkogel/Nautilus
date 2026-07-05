@@ -83,6 +83,23 @@ export async function initHistoryDb() {
       ON status_history (timestamp DESC);
   `);
 
+  // Auto-detected backup windows live here (keyed by the same normalized
+  // identifier as status_history) rather than in config.json, so a background
+  // detector never races the client's whole-tree config saves. Manual windows
+  // are stored on the node in config.json instead.
+  db.run(`
+    CREATE TABLE IF NOT EXISTS backup_schedules (
+      node_id          TEXT    PRIMARY KEY,
+      frequency        TEXT    NOT NULL,
+      start_minute     INTEGER NOT NULL,
+      duration_minutes INTEGER NOT NULL,
+      day_of_week      INTEGER,
+      source           TEXT    NOT NULL,
+      detected_at      INTEGER,
+      updated_at       INTEGER
+    );
+  `);
+
   // Flush to disk every 60 seconds
   setInterval(flushToDisk, 60_000);
 
@@ -154,6 +171,63 @@ export function getAllNodesHistory(sinceMs) {
      ORDER  BY node_id, timestamp ASC`,
     [sinceMs]
   );
+}
+
+// ── Backup schedules (auto-detected windows) ──────────────────────────────────
+
+function rowToBackupWindow(row) {
+  if (!row) return null;
+  return {
+    enabled: true,
+    frequency: row.frequency,
+    startMinute: row.start_minute,
+    durationMinutes: row.duration_minutes,
+    dayOfWeek: row.day_of_week == null ? undefined : row.day_of_week,
+    source: row.source || 'auto',
+    detectedAt: row.detected_at ? new Date(row.detected_at).toISOString() : undefined,
+  };
+}
+
+/** Returns an array of { nodeId, window } for every stored auto schedule. */
+export function getAllBackupSchedules() {
+  return queryAll('SELECT * FROM backup_schedules').map(row => ({
+    nodeId: row.node_id,
+    window: rowToBackupWindow(row),
+  }));
+}
+
+export function upsertBackupSchedule(nodeId, w) {
+  if (!db) return;
+  try {
+    db.run(
+      `INSERT OR REPLACE INTO backup_schedules
+         (node_id, frequency, start_minute, duration_minutes, day_of_week, source, detected_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        nodeId,
+        w.frequency,
+        w.startMinute,
+        w.durationMinutes,
+        w.dayOfWeek ?? null,
+        w.source || 'auto',
+        w.detectedAt ? new Date(w.detectedAt).getTime() : Date.now(),
+        Date.now(),
+      ]
+    );
+    dirty = true;
+  } catch (err) {
+    console.error('❌ [HISTORY] Failed to upsert backup schedule:', err.message);
+  }
+}
+
+export function deleteBackupSchedule(nodeId) {
+  if (!db) return;
+  try {
+    db.run('DELETE FROM backup_schedules WHERE node_id = ?', [nodeId]);
+    dirty = true;
+  } catch (err) {
+    console.error('❌ [HISTORY] Failed to delete backup schedule:', err.message);
+  }
 }
 
 export function pruneOldHistory(retentionDays = 30) {

@@ -8,9 +8,11 @@ import { execSync } from 'child_process';
 import dotenv from 'dotenv';
 
 import { queryJavaServer, queryBedrockServer } from './utils/minecraft.js';
-import { initHistoryDb, getNodeHistory, getAllNodesHistory, pruneOldHistory } from './utils/historyDb.js';
+import { initHistoryDb, getNodeHistory, getAllNodesHistory, pruneOldHistory, getAllBackupSchedules } from './utils/historyDb.js';
 import { isValidHost, validateScanSubnet } from './utils/validation.js';
 import { isNodeMonitored, getNodeIdentifier } from './utils/nodeMonitoring.js';
+import { setAutoWindows, getAutoWindow } from './utils/backupWindow.js';
+import { runBackupDetection, analyzeNode } from './services/backupDetection.js';
 import {
   authenticateRequest,
   generateSessionToken,
@@ -23,7 +25,7 @@ import {
   touchSession,
 } from './middleware/auth.js';
 import { publicReadLimiter } from './middleware/rateLimit.js';
-import { sanitizeConfig, restoreSensitiveFields, stripMonitoredFlag } from './services/configSanitize.js';
+import { sanitizeConfig, restoreSensitiveFields, stripMonitoredFlag, stripAutoBackupWindows } from './services/configSanitize.js';
 import { deepMerge, validateConfig } from './services/configValidation.js';
 import { securityHeaders } from './middleware/security.js';
 import { logger } from './utils/logger.js';
@@ -128,6 +130,14 @@ const defaultConfig = {
   },
   tree: {
     nodes: [] // Default to no nodes
+  },
+  backupDetection: {
+    enabled: true,        // autodetect backup windows (arm after 3 regular downtimes)
+    minEvents: 3,
+    lookbackDays: 30,
+    minDurationMs: 60000, // ignore downtimes < 1 min
+    maxDurationMs: 21600000 // ignore downtimes > 6h (real outages, not backups)
+    // timezone: undefined -> resolved server tz
   }
 };
 
@@ -163,6 +173,7 @@ try {
     server: { ...defaultConfig.server, ...savedConfig.server },
     client: { ...defaultConfig.client, ...savedConfig.client },
     appearance: { ...defaultConfig.appearance, ...savedConfig.appearance },
+    backupDetection: { ...defaultConfig.backupDetection, ...savedConfig.backupDetection },
     tree: savedConfig.tree || defaultConfig.tree
   };
 
@@ -251,6 +262,8 @@ try {
 
 // Configure and start the monitoring engine (services/healthCheck.js)
 setMonitoringConfig(appConfig);
+// Load auto-detected backup windows from the DB into the healthCheck window cache
+try { setAutoWindows(getAllBackupSchedules()); } catch (err) { logger.error('❌ [BACKUP] Failed to load schedules:', err.message); }
 const monitoredNodeIds = initializeNodeStatuses();
 
 // Start the health checking loop
@@ -259,6 +272,12 @@ scheduleNextCheck();
 // Prune history on startup, then daily
 pruneOldHistory(30);
 setInterval(() => pruneOldHistory(30), 24 * 60 * 60 * 1000);
+
+// Run backup-window autodetection on startup (after prune), then daily.
+const runDetection = () => runBackupDetection(appConfig)
+  .catch(err => logger.error('❌ [BACKUP] Autodetection failed:', err.message));
+runDetection();
+setInterval(runDetection, 24 * 60 * 60 * 1000);
 
 // ── History API ──────────────────────────────────────────────────────────────
 
@@ -479,7 +498,58 @@ app.get('/api/config', publicReadLimiter, (req, res) => {
     }
   }
 
-  res.json(sanitizeConfig(appConfig, isAdmin));
+  const sanitized = sanitizeConfig(appConfig, isAdmin);
+  attachAutoBackupWindows(sanitized);
+  res.json(sanitized);
+});
+
+// Inject auto-detected backup windows (from the DB-backed cache) into the config
+// served to clients as node.backupWindow with source:'auto'. These are transient
+// and stripped on save, so config.json only ever stores manual windows.
+function attachAutoBackupWindows(config) {
+  const walk = (nodes) => {
+    if (!Array.isArray(nodes)) return;
+    for (const n of nodes) {
+      // Manual window wins; never inject when the node opted out.
+      if (!n.backupWindow && !n.disableBackupDetection) {
+        const identifier = nodeIdToIdentifier.get(n.id);
+        const auto = identifier ? getAutoWindow(identifier) : null;
+        if (auto) n.backupWindow = { ...auto, source: 'auto' };
+      }
+      if (n.children) walk(n.children);
+    }
+  };
+  if (config?.tree?.nodes) walk(config.tree.nodes);
+}
+
+// Trigger a backup-window autodetection pass now (admin only).
+app.post('/api/backup-detection/run', authenticateRequest, async (req, res) => {
+  try {
+    const result = await runBackupDetection(appConfig);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    logger.error('❌ [BACKUP] Manual detection run failed:', err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// Preview detection for a single node without persisting (admin only): returns
+// the derived downtime events and the candidate window (or null).
+app.get('/api/backup-detection/preview/:nodeId', authenticateRequest, (req, res) => {
+  const identifier = nodeIdToIdentifier.get(req.params.nodeId);
+  if (!identifier) {
+    return res.status(404).json({ success: false, message: 'Node not found or not monitored' });
+  }
+  const cfg = appConfig?.backupDetection || {};
+  const result = analyzeNode(identifier, {
+    minEvents: cfg.minEvents,
+    lookbackDays: cfg.lookbackDays,
+    minDurationMs: cfg.minDurationMs,
+    maxDurationMs: cfg.maxDurationMs,
+    timezone: cfg.timezone,
+    now: Date.now(),
+  });
+  res.json({ success: true, nodeId: req.params.nodeId, ...result });
 });
 
 
@@ -505,6 +575,10 @@ app.post('/api/config', authenticateRequest, (req, res) => {
 
     // Never persist the server-derived `monitored` flag the client received.
     stripMonitoredFlag(newConfig);
+
+    // Never persist auto-detected backup windows (source:'auto') the client
+    // received — they live in the DB-backed cache, not config.json.
+    stripAutoBackupWindows(newConfig);
 
     let updatedConfig;
     

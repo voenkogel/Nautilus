@@ -16,7 +16,9 @@ export function formatShortDate(ms: number): string {
 // --- Stats ---
 
 export function computeStats(records: HistoryRecord[]) {
-  const checked = records.filter(r => r.status !== 'checking');
+  // Exclude 'checking' (transient) and 'backup' (planned downtime) so uptime %
+  // and outage counts reflect only genuine online/offline states.
+  const checked = records.filter(r => r.status !== 'checking' && r.status !== 'backup');
   if (checked.length === 0) return { uptimePercent: null, outageCount: 0, avgResponseTime: null };
 
   const online = checked.filter(r => r.status === 'online').length;

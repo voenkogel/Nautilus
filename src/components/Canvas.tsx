@@ -438,11 +438,12 @@ const Canvas: React.FC = () => {
   }, []);
 
   // Helper function to count all nested children and their health statuses
-  const getNestedNodeStats = useCallback((node: TreeNode): { total: number; online: number; offline: number; checking: number } => {
+  const getNestedNodeStats = useCallback((node: TreeNode): { total: number; online: number; offline: number; checking: number; backup: number } => {
     let total = 0;
     let online = 0;
     let offline = 0;
     let checking = 0;
+    let backup = 0;
 
     const countNodes = (n: TreeNode) => {
       if (n.children) {
@@ -457,6 +458,7 @@ const Canvas: React.FC = () => {
             const status = getNodeStatus(child.id);
             if (status.status === 'online') online++;
             else if (status.status === 'offline') offline++;
+            else if (status.status === 'backup') backup++;
             else checking++;
           }
           // Recurse into grandchildren
@@ -466,7 +468,7 @@ const Canvas: React.FC = () => {
     };
 
     countNodes(node);
-    return { total, online, offline, checking };
+    return { total, online, offline, checking, backup };
   }, [getNodeStatus]);
 
   const handleSaveConfig = async (newConfig: AppConfig) => {
@@ -1556,7 +1558,7 @@ const Canvas: React.FC = () => {
                         >
                           <div className="flex items-center justify-between w-full px-1">
                             {/* Donut Chart Indicator - Size matched to arrow circle */}
-                            <DonutChart online={stats.online} offline={stats.offline} checking={stats.checking} />
+                            <DonutChart online={stats.online} offline={stats.offline} checking={stats.checking} backup={stats.backup} />
                             
                             {/* Text */}
                             <div className="font-medium text-sm text-gray-600 transition-colors" style={{ color: 'inherit' }}>

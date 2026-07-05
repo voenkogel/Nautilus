@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../utils/apiClient';
 
 export interface HistoryRecord {
-  status: 'online' | 'offline' | 'checking';
+  status: 'online' | 'offline' | 'checking' | 'backup';
   timestamp: number;
   responseTime: number | null;
   error: string | null;

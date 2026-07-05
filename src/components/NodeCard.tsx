@@ -3,7 +3,7 @@ import type { TreeNode } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
 import { getIconSvg } from '../utils/iconUtils';
 import { getNodeAddressDisplay, isNodeMonitored } from '../utils/nodeUtils';
-import { getStatusColor } from '../utils/colors';
+import { getStatusColor, statusLabels } from '../utils/colors';
 import NodeStatusDetails from './NodeStatusDetails';
 
 // Utility function to format time duration since status change
@@ -80,11 +80,12 @@ const NodeCard: React.FC<NodeCardProps> = ({
   const isMonitoringDisabled = !isNodeMonitored(node);
   const statusColor = getStatusColor(status, !isMonitoringDisabled);
   const isChecking = !isMonitoringDisabled && status?.status === 'checking';
+  const isBackup = !isMonitoringDisabled && status?.status === 'backup';
   // Accessible status (color alone is not sufficient — A11Y-4)
   const statusLabel = isMonitoringDisabled
     ? `${title}: monitoring disabled`
     : status?.status
-      ? `${title}: ${status.status}`
+      ? `${title}: ${statusLabels[status.status]}`
       : `${title}: status unknown`;
 
   // Get SVG for the icon
@@ -128,7 +129,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
       <div
         role="img"
         aria-label={statusLabel}
-        className={`w-12 h-12 rounded-full flex items-center justify-center mr-3 flex-shrink-0 transition-colors duration-300 ${isChecking ? 'animate-pulse' : ''}`}
+        className={`w-12 h-12 rounded-full flex items-center justify-center mr-3 flex-shrink-0 transition-colors duration-300 ${isChecking ? 'animate-pulse' : ''} ${isBackup ? 'animate-backup-pulse' : ''}`}
         style={{ backgroundColor: statusColor }}
         dangerouslySetInnerHTML={{ __html: iconSvg }}
       />
@@ -144,14 +145,16 @@ const NodeCard: React.FC<NodeCardProps> = ({
             {status && status.statusChangedAt && !isMonitoringDisabled && (
               <div
                 className={`px-2 py-0.5 rounded text-xs font-medium shadow-sm flex-shrink-0 ${
-                  status.status === 'online' 
-                    ? 'bg-green-200 text-green-800' 
-                    : status.status === 'offline' 
-                      ? 'bg-red-200 text-red-800' 
-                      : 'bg-gray-200 text-gray-600'
+                  status.status === 'online'
+                    ? 'bg-green-200 text-green-800'
+                    : status.status === 'offline'
+                      ? 'bg-red-200 text-red-800'
+                      : status.status === 'backup'
+                        ? 'bg-violet-200 text-violet-800'
+                        : 'bg-gray-200 text-gray-600'
                 }`}
               >
-                {status.status} for {formatTimeSince(status.statusChangedAt || status.lastChecked)}
+                {statusLabels[status.status]} for {formatTimeSince(status.statusChangedAt || status.lastChecked)}
               </div>
             )}
           </div>

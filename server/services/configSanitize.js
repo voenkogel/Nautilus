@@ -118,15 +118,30 @@ export function restoreSensitiveFields(newConfig, originalConfig) {
   return restored;
 }
 
-// Remove the server-derived `monitored` flag from a config tree before persisting
-// (it is recomputed on every read and must never be stored).
-export function stripMonitoredFlag(config) {
+// Depth-first walk over every node in a config tree, applying `fn` to each.
+function forEachNode(config, fn) {
   const walk = (nodes) => {
     if (!Array.isArray(nodes)) return;
     for (const n of nodes) {
-      delete n.monitored;
+      fn(n);
       if (n.children) walk(n.children);
     }
   };
   if (config && config.tree && config.tree.nodes) walk(config.tree.nodes);
+}
+
+// Remove the server-derived `monitored` flag from a config tree before persisting
+// (it is recomputed on every read and must never be stored).
+export function stripMonitoredFlag(config) {
+  forEachNode(config, (n) => { delete n.monitored; });
+}
+
+// Remove auto-detected backup windows (source:'auto') before persisting. These
+// are injected at read time from the DB-backed cache; config.json only stores
+// manual windows (source:'manual'), so an auto window round-tripped by the client
+// must never be written back into the node tree.
+export function stripAutoBackupWindows(config) {
+  forEachNode(config, (n) => {
+    if (n.backupWindow && n.backupWindow.source === 'auto') delete n.backupWindow;
+  });
 }
