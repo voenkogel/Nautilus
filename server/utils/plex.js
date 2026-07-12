@@ -1,7 +1,10 @@
-import { Agent } from 'undici';
+import { fetch, Agent } from 'undici';
 
-// undici dispatcher that ignores self-signed certificates. Native fetch takes a
-// `dispatcher` rather than node-fetch's `agent`.
+// undici dispatcher that ignores self-signed certificates. Import undici's OWN
+// `fetch` (not Node's global fetch): on Node < 22 the global fetch does not
+// reliably honour a per-request `dispatcher` from a separately-installed undici,
+// which silently dropped this rejectUnauthorized override. Keeping fetch + Agent
+// in the same undici instance guarantees the dispatcher is applied.
 const insecureDispatcher = new Agent({
   connect: { rejectUnauthorized: false }
 });

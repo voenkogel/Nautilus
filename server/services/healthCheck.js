@@ -1,7 +1,7 @@
 // Health-check engine (ARCH-1). Extracted from index.js. The current config is
 // injected via setMonitoringConfig() whenever index.js loads/saves config, so the
 // loop always reads fresh values (port, intervals, webhook settings, node tree).
-import { Agent } from 'undici';
+import { fetch, Agent } from 'undici';
 import os from 'os';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
@@ -209,8 +209,12 @@ export function initializeNodeStatuses(preserveExisting = false) {
 let nodeIdentifiers = [];
 let initialHealthCheck = true;
 
-// undici dispatcher that ignores self-signed certificates. Native fetch (Node's
-// built-in, backed by undici) takes a `dispatcher` rather than node-fetch's `agent`.
+// undici dispatcher that ignores self-signed certificates. We deliberately import
+// undici's OWN `fetch` (above) rather than Node's global fetch: on Node < 22 the
+// global fetch does NOT reliably honour a per-request `dispatcher` from a
+// separately-installed undici, so the rejectUnauthorized override was silently
+// dropped and every HTTPS/self-signed check failed. Pairing undici's fetch with
+// undici's Agent keeps them in the same module instance so the dispatcher applies.
 const insecureDispatcher = new Agent({
   connect: { rejectUnauthorized: false } // Accept self-signed certificates
 });
@@ -583,23 +587,33 @@ async function attemptHealthCheck(endpoint, normalizedIdentifier, nodeData) {
   } catch (error) {
     if (timeoutId) clearTimeout(timeoutId);
     const responseTime = Date.now() - attemptStart;
-    
+
+    // undici/native fetch surfaces low-level failures as `TypeError: fetch failed`
+    // with the real socket/TLS error on `error.cause`. node-fetch used to put the
+    // code/message directly on the error, so classify against the cause here —
+    // otherwise every failure collapses to the useless "fetch failed" string and
+    // the HTTPS→HTTP fallback in performNodeCheck (which matches on this text)
+    // never fires, leaving HTTP-only nodes stuck offline.
+    const cause = error.cause || error;
+    const code = cause.code || error.code;
+    const rawMessage = cause.message || error.message;
+
     let errorMessage = 'Unknown error';
-    
-    if (error.name === 'AbortError' || error.message === 'Request timeout (5s)') {
+
+    if (error.name === 'AbortError' || rawMessage === 'Request timeout (5s)') {
       errorMessage = 'Request timeout (5s)';
-    } else if (error.code === 'ENOTFOUND') {
+    } else if (code === 'ENOTFOUND') {
       errorMessage = 'Host not found (DNS failed)';
-    } else if (error.code === 'ECONNREFUSED') {
+    } else if (code === 'ECONNREFUSED') {
       errorMessage = 'Connection refused (service down)';
-    } else if (error.code === 'ECONNRESET') {
+    } else if (code === 'ECONNRESET') {
       errorMessage = 'Connection reset (network issue)';
-    } else if (error.code === 'ETIMEDOUT') {
+    } else if (code === 'ETIMEDOUT' || code === 'UND_ERR_CONNECT_TIMEOUT') {
       errorMessage = 'Connection timeout';
-    } else if (error.message) {
-      errorMessage = error.message;
+    } else if (rawMessage) {
+      errorMessage = rawMessage;
     }
-    
+
     result = {
       status: 'offline',
       lastChecked: new Date().toISOString(),
