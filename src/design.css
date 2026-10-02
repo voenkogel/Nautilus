@@ -498,14 +498,31 @@ button, a, input, select, textarea { outline-offset: 4px; }
 .monitor-metrics .activity-total.active { background: #245261; border-color: var(--accent-color); }
 @media (max-width: 767px) { .activity-chip-label { display: none; } .monitor-metrics .activity-total { padding: 5px 9px; margin-left: 5px; } }
 
-.inspector-bottom-actions { flex-shrink: 0; margin-top: auto; display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 20px; border-top: 1px solid var(--line); background: #0b1c27; }
-.inspector-bottom-actions .inspector-open-button { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; background: var(--accent-color); border-color: var(--accent-color); color: #07141e; font-size: 14px; font-weight: 600; }
+/* The Open CTA floats over the inspector content; everything else lives in the scrolling page. */
+.inspector-bottom-actions { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; padding: 28px 16px max(16px, env(safe-area-inset-bottom)); background: linear-gradient(to top, #102330 45%, #10233000); pointer-events: none; }
+.inspector-bottom-actions > * { pointer-events: auto; }
+.node-inspector:has(.inspector-open-button) .inspector-content { padding-bottom: 104px; }
+.inspector-bottom-actions .inspector-open-button { width: 100%; min-height: 50px; border-radius: 12px; box-shadow: 0 12px 32px #000a, 0 4px 12px color-mix(in srgb, var(--accent-color) 25%, transparent); display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; background: var(--accent-color); border-color: var(--accent-color); color: #07141e; font-size: 14px; font-weight: 600; }
 .inspector-open-button span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .inspector-open-button svg { flex-shrink: 0; }
 .inspector-bottom-actions .inspector-open-button:hover { background: #8ae3ef; border-color: #8ae3ef; }
-.inspector-bottom-actions button { min-height: 40px; border: 1px solid #3e6473; border-radius: 7px; background: #1b3947; }
-.inspector-edit-button { width: 100%; color: var(--accent-color); font-weight: 500; }
-.inspector-bottom-actions p { width: 100%; font-size: 12px; color: var(--offline); }
+.inspector-edit-button { width: 100%; min-height: 42px; margin-top: 26px; border: 1px solid #3e6473; border-radius: 8px; background: #1b3947; color: var(--accent-color); font-size: 13px; font-weight: 500; }
+.inspector-edit-button:hover { border-color: var(--accent-color); }
+
+/* Mobile: the inspector is a pull-up sheet over a dismissible backdrop. */
+.sheet-backdrop { display: none; }
+.inspector-heading, .inspector-identity, .inspector-tabs { flex-shrink: 0; }
+@media (max-width: 767px) {
+  .sheet-backdrop { display: block; position: absolute; inset: 0; z-index: 17; background: #02090e80; animation: sheet-fade .2s ease-out; }
+  .node-inspector { inset: auto 0 0; width: 100%; height: auto; max-height: 64dvh; border-radius: 20px 20px 0 0; border-bottom: 0; box-shadow: 0 -16px 50px #0008; animation: sheet-up .32s cubic-bezier(.2, .8, .2, 1); transition: max-height .3s cubic-bezier(.2, .8, .2, 1), transform .22s ease-in; }
+  .node-inspector.sheet-expanded { max-height: 92dvh; }
+  .node-inspector.is-editing { top: 0; max-height: none; border-radius: 0; animation: none; }
+  .node-inspector .inspector-heading { position: relative; padding-top: 20px; touch-action: none; cursor: grab; }
+  .sheet-grabber { position: absolute; top: 8px; left: 50%; width: 40px; height: 4px; margin-left: -20px; border-radius: 2px; background: #47697a; }
+}
+@keyframes sheet-fade { from { opacity: 0; } }
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .node-inspector, .sheet-backdrop { animation: none; transition: none; } }
 .node-inspector.is-editing { width: 420px; }
 .inspector-editor { height: 100%; display: flex; flex-direction: column; min-height: 0; }
 .inspector-editor-heading { display: flex; align-items: center; gap: 12px; padding: 18px 16px; border-bottom: 1px solid var(--line); }

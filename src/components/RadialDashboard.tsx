@@ -153,6 +153,10 @@ export default function RadialDashboard(props: Props) {
   const [cameraAnimated, setCameraAnimated] = useState(false);
   const stage = useRef<HTMLDivElement>(null);
   const inspector = useRef<HTMLElement>(null);
+  // Mobile inspector is a bottom sheet: drag the handle up to expand, down to collapse or dismiss.
+  const [sheetExpanded, setSheetExpanded] = useState(false);
+  const [sheetStyle, setSheetStyle] = useState<CSSProperties | null>(null);
+  const sheetDrag = useRef<{ id: number; y: number; height: number; dy: number; active: boolean } | null>(null);
   const savedCamera = useRef<Camera | null>(null);
   const cameraRef = useRef(camera);
   cameraRef.current = camera;
@@ -364,6 +368,40 @@ export default function RadialDashboard(props: Props) {
     catch (error) { setMoveError(error instanceof Error ? error.message : 'Could not move node. Try again.'); }
     finally { setMoving(false); setDragged(null); setDropId(null); }
   }
+  useEffect(() => { setSheetExpanded(false); setSheetStyle(null); }, [selectedId]);
+  function closeInspector() {
+    const id = selectedId;
+    setSelectedId(null);
+    if (id) document.querySelector<HTMLButtonElement>(`[data-select-node="${CSS.escape(id)}"]`)?.focus();
+  }
+  function sheetDown(event: ReactPointerEvent<HTMLElement>) {
+    if (!isMobile || event.button !== 0 || !inspector.current) return;
+    sheetDrag.current = { id: event.pointerId, y: event.clientY, height: inspector.current.getBoundingClientRect().height, dy: 0, active: false };
+  }
+  function sheetMove(event: ReactPointerEvent<HTMLElement>) {
+    const drag = sheetDrag.current;
+    if (!drag || drag.id !== event.pointerId) return;
+    drag.dy = event.clientY - drag.y;
+    if (!drag.active) {
+      if (Math.abs(drag.dy) < 6) return;
+      drag.active = true;
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+    // Upward grows the sheet toward full height; downward slides it away.
+    setSheetStyle(drag.dy < 0
+      ? { maxHeight: 'none', height: Math.min(drag.height - drag.dy, window.innerHeight * .92), transition: 'none' }
+      : { transform: `translateY(${drag.dy}px)`, transition: 'none' });
+  }
+  function sheetUp(event: ReactPointerEvent<HTMLElement>) {
+    const drag = sheetDrag.current;
+    sheetDrag.current = null;
+    if (!drag?.active || drag.id !== event.pointerId) return;
+    if (drag.dy < -40) { setSheetExpanded(true); setSheetStyle(null); }
+    else if (drag.dy > 80 && sheetExpanded) { setSheetExpanded(false); setSheetStyle(null); }
+    else if (drag.dy > 80) { setSheetStyle({ transform: 'translateY(100%)' }); setTimeout(closeInspector, 220); }
+    else setSheetStyle(null);
+  }
+
   async function beginEdit(node: TreeNode) {
     setOpeningEditor(true); setEditorError('');
     try { const editable = await props.onEdit(node.id); if (editable) setEditorNode(editable); }
@@ -476,11 +514,12 @@ export default function RadialDashboard(props: Props) {
       {editMode && dragged && isList && <div className="root-drop" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void moveNode(dragged, null); }}>Connect directly to Home lab</div>}
       {editMode && !dragged && <div className="edit-hint">Drag onto a node to move beneath it, or use the inspector’s parent selector.</div>}
       {moveError && !selected && <div className="network-notice" role="alert">{moveError}</div>}
-      {selected && <aside ref={inspector} tabIndex={-1} className={`node-inspector ${editorNode ? 'is-editing' : ''}`} aria-label={`${selected.title} details`}>
+      {selected && isMobile && !editorNode && <div className="sheet-backdrop" aria-hidden="true" onClick={closeInspector} />}
+      {selected && <aside ref={inspector} tabIndex={-1} className={`node-inspector ${editorNode ? 'is-editing' : ''} ${sheetExpanded ? 'sheet-expanded' : ''}`} style={sheetStyle ?? undefined} aria-label={`${selected.title} details`}>
         {editorNode ? <InspectorEditor key={editorNode.id} node={editorNode} appearance={config.appearance} onCancel={finishEdit} onAddChild={() => props.onAdd(selected.id)} onDelete={keepChildren => props.onDelete(selected.id, keepChildren)} onSave={async node => { await props.onSaveNode({ ...node, children: byId.get(node.id)?.children }); }}>
           <label className="parent-picker">Parent<select aria-label="Parent" value={moveParent} onChange={e => setMoveParent(e.target.value)}><option value="">Home lab</option>{all.filter(n => n.id !== selected.id && !getAllNodes(selected.children ?? []).some(child => child.id === n.id)).map(n => <option key={n.id} value={n.id}>{n.title}</option>)}</select></label><button className="wide-action" disabled={moving || moveParent === (parents.get(selected.id) ?? '')} onClick={() => void moveNode(selected.id, moveParent || null)}>{moving ? 'Moving...' : 'Move node'}<ArrowUpRight size={14} /></button><div className="manage-actions"><button disabled={getNodeSiblingPosition(config.tree.nodes, selected.id)?.index === 0} onClick={() => props.onOrder(selected.id, 'up')}>Move earlier</button><button onClick={() => props.onOrder(selected.id, 'down')}>Move later</button></div>{moveError && <p role="alert" className="inspector-error">{moveError}</p>}
         </InspectorEditor> : <>
-        <div className="inspector-heading"><span className="inspector-breadcrumb"><Network size={14} />{parents.get(selected.id) ? byId.get(parents.get(selected.id)!)?.title : 'Home lab'}</span><button aria-label="Close inspector" onClick={() => { setSelectedId(null); document.querySelector<HTMLButtonElement>(`[data-select-node="${CSS.escape(selected.id)}"]`)?.focus(); }}><X size={18} /></button></div>
+        <div className="inspector-heading" onPointerDown={sheetDown} onPointerMove={sheetMove} onPointerUp={sheetUp} onPointerCancel={sheetUp}>{isMobile && <span className="sheet-grabber" aria-hidden="true" />}<span className="inspector-breadcrumb"><Network size={14} />{parents.get(selected.id) ? byId.get(parents.get(selected.id)!)?.title : 'Home lab'}</span><button aria-label="Close inspector" onClick={closeInspector}><X size={18} /></button></div>
         <div className="inspector-identity"><span style={{ color: getStatusColor(selectedStatus, isNodeMonitored(selected)) }}><NodeIcon node={selected} /></span><h2>{selected.title}</h2><p>{selected.subtitle}</p><div className="inspector-status" style={{ color: getStatusColor(selectedStatus, isNodeMonitored(selected)) }}><i style={{ background: 'currentColor' }} />{statusText(selected, selectedStatus)}</div></div>
         <div className="inspector-tabs animated-segments" style={{ '--segment-index': tab === 'history' ? 1 : 0 } as CSSProperties}><button aria-pressed={tab === 'overview'} onClick={() => setTab('overview')}>Overview</button><button aria-pressed={tab === 'history'} onClick={() => setTab('history')} disabled={!isNodeMonitored(selected)}>History</button></div>
         <div className="inspector-content">{tab === 'history' ? <><PeriodPicker active={period} onChange={setPeriod} /><NodeHistoryView nodeId={selected.id} period={period} accentColor="#65d7e8" /></> : <>
@@ -492,8 +531,10 @@ export default function RadialDashboard(props: Props) {
           {!!selected.children?.length && <><h3><Network size={14} />Branch health</h3><div className="branch-summary"><strong>{branchStats.get(selected.id)?.total}<small>descendants</small></strong><strong>{branchStats.get(selected.id)?.online}<small>online</small></strong><strong className={branchStats.get(selected.id)?.offline ? 'has-outage' : ''}>{branchStats.get(selected.id)?.offline}<small>offline</small></strong></div></>}
 
           {moveError && <p role="alert" className="inspector-error">{moveError}</p>}
+          {editorError && <p role="alert" className="inspector-error">{editorError}</p>}
+          <button className="inspector-edit-button" onClick={() => void beginEdit(selected)} disabled={openingEditor}><Edit3 size={15} />{openingEditor ? 'Opening...' : 'Edit node'}</button>
         </>}</div>
-        <footer className="inspector-bottom-actions">{editorError && <p role="alert">{editorError}</p>}<button className="inspector-edit-button" onClick={() => void beginEdit(selected)} disabled={openingEditor}><Edit3 size={16} />{openingEditor ? 'Opening...' : 'Edit node'}</button>{getNodeTargetUrl(selected) && <button className="inspector-open-button" onClick={() => props.onOpen(selected)}><span>Open {selected.title}</span><ExternalLink size={16} /></button>}</footer>
+        {getNodeTargetUrl(selected) && <footer className="inspector-bottom-actions"><button className="inspector-open-button" onClick={() => props.onOpen(selected)}><span>Open {selected.title}</span><ExternalLink size={16} /></button></footer>}
         </>}
       </aside>}
     </div>
