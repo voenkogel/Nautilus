@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 test('deletion uses a focused inspector step and preserves edits when returning', async ({ page }, testInfo) => {
-  let config = { general: { title: 'Nautilus', openNodesAsOverlay: true }, appearance: { accentColor: '#65d7e8' }, server: { healthCheckInterval: 20000, corsOrigins: [] }, client: { apiPollingInterval: 60000 }, tree: { nodes: [{ id: 'media', title: 'Media services', subtitle: '', icon: 'server', children: [{ id: 'plex', title: 'Plex', subtitle: '' }, { id: 'sonarr', title: 'Sonarr', subtitle: '' }] }] } };
+  let config = { general: { title: 'Nautilus' }, appearance: { accentColor: '#65d7e8' }, server: { healthCheckInterval: 20000, corsOrigins: [] }, client: { apiPollingInterval: 60000 }, tree: { nodes: [{ id: 'media', title: 'Media services', subtitle: '', icon: 'server', children: [{ id: 'plex', title: 'Plex', subtitle: '' }, { id: 'sonarr', title: 'Sonarr', subtitle: '' }] }] } };
   let failSave = false;
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;

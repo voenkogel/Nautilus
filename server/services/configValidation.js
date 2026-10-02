@@ -75,9 +75,6 @@ export function validateConfig(config) {
     if (node.type && typeof node.type !== 'string') {
       return { valid: false, error: `Node at ${path || 'root'} type must be a string` };
     }
-    if (node.disableEmbedded && typeof node.disableEmbedded !== 'boolean') {
-      return { valid: false, error: `Node at ${path || 'root'} disableEmbedded must be a boolean` };
-    }
 
     // Length and range caps to reject oversized/abusive payloads.
     const MAX_STR = 2048;

@@ -21,7 +21,7 @@ A real-time network monitoring dashboard built with React, TypeScript, and Node.
 
 Nautilus uses a dark network observatory. A single root is centered; multiple roots surround a presentation-only Network hub. Children extend outward, with curved connections showing their ancestry.
 
-- Click a node to inspect its health, activity, addresses, and history. Use **Open service** to launch it with the configured overlay or new-tab preference.
+- Click a node to inspect its health, activity, addresses, and history. Use the **Open <service>** button at the bottom of the inspector to launch it in a new tab.
 - Expand branches with their count controls. Hidden descendants still contribute to health and activity totals. Large or deep networks initially fold locally to remain readable; **Show all** removes these automatic folds.
 - Search and status filters highlight matches without rearranging the map. Selecting a result temporarily reveals its ancestors. **Focus branch** opens a subtree; **Network** restores the previous view.
 - Phones start in a hierarchy list; **Map / List** switches views. The map supports pan, pointer-centered zoom, and touch pinch. Reduced-motion preferences are respected.

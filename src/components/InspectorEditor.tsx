@@ -1,16 +1,17 @@
 import { Disclosure } from './ui/Disclosure';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowLeft, Save, Trash2, GitBranch } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, GitBranch, Plus } from 'lucide-react';
 import type { AppearanceConfig, TreeNode } from '../types/config';
 import { NodeFormFields } from './NodeFormFields';
 import { ConfirmDialog } from './ConfirmDialog';
 
-export function InspectorEditor({ node, appearance, onSave, onCancel, onDelete, children }: {
+export function InspectorEditor({ node, appearance, onSave, onCancel, onAddChild, onDelete, children }: {
   node: TreeNode;
   appearance: AppearanceConfig;
   onSave: (node: TreeNode) => Promise<void>;
   onCancel: () => void;
+  onAddChild: () => void;
   onDelete: (keepChildren: boolean) => Promise<void>;
   children: ReactNode;
 }) {
@@ -83,6 +84,7 @@ export function InspectorEditor({ node, appearance, onSave, onCancel, onDelete, 
       <fieldset disabled={saving}>
         <NodeFormFields node={draft} onChange={updates => setDraft(previous => ({ ...previous, ...updates }))} appearance={appearance} />
         <Disclosure title="Position in network">{children}</Disclosure>
+        <button type="button" className="wide-action editor-add-child" onClick={onAddChild}>Add child node<Plus size={14} /></button>
 
       </fieldset>
     </div>

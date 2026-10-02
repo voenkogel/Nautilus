@@ -13,16 +13,15 @@ import { authenticate, withAuthGuard, getAuthHeaders, hasAuthToken } from '../ut
 import { iconImageCache, iconSvgCache } from '../utils/iconUtils';
 import { ConfirmDialog } from './ConfirmDialog';
 import { getNodeTargetUrl } from '../utils/nodeUtils';
+import { openExternal } from '../utils/openExternal';
 import { api, ApiError } from '../utils/apiClient';
 import { normalizeConfig } from '../utils/configUtils';
 import HistoryModal from './HistoryModal';
-import { IframeOverlay } from './IframeOverlay';
 import RadialDashboard from './RadialDashboard';
 
 const initialAppConfig: AppConfig = {
   general: {
-    title: "Nautilus",
-    openNodesAsOverlay: true
+    title: "Nautilus"
   },
   appearance: {
     // Removed title from appearance config
@@ -74,14 +73,10 @@ const Canvas: React.FC = () => {
     onConfirm: () => void;
   } | null>(null);
   
-  // State for mobile iframe overlay
-  const [iframeOverlay, setIframeOverlay] = useState<{ url: string; title: string; nodeId?: string } | null>(null);
 
   // State for history modal: null = closed; nodeId null = global view; string = specific node
   const [historyModal, setHistoryModal] = useState<{ nodeId: string | null; nodeName?: string } | null>(null);
 
-  // Helper to get app title from config
-  const appTitle = currentConfig.general?.title || 'External Site';
   
   // Use the status monitoring hook, now passing the live config
   const { 
@@ -528,9 +523,7 @@ const Canvas: React.FC = () => {
       title: "New Node",
       subtitle: "New subtitle",
       type: "square",
-      children: [],
-      // Inherit global setting
-      disableEmbedded: currentConfig.general?.openNodesAsOverlay === false
+      children: []
     };
 
     // Add to config
@@ -721,7 +714,7 @@ const Canvas: React.FC = () => {
   // Handle creating a starting node when there are no nodes
   const handleCreateStartingNode = withAuthGuard(async () => {
     try {
-      const startingNode = createStartingNode(currentConfig);
+      const startingNode = createStartingNode();
       const newConfig: AppConfig = {
         ...currentConfig,
         tree: {
@@ -752,15 +745,11 @@ const Canvas: React.FC = () => {
       const lastOpenTime = lastOpenTimesRef.current[lastOpenKey] || 0;
       if (now - lastOpenTime > 1000) { // 1 second debounce
         lastOpenTimesRef.current[lastOpenKey] = now;
-        if (currentConfig.general?.openNodesAsOverlay !== false && !node.disableEmbedded) {
-          setIframeOverlay({ url: targetUrl, title: node.title || appTitle, nodeId: node.id });
-        } else {
-          window.open(targetUrl, '_blank', 'noopener,noreferrer');
-        }
+        openExternal(targetUrl);
       }
     }
     // If no URL or IP with web GUI, do nothing (node is not clickable)
-  }, [currentConfig, appTitle]);
+  }, []);
 
   // Handle node reordering via drag and drop
   const handleNodeReorder = useCallback(async (nodeId: string, newParentId: string | null, insertIndex: number) => {
@@ -934,15 +923,6 @@ const Canvas: React.FC = () => {
           nodeName={historyModal.nodeName}
           appConfig={currentConfig}
           onClose={() => setHistoryModal(null)}
-        />
-      )}
-
-      {/* Iframe Overlay for all devices */}
-      {iframeOverlay && (
-        <IframeOverlay
-          overlay={iframeOverlay}
-          onClose={() => setIframeOverlay(null)}
-          onOpenHistory={(nodeId, nodeName) => setHistoryModal({ nodeId, nodeName })}
         />
       )}
 

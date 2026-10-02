@@ -7,7 +7,7 @@ const nodes = [service('pelican', 'Pelican', [service('nanokvm', 'NanoKVM', [ser
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
 test('settings fit a phone screen on every tab', async ({ page }, testInfo) => {
-  const config = { general: { title: 'Nautilus', openNodesAsOverlay: true }, appearance: { accentColor: '#65d7e8' }, server: { healthCheckInterval: 20000, corsOrigins: [] }, client: { apiPollingInterval: 60000 }, tree: { nodes } };
+  const config = { general: { title: 'Nautilus' }, appearance: { accentColor: '#65d7e8' }, server: { healthCheckInterval: 20000, corsOrigins: [] }, client: { apiPollingInterval: 60000 }, tree: { nodes } };
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
     const data = path === '/api/config' ? config : path === '/api/auth/status' ? { authDisabled: false } : path === '/api/status' ? { statuses: {}, timestamp: new Date().toISOString() } : path === '/api/version' ? { tag: 'v2.0.0', sha: 'abc1234' } : path === '/api/auth/account' ? { username: 'admin', source: 'file' } : {};

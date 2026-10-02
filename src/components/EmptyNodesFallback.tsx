@@ -262,18 +262,14 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
 };
 
 // Helper function to create a default starting node
-export const createStartingNode = (config?: AppConfig): TreeNode => {
+export const createStartingNode = (): TreeNode => {
   return {
     id: `node_${Date.now()}`,
     title: 'My First Server',
     subtitle: 'Infrastructure dashboard',
     icon: 'server',
     type: 'square',
-    children: [],
-    // Set default embedded behavior based on global config
-    // If global is OFF (false), force disableEmbedded = true
-    // If global is ON (true/undefined), disableEmbedded = false (undefined or false)
-    disableEmbedded: config?.general?.openNodesAsOverlay === false
+    children: []
   };
 };
 

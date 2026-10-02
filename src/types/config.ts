@@ -15,7 +15,6 @@ export interface TreeNode {
   disableHealthCheck?: boolean; // Explicitly disable health checking even if port is provided
   healthCheckType?: 'http' | 'ping' | 'minecraft' | 'plex' | 'disabled'; // Type of health check to perform
   healthCheckInterval?: number; // Per-node check interval in ms — overrides the global setting
-  disableEmbedded?: boolean; // Force opening in new tab instead of embedded iframe
   isInteractable?: boolean; // Whether the node can be clicked to open a URL
   
   icon?: string; // Optional icon name from lucide-react
@@ -72,7 +71,6 @@ export interface AppearanceConfig {
 
 export interface GeneralConfig {
   title: string;
-  openNodesAsOverlay: boolean;
 }
 
 export interface AppConfig {

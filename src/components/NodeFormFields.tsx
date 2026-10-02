@@ -422,26 +422,6 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange }
                     Public address for opening the service. If empty, defaults to Internal Address.
                   </p>
                 </div>
-
-                {/* Enable Embedded Viewer (Inverted Logic) */}
-                <div className="flex items-start space-x-3">
-                  <div className="flex items-center h-6">
-                    <Switch
-                      id={`enableEmbedded-${node.id}`}
-                      checked={!node.disableEmbedded} // Checked if NOT disabled (default true if undefined)
-                      onChange={(checked) => onChange({ disableEmbedded: !checked })}
-                      accentColor={accentColor}
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor={`enableEmbedded-${node.id}`} className="font-medium text-ink text-sm cursor-pointer">
-                      Enable Embedded Viewer
-                    </label>
-                    <p className="text-xs text-muted">
-                      Open this node in an embedded overlay. (Requires global 'Open Nodes as Overlay' setting to be enabled)
-                    </p>
-                  </div>
-                </div>
               </div>
             )}
           </div>

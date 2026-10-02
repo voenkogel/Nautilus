@@ -113,6 +113,14 @@ function useAnimatedLayout(layout: RadialLayout) {
   return frame;
 }
 
+/** Camera-locked canvas texture: the dot grid and hub glow pan and zoom with the map. */
+function stageBackground(camera: Camera): CSSProperties {
+  let grid = 28 * camera.scale;
+  while (grid < 18) grid *= 2;
+  while (grid > 40) grid /= 2;
+  return { '--grid': `${grid}px`, '--cam-x': `${camera.x}px`, '--cam-y': `${camera.y}px`, '--glow': `${clamp(640 * camera.scale, 260, 1100)}px` } as CSSProperties;
+}
+
 export default function RadialDashboard(props: Props) {
   const { config, statuses, collapsed } = props;
   const { isMobile } = useDeviceDetection();
@@ -312,10 +320,15 @@ export default function RadialDashboard(props: Props) {
     return () => element.removeEventListener('wheel', wheel);
   }, [isList, zoom]);
   function startGesture(event: ReactPointerEvent) {
-    if (event.button !== 0 || (event.target as HTMLElement).closest('button,aside,input,select,textarea,a,[contenteditable]')) return;
-    event.preventDefault();
-    event.currentTarget.classList.add('is-panning');
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const target = event.target as HTMLElement;
+    // Nodes pan the canvas too, except in edit mode where dragging a node reparents it.
+    const onNode = !editMode && !!target.closest('.radial-node') && !target.closest('input,select,textarea,a,[contenteditable]');
+    if (event.button !== 0 || (!onNode && target.closest('button,aside,input,select,textarea,a,[contenteditable]'))) return;
+    if (!onNode) {
+      event.preventDefault();
+      event.currentTarget.classList.add('is-panning');
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     resetGesture(); didPan.current = false;
   }
@@ -332,6 +345,12 @@ export default function RadialDashboard(props: Props) {
     const g = gesture.current, rect = stage.current.getBoundingClientRect();
     const dx = (a.x + b.x) / 2 - g.x, dy = (a.y + b.y) / 2 - g.y;
     if (Math.hypot(dx, dy) > 4 || points.length > 1) didPan.current = true;
+    // A press that began on a node only takes over the pointer once it moves; until then it stays a click.
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+      if (!didPan.current) return;
+      event.currentTarget.setPointerCapture(event.pointerId);
+      event.currentTarget.classList.add('is-panning');
+    }
     const scale = clamp(g.camera.scale * (g.distance ? Math.hypot(a.x - b.x, a.y - b.y) / g.distance : 1), .08, 2.5);
     const ratio = scale / g.camera.scale;
     changeCamera({ x: g.x - rect.left - (g.x - rect.left - g.camera.x) * ratio + dx, y: g.y - rect.top - (g.y - rect.top - g.camera.y) * ratio + dy, scale }, false);
@@ -381,7 +400,7 @@ export default function RadialDashboard(props: Props) {
     </Fragment>;
   });
 
-  return <main className="nautilus-shell">
+  return <main className={`nautilus-shell ${editMode ? 'is-edit-mode' : ''}`}>
     <header className={`network-header ${searchOpen ? 'search-open' : ''}`}>
       <a className="network-brand" href="#" onClick={event => { event.preventDefault(); returnToNetwork(); }}>
         {config.appearance.logo || config.appearance.favicon ? <img src={assetUrl(config.appearance.logo || config.appearance.favicon!)} alt="" /> : <span className="brand-mark"><Compass size={25} strokeWidth={1.4} /></span>}
@@ -398,7 +417,7 @@ export default function RadialDashboard(props: Props) {
       <nav aria-label="Application"><button aria-label="History" title="History" onClick={props.onHistory}><History size={17} /><span>History</span></button><button aria-label="Settings" title="Settings" onClick={props.onSettings}><Settings size={17} /><span>Settings</span></button></nav>
     </header>
     {(!props.connected && !props.loading || !summary.monitored) && <div className="network-notice" role="status">{!props.connected && !props.loading ? `${props.error || 'Monitoring connection lost'}. Showing last known readings. ` : 'No monitored nodes. Configure a health check to see live status.'}{!props.connected && <button onClick={props.onRefresh}>Retry connection</button>}</div>}
-    <div className={`network-stage ${isList ? 'list-stage' : ''}`} ref={stage} onPointerDown={!isList ? startGesture : undefined} onPointerMove={!isList ? moveGesture : undefined} onPointerUp={endGesture} onPointerCancel={endGesture}>
+    <div className={`network-stage ${isList ? 'list-stage' : ''} ${cameraAnimated ? 'camera-animated' : ''}`} style={isList ? undefined : stageBackground(camera)} ref={stage} onPointerDown={!isList ? startGesture : undefined} onPointerMove={!isList ? moveGesture : undefined} onPointerUp={endGesture} onPointerCancel={endGesture}>
       {focusId && <div className="branch-navigation"><button aria-label="Network" onClick={returnToNetwork}><ArrowLeft size={15} />Back to network</button><span>{[...ancestorNames.map(n => n.title), byId.get(focusId)?.title].join(' / ')}</span></div>}
       {all.length === 0 ? <div className="network-empty"><div className="empty-home-center root-node"><div className="node-body" role="group" aria-label="Network health"><HomeOrb summary={summary} connected={props.connected} filter={filter} onFilter={setFilter} /></div></div>{props.empty}</div> : isList ? <div className="network-list"><NetworkHealth summary={summary} filter={filter} onFilter={setFilter} /><div className="inventory-columns"><span>Node / hierarchy</span><span>Health</span><span>Response</span><span>Activity</span></div>{renderList(roots)}</div> : <>
         <div data-layout-settled={frame === layout} className={`radial-world ${cameraAnimated ? 'camera-animated' : ''}`} style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.scale})` }}>
@@ -452,18 +471,17 @@ export default function RadialDashboard(props: Props) {
         <div className="view-switch animated-segments" style={{ '--segment-index': isList ? 1 : 0 } as CSSProperties} aria-label="Network view"><button aria-label="Map" title="Map" aria-pressed={!isList} onClick={() => { setView('map'); initialized.current = false; }}><CircleDot size={18} /></button><button aria-label="List" title="List" aria-pressed={isList} onClick={() => setView('list')}><List size={18} /></button></div>
         <div className="viewport-controls">{!isList && <><button aria-label="Zoom out" onClick={() => zoom(.8)}><Minus size={16} /></button><span>{Math.round(camera.scale * 100)}%</span><button aria-label="Zoom in" onClick={() => zoom(1.25)}><Plus size={16} /></button><button onClick={() => fit()}><Crosshair size={15} /><span>Fit network</span></button></>}{automaticFolds.size > 0 && !showAll && <button onClick={() => { setShowAll(true); fit(radialLayout(roots, new Set([...collapsed].filter(id => explicitFolds.get(id) !== false)))); }}><Plus size={14} />Show all</button>}</div>
         {!isList && <div className="map-legend"><span><i className="health-dot online" />Online</span><span><i className="health-dot offline" />Offline</span><span><i className="health-dot backup" />Backup</span><span><i className="health-dot neutral" />Unmonitored</span></div>}
-        {!isMobile && <button aria-label={editMode ? 'Done editing' : 'Edit network'} title={editMode ? 'Done editing' : 'Edit network'} aria-pressed={editMode} className={`edit-toggle ${editMode ? 'active' : ''}`} onClick={props.onEditMode}>{editMode ? <Check size={18} /> : <Edit3 size={18} />}</button>}
+        {!isMobile && <button aria-label={editMode ? 'Done editing' : 'Edit network'} title={editMode ? 'Done editing' : 'Edit network'} aria-pressed={editMode} className={`edit-toggle ${editMode ? 'active' : ''}`} onClick={props.onEditMode}>{editMode ? <><span className="edit-toggle-pulse" aria-hidden="true" /><span className="edit-toggle-label">Now editing</span><span className="edit-toggle-done"><Check size={15} strokeWidth={2.4} />Done</span></> : <Edit3 size={18} />}</button>}
       </footer>
       {editMode && dragged && isList && <div className="root-drop" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void moveNode(dragged, null); }}>Connect directly to Home lab</div>}
       {editMode && !dragged && <div className="edit-hint">Drag onto a node to move beneath it, or use the inspector’s parent selector.</div>}
       {moveError && !selected && <div className="network-notice" role="alert">{moveError}</div>}
       {selected && <aside ref={inspector} tabIndex={-1} className={`node-inspector ${editorNode ? 'is-editing' : ''}`} aria-label={`${selected.title} details`}>
-        {editorNode ? <InspectorEditor key={editorNode.id} node={editorNode} appearance={config.appearance} onCancel={finishEdit} onDelete={keepChildren => props.onDelete(selected.id, keepChildren)} onSave={async node => { await props.onSaveNode({ ...node, children: byId.get(node.id)?.children }); }}>
+        {editorNode ? <InspectorEditor key={editorNode.id} node={editorNode} appearance={config.appearance} onCancel={finishEdit} onAddChild={() => props.onAdd(selected.id)} onDelete={keepChildren => props.onDelete(selected.id, keepChildren)} onSave={async node => { await props.onSaveNode({ ...node, children: byId.get(node.id)?.children }); }}>
           <label className="parent-picker">Parent<select aria-label="Parent" value={moveParent} onChange={e => setMoveParent(e.target.value)}><option value="">Home lab</option>{all.filter(n => n.id !== selected.id && !getAllNodes(selected.children ?? []).some(child => child.id === n.id)).map(n => <option key={n.id} value={n.id}>{n.title}</option>)}</select></label><button className="wide-action" disabled={moving || moveParent === (parents.get(selected.id) ?? '')} onClick={() => void moveNode(selected.id, moveParent || null)}>{moving ? 'Moving...' : 'Move node'}<ArrowUpRight size={14} /></button><div className="manage-actions"><button disabled={getNodeSiblingPosition(config.tree.nodes, selected.id)?.index === 0} onClick={() => props.onOrder(selected.id, 'up')}>Move earlier</button><button onClick={() => props.onOrder(selected.id, 'down')}>Move later</button></div>{moveError && <p role="alert" className="inspector-error">{moveError}</p>}
         </InspectorEditor> : <>
         <div className="inspector-heading"><span className="inspector-breadcrumb"><Network size={14} />{parents.get(selected.id) ? byId.get(parents.get(selected.id)!)?.title : 'Home lab'}</span><button aria-label="Close inspector" onClick={() => { setSelectedId(null); document.querySelector<HTMLButtonElement>(`[data-select-node="${CSS.escape(selected.id)}"]`)?.focus(); }}><X size={18} /></button></div>
         <div className="inspector-identity"><span style={{ color: getStatusColor(selectedStatus, isNodeMonitored(selected)) }}><NodeIcon node={selected} /></span><h2>{selected.title}</h2><p>{selected.subtitle}</p><div className="inspector-status" style={{ color: getStatusColor(selectedStatus, isNodeMonitored(selected)) }}><i style={{ background: 'currentColor' }} />{statusText(selected, selectedStatus)}</div></div>
-        {getNodeTargetUrl(selected) && <div className="inspector-actions"><button className="primary-action" onClick={() => props.onOpen(selected)}><ExternalLink size={14} />Open service</button></div>}
         <div className="inspector-tabs animated-segments" style={{ '--segment-index': tab === 'history' ? 1 : 0 } as CSSProperties}><button aria-pressed={tab === 'overview'} onClick={() => setTab('overview')}>Overview</button><button aria-pressed={tab === 'history'} onClick={() => setTab('history')} disabled={!isNodeMonitored(selected)}>History</button></div>
         <div className="inspector-content">{tab === 'history' ? <><PeriodPicker active={period} onChange={setPeriod} /><NodeHistoryView nodeId={selected.id} period={period} accentColor="#65d7e8" /></> : <>
           <h3><Activity size={14} />Monitoring</h3>{!isNodeMonitored(selected) ? <div className="monitoring-empty"><Activity size={22} /><strong>Health checks are off</strong><p>Enable monitoring to track availability and response time.</p><button onClick={() => void beginEdit(selected)} disabled={openingEditor}>Configure monitoring<ArrowUpRight size={14} /></button></div> : <dl className="monitoring-readings"><div><dt>Response time</dt><dd>{selectedStatus?.responseTime != null ? `${selectedStatus.responseTime} ms` : '—'}</dd></div><div><dt>Last checked</dt><dd>{elapsed(selectedStatus?.lastChecked)}</dd></div><div><dt>Status changed</dt><dd>{elapsed(selectedStatus?.statusChangedAt)}</dd></div><div><dt>Health check</dt><dd>{selected.healthCheckType || (isNodeMonitored(selected) ? 'HTTP' : 'Disabled')}</dd></div></dl>}
@@ -475,7 +493,7 @@ export default function RadialDashboard(props: Props) {
 
           {moveError && <p role="alert" className="inspector-error">{moveError}</p>}
         </>}</div>
-        <footer className="inspector-bottom-actions">{editorError && <p role="alert">{editorError}</p>}<button className="inspector-edit-button" onClick={() => void beginEdit(selected)} disabled={openingEditor}><Edit3 size={16} />{openingEditor ? 'Opening...' : 'Edit node'}</button><button className="inspector-add-button" title="Add child" aria-label="Add child" onClick={() => props.onAdd(selected.id)}><Plus size={18} /></button></footer>
+        <footer className="inspector-bottom-actions">{editorError && <p role="alert">{editorError}</p>}<button className="inspector-edit-button" onClick={() => void beginEdit(selected)} disabled={openingEditor}><Edit3 size={16} />{openingEditor ? 'Opening...' : 'Edit node'}</button>{getNodeTargetUrl(selected) && <button className="inspector-open-button" onClick={() => props.onOpen(selected)}><span>Open {selected.title}</span><ExternalLink size={16} /></button>}</footer>
         </>}
       </aside>}
     </div>

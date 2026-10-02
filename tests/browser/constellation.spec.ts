@@ -11,10 +11,10 @@ test('constellation moves independently and respects reduced motion', async ({ p
   const start = Number(await star.getAttribute('cx'));
   await expect.poll(async () => Math.abs(Number(await star.getAttribute('cx')) - start)).toBeGreaterThan(3);
   await expect(page.locator('.orb-current')).toHaveCount(0);
+  await expect(page.locator('.constellation-particle')).toHaveCount(0);
   await expect(page.locator('.orb-content')).toHaveCSS('background-image', 'none');
   await page.screenshot({ path: testInfo.outputPath('moving-constellation.png') });
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await expect(page.locator('.constellation-particle').first()).toHaveCSS('opacity', '0');
   const still = await star.getAttribute('cx');
   await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 300)));
   expect(await star.getAttribute('cx')).toBe(still);

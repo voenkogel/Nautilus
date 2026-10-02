@@ -12,7 +12,7 @@ function fixture(): AppConfig {
     { ...service('storage', 'Storage', 'hard-drive'), children: [service('nas', 'TrueNAS', 'hard-drive'), service('backup', 'Backup', 'archive'), service('photos', 'Immich', 'image'), service('files', 'Nextcloud', 'cloud')] },
     { ...service('network', 'Network services', 'router'), children: [service('dns', 'AdGuard', 'shield'), service('proxy', 'Reverse proxy', 'route'), service('vpn', 'WireGuard', 'lock'), { ...service('minecraft', 'Minecraft', 'gamepad-2'), healthCheckType: 'minecraft' as const }] },
   ] };
-  return { general: { title: 'Nautilus', openNodesAsOverlay: true }, appearance: { accentColor: '#ff0000' }, server: { healthCheckInterval: 20000, corsOrigins: [] }, client: { apiPollingInterval: 60000 }, tree: { nodes: [root] } };
+  return { general: { title: 'Nautilus' }, appearance: { accentColor: '#ff0000' }, server: { healthCheckInterval: 20000, corsOrigins: [] }, client: { apiPollingInterval: 60000 }, tree: { nodes: [root] } };
 }
 const flatten = (nodes: TreeNode[]): TreeNode[] => nodes.flatMap(n => [n, ...flatten(n.children ?? [])]);
 async function mockNetwork(page: Page, initial = fixture()) {
@@ -87,9 +87,11 @@ test('service launch, history, settings and editing use the new surfaces', async
   const api = await mockNetwork(page);
   await page.goto('/');
   await page.locator('[data-select-node="home"]').click();
-  await page.getByRole('button', { name: 'Open service', exact: true }).click();
-  await expect(page.locator('iframe')).toHaveAttribute('src', 'https://home.test');
-  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.context().route('https://home.test/**', route => route.fulfill({ body: 'home' }));
+  const popup = page.waitForEvent('popup');
+  await page.getByRole('button', { name: 'Open Home lab', exact: true }).click();
+  await expect.poll(async () => (await popup).url()).toContain('home.test');
+  await (await popup).close();
   await page.getByRole('button', { name: 'Close inspector' }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
@@ -137,7 +139,7 @@ test('mobile list and map share inspection and support narrow screens', async ({
 test('large sample opens folded; show all and stale status remain usable', async ({ page }) => {
   const large = JSON.parse(readFileSync('config.dummy.json', 'utf8')) as AppConfig;
   large.appearance = { accentColor: '#65d7e8' };
-  large.general = { title: 'Nautilus', openNodesAsOverlay: true };
+  large.general = { title: 'Nautilus' };
   flatten(large.tree.nodes).forEach(n => { n.monitored = true; n.collapsed = false; });
   const api = await mockNetwork(page, large);
   await page.goto('/');
@@ -247,7 +249,7 @@ test('local topology and tablet visual review', async ({ page }) => {
   test.skip(!existsSync('config.json'), 'Optional local configuration preview');
   const config = JSON.parse(readFileSync('config.json', 'utf8')) as AppConfig;
   config.appearance = { accentColor: '#65d7e8' };
-  config.general = { title: 'Nautilus', openNodesAsOverlay: true };
+  config.general = { title: 'Nautilus' };
   flatten(config.tree.nodes).forEach(n => { n.monitored = true; });
   await mockNetwork(page, config);
   await page.goto('/');

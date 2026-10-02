@@ -31,7 +31,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   const [config, setConfig] = useState<AppConfig>(() => ({
     general: {
       title: initialConfig.general?.title ?? 'Nautilus',
-      openNodesAsOverlay: initialConfig.general?.openNodesAsOverlay ?? true,
     },
     server: {
       healthCheckInterval: initialConfig.server?.healthCheckInterval ?? 20000,
@@ -251,7 +250,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }));
   };
 
-  const updateGeneralConfig = (field: keyof AppConfig['general'], value: string | boolean) => {
+  const updateGeneralConfig = (field: keyof AppConfig['general'], value: string) => {
     setConfig(prev => ({
       ...prev,
       general: {
@@ -623,7 +622,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           {activeTab === 'general' && <div className="preference-sections">
             <section className="preference-section"><div><h4>Workspace</h4><p>How you recognize and navigate your network.</p></div><div className="preference-fields">
               <label className="preference-field">App title<input value={config.general.title} onChange={e => updateGeneralConfig('title', e.target.value)} /><small>Appears in the header and browser tab.</small></label>
-              <div className="preference-toggle"><div><label htmlFor="open-nodes-overlay">Open services in Nautilus</label><p>Keep the network in reach with an embedded overlay.</p></div><Switch id="open-nodes-overlay" checked={config.general.openNodesAsOverlay} onChange={checked => updateGeneralConfig('openNodesAsOverlay', checked)} accentColor={accentColor} /></div>
             </div></section>
             <section className="preference-section"><div><h4>Monitoring cadence</h4><p>Balance fresh readings with traffic to your services.</p></div><div className="preference-fields"><label className="preference-field">Health check interval<div className="input-unit"><input type="number" min={2000} value={config.server.healthCheckInterval} onChange={e => updateServerConfig('healthCheckInterval', Math.max(2000, Number(e.target.value)))} /><span>ms</span></div><small>Minimum 2,000 ms. Applies to all monitored nodes.</small></label></div></section>
             <section className="preference-section"><div><h4>Configuration backups</h4><p>Keep a copy of your nodes and preferences.</p></div><div className="backup-actions">

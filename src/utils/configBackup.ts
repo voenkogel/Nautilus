@@ -185,7 +185,6 @@ export const loadConfigFromFile = (file: File): Promise<AppConfig> => {
         const restoredConfig: AppConfig = {
           general: {
             title: cleanConfig.general?.title || 'Nautilus',
-            openNodesAsOverlay: cleanConfig.general?.openNodesAsOverlay ?? true,
           },
           server: {
             healthCheckInterval: cleanConfig.server?.healthCheckInterval || 20000,
