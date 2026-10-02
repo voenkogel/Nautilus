@@ -93,7 +93,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
   
   const fetchInitialScanState = async () => {
     try {
-      const res = await fetch('/api/network-scan/progress', {
+      const res = await fetch('api/network-scan/progress', {
         headers: getAuthHeaders()
       });
       
@@ -183,7 +183,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
       if (scanActive) {
         const fetchCurrentState = async () => {
           try {
-            const res = await fetch('/api/network-scan/progress', {
+            const res = await fetch('api/network-scan/progress', {
               headers: getAuthHeaders()
             });
             
@@ -318,7 +318,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
     
     const poll = async () => {
       try {
-        const res = await fetch('/api/network-scan/progress', {
+        const res = await fetch('api/network-scan/progress', {
           headers: getAuthHeaders()
         });
         
@@ -814,7 +814,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
       }
 
       // Get current config
-      const response = await fetch('/api/config', {
+      const response = await fetch('api/config', {
         headers: getAuthHeaders()
       });
       if (!response.ok) {
@@ -835,7 +835,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
       };
 
       // Save updated config
-      const saveResponse = await fetch('/api/config', {
+      const saveResponse = await fetch('api/config', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(updatedConfig),
@@ -933,7 +933,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
     localStorage.setItem('lastSubnet', subnet);
     
     try {
-      await fetch('/api/network-scan/start', {
+      await fetch('api/network-scan/start', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ subnet }),
@@ -1207,7 +1207,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
               className="px-6 py-2 rounded font-semibold text-white shadow bg-red-600 hover:bg-red-700 transition-all duration-200 focus:outline-none"
               onClick={async () => {
                 try {
-                  await fetch('/api/network-scan/cancel', { 
+                  await fetch('api/network-scan/cancel', { 
                     method: 'POST',
                     headers: getAuthHeaders()
                   });

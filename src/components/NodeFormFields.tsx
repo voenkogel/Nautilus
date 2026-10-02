@@ -42,7 +42,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
     setConnectionDetails('');
     
     try {
-      const response = await fetch('/api/test-connection', {
+      const response = await fetch('api/test-connection', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

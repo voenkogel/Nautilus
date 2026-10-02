@@ -40,7 +40,7 @@ export function useNodeHistory(nodeId: string | null, period: HistoryPeriod) {
     setLoading(true);
     setError(null);
 
-    api.get<NodeHistoryData>(`/api/history/${encodeURIComponent(nodeId)}?period=${period}`, { signal: controller.signal })
+    api.get<NodeHistoryData>(`api/history/${encodeURIComponent(nodeId)}?period=${period}`, { signal: controller.signal })
       .then((d) => { setData(d); setLoading(false); })
       .catch(err => {
         // Ignore the abort fired when nodeId/period changes mid-flight — a newer
@@ -67,7 +67,7 @@ export function useGlobalHistory(period: HistoryPeriod) {
     setLoading(true);
     setError(null);
 
-    api.get<GlobalHistoryData>(`/api/history?period=${period}`, { signal: controller.signal })
+    api.get<GlobalHistoryData>(`api/history?period=${period}`, { signal: controller.signal })
       .then((d) => { setData(d); setLoading(false); })
       .catch(err => {
         // Ignore the abort fired when `period` changes mid-flight.

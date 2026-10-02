@@ -39,3 +39,6 @@ last_scan_results.json
 # Keep examples for setup guidance
 !.env.example
 !defaultConfig.json
+
+# Hashed admin credentials (set from Settings → Account)
+credentials.json

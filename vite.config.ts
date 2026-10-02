@@ -14,6 +14,8 @@ const serverPort = Number(getEnvVar('NAUTILUS_SERVER_PORT', 3069))
 const clientPort = Number(getEnvVar('NAUTILUS_CLIENT_PORT', 3070))
 
 export default defineConfig({
+  // Relative asset URLs so the app works under any sub-path (e.g. Home Assistant ingress).
+  base: './',
   plugins: [react()],
   server: {
     port: clientPort,

@@ -19,6 +19,27 @@ Nautilus now includes **server-side authentication** to protect configuration ch
 - ❌ **Node Viewing**: Public (read-only)
 - ❌ **Status Monitoring**: Public (read-only)
 
+## 🔑 Changing the Username & Password
+
+Log in, open **Settings → Account**, and enter a new username and/or password (min. 12 characters) plus your current password.
+
+- Credentials are stored as a **scrypt hash** in `credentials.json` (in `NAUTILUS_DATA_DIR`, or next to `config.json`; `/data` in Docker), file mode `600`.
+- Once that file exists it **overrides** `NAUTILUS_ADMIN_USERNAME` / `NAUTILUS_ADMIN_PASSWORD`. The env vars are only used on first boot.
+- Changing credentials **signs out every session** (the session that made the change gets a fresh token).
+
+**Forgot the password?** Start the server once with `NAUTILUS_RESET_CREDENTIALS=true`. The stored file is deleted and the `.env` credentials apply again. Remove the flag afterwards.
+
+### Authless Mode (local use)
+Set `NAUTILUS_AUTH_DISABLED=true` to skip login entirely, e.g. on a dev machine or a trusted home LAN. No admin password is needed in this mode.
+
+- Requests from **loopback and private-network addresses** (`127.0.0.0/8`, `10/8`, `172.16/12`, `192.168/16`, `169.254/16`, `::1`, `fc00::/7`, `fe80::/10`) get full admin access. Requests from public addresses get `403`.
+- ⚠️ That check uses the address the server sees. **Behind a reverse proxy or Docker port mapping, internet traffic can show up with a private address** (the proxy's or Docker gateway's), which bypasses the check. Never expose an authless instance to the internet.
+- Settings → Account shows a warning, and the Logout button is hidden.
+
+### Sessions & Brute-Force Protection
+- Sessions expire after **24 h idle** or **7 days** total, and are held in memory (a restart logs everyone out).
+- **5 failed logins** within 15 minutes from one IP lock that IP out for 15 minutes (`429` + `Retry-After`). Behind a reverse proxy, set `NAUTILUS_TRUST_PROXY` so this applies per client.
+
 ## 🛠️ Setup Instructions
 
 ### 1. Environment Variables

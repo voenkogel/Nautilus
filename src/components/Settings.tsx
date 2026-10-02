@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, X, Plus, Trash2, Save, LogOut, Network, Download, Upload } from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
 import { findNodeById, countDescendants } from '../utils/nodeUtils';
-import { clearAuthentication, isAuthenticated } from '../utils/auth';
+import { clearAuthentication, isAuthenticated, isAuthDisabled } from '../utils/auth';
 import { downloadConfigBackup, createConfigFileInput } from '../utils/configBackup';
+import { assetUrl } from '../utils/assetUrl';
 import { useToast } from './Toast';
 import { ConfirmDialog } from './ConfirmDialog';
 
 import { SettingsNodeTree } from './settings/SettingsNodeTree';
+import { AccountSettings } from './settings/AccountSettings';
 import Switch from './Switch';
 
 interface SettingsProps {
@@ -52,7 +54,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       }
     }
   }));
-  const [activeTab, setActiveTab] = useState<'general' | 'nodes' | 'appearance' | 'notifications'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'nodes' | 'appearance' | 'notifications' | 'account'>('general');
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [iconDropdownOpen, setIconDropdownOpen] = useState<string | null>(null);
   const [fileErrors, setFileErrors] = useState<{ favicon?: string; backgroundImage?: string; logo?: string }>({});
@@ -84,7 +86,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   // Fetch version info once when settings opens
   useEffect(() => {
     if (!isOpen || versionInfo) return;
-    fetch('/api/version')
+    fetch('api/version')
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setVersionInfo(data); })
       .catch(() => {});
@@ -593,7 +595,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           <div className="flex-shrink-0">
             {config.appearance.favicon ? (
               <img 
-                src={config.appearance.favicon} 
+                src={assetUrl(config.appearance.favicon)} 
                 alt="Favicon Preview" 
                 className="w-16 h-16 rounded-lg object-contain border-2 border-gray-200 bg-white p-2"
               />
@@ -654,7 +656,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           <div className="flex-shrink-0">
             {config.appearance.logo ? (
               <img 
-                src={config.appearance.logo} 
+                src={assetUrl(config.appearance.logo)} 
                 alt="Logo Preview" 
                 className="w-24 h-16 rounded-lg object-contain border-2 border-gray-200 bg-white p-2"
               />
@@ -714,7 +716,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           <div className="flex-shrink-0">
             {config.appearance?.backgroundImage ? (
               <img
-                src={config.appearance.backgroundImage}
+                src={assetUrl(config.appearance.backgroundImage)}
                 alt="Current background"
                 className="w-32 h-20 rounded-lg object-cover border-2 border-gray-200"
               />
@@ -850,6 +852,20 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
             }}
           >
             Notifications
+          </button>
+          <button
+            onClick={() => setActiveTab('account')}
+            className={`px-6 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
+              activeTab === 'account'
+                ? 'border-b-2 text-gray-800'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+            style={{
+              borderColor: activeTab === 'account' ? accentColor : 'transparent',
+              color: activeTab === 'account' ? accentColor : undefined
+            }}
+          >
+            Account
           </button>
         </div>
 
@@ -1099,6 +1115,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
 
           {activeTab === 'appearance' && renderAppearanceTab()}
 
+          {activeTab === 'account' && <AccountSettings accentColor={accentColor} />}
+
           {activeTab === 'notifications' && (
             <div className="space-y-6">
               <div>
@@ -1308,7 +1326,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           <div className="flex items-center justify-between w-full">
             {/* Left side - Logout button */}
             <div>
-              {isLoggedIn && (
+              {isLoggedIn && !isAuthDisabled() && (
                 <button
                   onClick={handleLogout}
                   className="flex items-center space-x-2 px-4 py-2 border border-red-300 text-red-600 rounded-md hover:bg-red-50 hover:border-red-400 transition-colors"

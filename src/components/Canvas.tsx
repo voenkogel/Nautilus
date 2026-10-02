@@ -30,6 +30,7 @@ import { getNodeTargetUrl } from '../utils/nodeUtils';
 import { api, ApiError } from '../utils/apiClient';
 import { DonutChart } from './DonutChart';
 import { normalizeConfig } from '../utils/configUtils';
+import { assetUrl } from '../utils/assetUrl';
 import CanvasNode from './CanvasNode';
 import NodeCard from './NodeCard';
 import DragGhost from './DragGhost';
@@ -150,7 +151,7 @@ const Canvas: React.FC = () => {
   const loadConfig = useCallback(async () => {
     try {
       // api.get sends auth headers automatically (returns admin config when logged in)
-      const serverConfig = await api.get<AppConfig>('/api/config');
+      const serverConfig = await api.get<AppConfig>('api/config');
 
       // Merge server config over the local defaults (utils/configUtils)
       const completeConfig = normalizeConfig(serverConfig, initialAppConfig);
@@ -215,7 +216,7 @@ const Canvas: React.FC = () => {
           return;
         }
         
-        const response = await fetch('/api/network-scan/progress', {
+        const response = await fetch('api/network-scan/progress', {
           headers: getAuthHeaders()
         });
         if (response.ok) {
@@ -270,7 +271,7 @@ const Canvas: React.FC = () => {
       // Use public status endpoint (no auth required) - works for everyone
       try {
         console.log('🔍 Checking scan status on page load...');
-        const response = await fetch('/api/network-scan/status');
+        const response = await fetch('api/network-scan/status');
         console.log('📡 Scan status response:', response.status, response.ok);
         
         if (response.ok) {
@@ -324,7 +325,7 @@ const Canvas: React.FC = () => {
       try {
         // Use public status endpoint (no auth required) - works for everyone
         console.log('🔄 Polling for scan activity...');
-        const response = await fetch('/api/network-scan/status');
+        const response = await fetch('api/network-scan/status');
         console.log('📡 Poll response:', response.status, response.ok);
         
         if (response.ok) {
@@ -381,7 +382,7 @@ const Canvas: React.FC = () => {
   useEffect(() => {
     const handleConfigUpdate = async () => {
       try {
-        const response = await fetch('/api/config', { headers: getAuthHeaders() });
+        const response = await fetch('api/config', { headers: getAuthHeaders() });
         if (response.ok) {
           const serverConfig = await response.json();
           
@@ -474,7 +475,7 @@ const Canvas: React.FC = () => {
   const handleSaveConfig = async (newConfig: AppConfig) => {
     // Send the config to the server to update the config.json file.
     try {
-      await api.post('/api/config', newConfig);
+      await api.post('api/config', newConfig);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         throw new Error('Authentication required. Please log in again.');
@@ -488,7 +489,7 @@ const Canvas: React.FC = () => {
     // server/client/appearance defaults). Best-effort: a failed re-fetch must
     // not undo the successful save.
     try {
-      const serverConfig = await api.get<AppConfig>('/api/config');
+      const serverConfig = await api.get<AppConfig>('api/config');
       setCurrentConfig(normalizeConfig(serverConfig, initialAppConfig));
 
       // Clear icon caches when config changes to force reload of icons with new colors/content
@@ -502,7 +503,7 @@ const Canvas: React.FC = () => {
   const handleRestoreConfig = async (newConfig: AppConfig) => {
     // Send the config to the server with replace mode for complete restoration.
     try {
-      await api.post('/api/config?replace=true', newConfig);
+      await api.post('api/config?replace=true', newConfig);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         throw new Error('Authentication required. Please log in again.');
@@ -515,7 +516,7 @@ const Canvas: React.FC = () => {
     // diverges from load). Best-effort: a failed re-fetch must not surface as a
     // restore failure since the server already accepted it.
     try {
-      const serverConfig = await api.get<AppConfig>('/api/config');
+      const serverConfig = await api.get<AppConfig>('api/config');
       setCurrentConfig(normalizeConfig(serverConfig, initialAppConfig));
 
       // Clear icon caches when config changes to force reload of icons with new colors/content
@@ -1053,7 +1054,7 @@ const Canvas: React.FC = () => {
   useEffect(() => {
     const testApiConnectivity = async () => {
       try {
-        await api.get('/api/status');
+        await api.get('api/status');
         // Success is silent - errors will be logged by the error handler
       } catch (error) {
         console.error('API connectivity test failed:', error);
@@ -1242,7 +1243,7 @@ const Canvas: React.FC = () => {
       <div 
         className="absolute inset-0 -z-10 bg-cover bg-center bg-no-repeat pointer-events-none" 
         style={{ 
-          backgroundImage: `url(${currentConfig.appearance?.backgroundImage || '/background.png'})`,
+          backgroundImage: `url(${assetUrl(currentConfig.appearance?.backgroundImage || 'background.png')})`,
           opacity: 0.4 
         }} 
       />
@@ -1751,7 +1752,7 @@ const Canvas: React.FC = () => {
           <div 
             className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
             style={{ 
-              backgroundImage: `url(${currentConfig.appearance?.backgroundImage || '/background.png'})`,
+              backgroundImage: `url(${assetUrl(currentConfig.appearance?.backgroundImage || 'background.png')})`,
               opacity: 0.3,
               backgroundSize: 'cover'
             }} 
@@ -1903,18 +1904,18 @@ const Canvas: React.FC = () => {
         <div className="absolute top-4 left-4 z-20">
           {(currentConfig?.appearance?.logo || currentConfig?.appearance?.favicon) ? (
             <img 
-              src={currentConfig.appearance.logo || currentConfig.appearance.favicon} 
+              src={assetUrl(currentConfig.appearance.logo || currentConfig.appearance.favicon)} 
               alt={currentConfig.general?.title || 'Logo'}
               className="max-h-20 max-w-32 opacity-90 filter drop-shadow-lg bg-white/20 backdrop-blur-sm rounded-xl p-3 object-contain"
               onError={(e) => {
                 // Fallback to default icon
                 console.warn('Logo failed to load, trying fallback');
-                e.currentTarget.src = '/nautilusIcon.png';
+                e.currentTarget.src = 'nautilusIcon.png';
               }}
             />
           ) : (
             <img 
-              src="/nautilusIcon.png" 
+              src="nautilusIcon.png" 
               alt="Nautilus" 
               className="max-h-20 max-w-32 opacity-90 filter drop-shadow-lg bg-white/20 backdrop-blur-sm rounded-xl p-3 object-contain"
               onError={(e) => {

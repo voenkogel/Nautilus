@@ -22,6 +22,21 @@ export function unregisterAuthModalOpener(opener: () => Promise<boolean>): void 
   if (authModalOpener === opener) authModalOpener = null;
 }
 
+// Authless mode (server started with NAUTILUS_AUTH_DISABLED=true). Resolved once
+// by initAuthMode() before the app renders, so the sync checks below can use it.
+let authDisabled = false;
+
+export const isAuthDisabled = (): boolean => authDisabled;
+
+export async function initAuthMode(): Promise<void> {
+  try {
+    const response = await fetch('api/auth/status', { signal: AbortSignal.timeout(3000) });
+    if (response.ok) authDisabled = !!(await response.json()).authDisabled;
+  } catch {
+    // Server unreachable or older build — assume auth is required.
+  }
+}
+
 // Get stored auth token
 const getStoredToken = (): string | null => {
   try {
@@ -52,11 +67,12 @@ const removeToken = (): void => {
 
 // Check if user is currently authenticated
 export const isAuthenticated = async (): Promise<boolean> => {
+  if (authDisabled) return true;
   const token = getStoredToken();
   if (!token) return false;
   
   try {
-    const response = await fetch('/api/auth/validate', {
+    const response = await fetch('api/auth/validate', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -82,7 +98,7 @@ export const isAuthenticated = async (): Promise<boolean> => {
 // Perform a login request. Returns success + an optional error message for the modal.
 export async function performLogin(username: string, password: string): Promise<{ success: boolean; error?: string }> {
   try {
-    const response = await fetch('/api/auth/login', {
+    const response = await fetch('api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password })
@@ -96,6 +112,49 @@ export async function performLogin(username: string, password: string): Promise<
   } catch (error) {
     console.error('Authentication error:', error);
     return { success: false, error: 'Authentication failed due to a network error. Please try again.' };
+  }
+}
+
+export interface AccountInfo {
+  username: string;
+  /** 'env' = still using the .env password; 'file' = changed from the UI. */
+  source: 'env' | 'file';
+}
+
+export async function fetchAccount(): Promise<AccountInfo | null> {
+  try {
+    const response = await fetch('api/auth/account', { headers: getAuthHeaders() });
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Change the admin username and/or password. The server revokes every session
+ * and returns a fresh token for this one, which is stored here.
+ */
+export async function changeCredentials(params: {
+  currentPassword: string;
+  newUsername?: string;
+  newPassword?: string;
+}): Promise<{ success: boolean; username?: string; error?: string }> {
+  try {
+    const response = await fetch('api/auth/credentials', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(params)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.success && data.token) {
+      storeToken(data.token);
+      return { success: true, username: data.username };
+    }
+    if (response.status === 401) removeToken();
+    return { success: false, error: data.message || `Request failed (HTTP ${response.status})` };
+  } catch (error) {
+    console.error('Credential change error:', error);
+    return { success: false, error: 'Network error. Please try again.' };
   }
 }
 
@@ -134,7 +193,7 @@ export const clearAuthentication = async (): Promise<void> => {
   if (token) {
     try {
       // Notify server about logout
-      await fetch('/api/auth/logout', {
+      await fetch('api/auth/logout', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -157,6 +216,7 @@ export const getAuthToken = (): string | null => {
 
 // Check if user has a stored authentication token
 export const hasAuthToken = (): boolean => {
+  if (authDisabled) return true;
   const token = getStoredToken();
   return !!token;
 };

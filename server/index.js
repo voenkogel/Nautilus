@@ -16,14 +16,28 @@ import { runBackupDetection, analyzeNode } from './services/backupDetection.js';
 import {
   authenticateRequest,
   generateSessionToken,
-  safeEqual,
-  isRateLimited,
+  lockoutRemaining,
   recordFailedAuth,
   clearAuthAttempts,
   registerSession,
   destroySession,
-  touchSession,
+  destroyAllSessions,
+  bearerToken,
+  clientIp,
+  setAuthDisabled,
+  isAuthDisabled,
+  isAdminRequest,
 } from './middleware/auth.js';
+import {
+  initCredentials,
+  verifyCredentials,
+  verifyPassword,
+  updateCredentials,
+  validateUsername,
+  validateNewPassword,
+  getUsername,
+  getCredentialSource,
+} from './services/credentials.js';
 import { publicReadLimiter } from './middleware/rateLimit.js';
 import { sanitizeConfig, restoreSensitiveFields, stripMonitoredFlag, stripAutoBackupWindows } from './services/configSanitize.js';
 import { deepMerge, validateConfig } from './services/configValidation.js';
@@ -56,12 +70,32 @@ if (process.env.NAUTILUS_TRUST_PROXY) {
 
 // --- Security Configuration ---
 
-// Admin credentials from environment (required in production)
-const ADMIN_USERNAME = process.env.NAUTILUS_ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.NAUTILUS_ADMIN_PASSWORD;
+// Admin credentials: stored scrypt hash (set from Settings → Account) or, on
+// first boot, NAUTILUS_ADMIN_USERNAME / NAUTILUS_ADMIN_PASSWORD from the env.
+// See server/services/credentials.js.
+function resolveConfigPath() {
+  if (process.env.NODE_ENV === 'production') {
+    return existsSync('/data') ? '/data/config.json' : './data/config.json';
+  }
+  return './config.json';
+}
 
-// Check if admin password is set and strong
-if (!ADMIN_PASSWORD || ADMIN_PASSWORD === '1234') {
+// NAUTILUS_AUTH_DISABLED=true skips login entirely for local-network clients
+// (handy for a dev box or a trusted LAN). See middleware/auth.js.
+const AUTH_DISABLED = process.env.NAUTILUS_AUTH_DISABLED === 'true';
+setAuthDisabled(AUTH_DISABLED);
+const credentialsReady = await initCredentials(resolveConfigPath());
+
+if (AUTH_DISABLED) {
+  logger.warn('');
+  logger.warn('⚠️  ════════════════════════════════════════════════════════════════════');
+  logger.warn('⚠️  AUTHENTICATION IS DISABLED (NAUTILUS_AUTH_DISABLED=true)');
+  logger.warn('⚠️  Anyone on a loopback/private network address has full admin access.');
+  logger.warn('⚠️  Requests from public addresses are refused. Do NOT expose this');
+  logger.warn('⚠️  instance through a reverse proxy or port forward.');
+  logger.warn('⚠️  ════════════════════════════════════════════════════════════════════');
+  logger.warn('');
+} else if (!credentialsReady) {
   logger.info('');
   logger.info('╔═══════════════════════════════════════════════════════════════════════════════╗');
   logger.info('║                                                                               ║');
@@ -69,8 +103,8 @@ if (!ADMIN_PASSWORD || ADMIN_PASSWORD === '1234') {
   logger.info('║                                                                               ║');
   logger.info('╠═══════════════════════════════════════════════════════════════════════════════╣');
   logger.info('║                                                                               ║');
-  logger.info('║  The NAUTILUS_ADMIN_PASSWORD environment variable is NOT SET or is using      ║');
-  logger.info('║  the insecure default value "1234".                                           ║');
+  logger.info('║  No admin credentials are stored yet, and NAUTILUS_ADMIN_PASSWORD is NOT SET ║');
+  logger.info('║  or uses an insecure default value.                                           ║');
   logger.info('║                                                                               ║');
   logger.info('║  🛑 THE SERVER CANNOT START WITHOUT A SECURE PASSWORD 🛑                      ║');
   logger.info('║                                                                               ║');
@@ -85,21 +119,13 @@ if (!ADMIN_PASSWORD || ADMIN_PASSWORD === '1234') {
   logger.info('║                                                                               ║');
   logger.info('║  3. Restart the Nautilus server                                              ║');
   logger.info('║                                                                               ║');
-  logger.info('║  💡 TIP: Use a password with at least 12 characters including uppercase,     ║');
-  logger.info('║     lowercase, numbers, and special characters.                              ║');
-  logger.info('║                                                                               ║');
-  logger.info('║  📁 Your .env file location: ./.env                                          ║');
+  logger.info('║  💡 After logging in you can change the username and password from           ║');
+  logger.info('║     Settings → Account; the env password is then no longer used.             ║');
   logger.info('║                                                                               ║');
   logger.info('╚═══════════════════════════════════════════════════════════════════════════════╝');
   logger.info('');
   process.exit(1);
-} else {
-  logger.info('');
-  logger.info('✅ Security: Admin password successfully loaded from environment variable');
-  logger.info('🔒 Authentication: Password protection is ENABLED');
-  logger.info('');
 }
-
 
 // Get current directory (ES module equivalent of __dirname)
 const __filename = fileURLToPath(import.meta.url);
@@ -125,8 +151,8 @@ const defaultConfig = {
   appearance: {
     title: process.env.NAUTILUS_PAGE_TITLE || 'Nautilus',
     accentColor: '#3b82f6',
-    favicon: '/nautilusIcon.png',
-    backgroundImage: '/background.png'
+    favicon: 'nautilusIcon.png',
+    backgroundImage: 'background.png'
   },
   tree: {
     nodes: [] // Default to no nodes
@@ -408,77 +434,160 @@ app.get('/api/status', publicReadLimiter, (req, res) => {
 
 // --- Authentication API ---
 
+// Failed logins are answered after a fixed delay so attackers can't use timing
+// to distinguish failure modes, and brute force is slowed further.
+const FAILED_AUTH_DELAY_MS = 1000;
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const tooManyAttempts = (res, retryAfter) => {
+  res.setHeader('Retry-After', retryAfter);
+  return res.status(429).json({
+    error: 'Too Many Requests',
+    message: `Too many failed authentication attempts. Try again in ${Math.ceil(retryAfter / 60)} minute(s).`
+  });
+};
+
+// Public: lets the UI know whether it needs to show a login prompt at all.
+app.get('/api/auth/status', (req, res) => {
+  res.json({ authDisabled: isAuthDisabled() });
+});
+
 // API endpoint for authentication
-app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body;
-  const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
-  
-  // Check rate limiting
-  if (isRateLimited(clientIP)) {
-    return res.status(429).json({
-      error: 'Too Many Requests',
-      message: 'Too many failed authentication attempts. Please try again later.'
+app.post('/api/auth/login', async (req, res) => {
+  if (isAuthDisabled()) {
+    return res.status(400).json({ error: 'Bad Request', message: 'Authentication is disabled on this server' });
+  }
+  const { username, password } = req.body || {};
+  const ip = clientIp(req);
+
+  const locked = lockoutRemaining(ip);
+  if (locked) return tooManyAttempts(res, locked);
+
+  if (typeof username !== 'string' || typeof password !== 'string' || !username || !password) {
+    return res.status(400).json({
+      error: 'Bad Request',
+      message: 'Username and password are required'
     });
   }
-  
-  if (!username || !password) {
-    recordFailedAuth(clientIP);
-    return res.status(400).json({ 
-      error: 'Bad Request', 
-      message: 'Username and password are required' 
+
+  let ok = false;
+  try {
+    ok = await verifyCredentials(username, password);
+  } catch (err) {
+    logger.error(`❌ [AUTH] Credential verification error: ${err.message}`);
+  }
+
+  if (!ok) {
+    recordFailedAuth(ip);
+    logger.info(`❌ [AUTH] Failed login from ${ip}`);
+    await delay(FAILED_AUTH_DELAY_MS);
+    return res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Invalid username or password'
     });
   }
-  
-  // Compute both comparisons up front (no short-circuit) so the response timing
-  // is constant regardless of which credential is wrong.
-  const validUsername = safeEqual(username, ADMIN_USERNAME);
-  const validPassword = safeEqual(password, ADMIN_PASSWORD);
-  if (!validUsername || !validPassword) {
-    recordFailedAuth(clientIP);
-    // Add a small delay to prevent brute force attacks
-    setTimeout(() => {
-      res.status(401).json({ 
-        error: 'Unauthorized', 
-        message: 'Invalid username or password' 
-      });
-    }, 1000);
-    return;
-  }
-  
-  // Successful authentication
-  clearAuthAttempts(clientIP);
-  
-  // Generate session token
+
+  clearAuthAttempts(ip);
   const token = generateSessionToken();
   registerSession(token);
-  
-  res.json({ 
-    success: true, 
+  logger.info(`✅ [AUTH] Successful login from ${ip}`);
+
+  res.json({
+    success: true,
     token,
-    message: 'Authentication successful' 
+    message: 'Authentication successful'
   });
 });
 
 // API endpoint to validate current session
 app.get('/api/auth/validate', authenticateRequest, (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Session is valid' 
+  res.json({
+    success: true,
+    message: 'Session is valid'
   });
+});
+
+// Current account info (admin only) — used by Settings → Account.
+app.get('/api/auth/account', authenticateRequest, (req, res) => {
+  if (isAuthDisabled()) return res.json({ authDisabled: true, username: null, source: null });
+  res.json({
+    authDisabled: false,
+    username: getUsername(),
+    // 'env' = still running on the .env password; 'file' = changed from the UI.
+    source: getCredentialSource(),
+  });
+});
+
+// Change the admin username and/or password. Requires the current password even
+// with a valid session, so a hijacked/unattended session can't lock the owner
+// out. All existing sessions are revoked; the caller gets a fresh token.
+app.post('/api/auth/credentials', authenticateRequest, async (req, res) => {
+  if (isAuthDisabled()) {
+    return res.status(400).json({ error: 'Bad Request', message: 'Authentication is disabled on this server' });
+  }
+  const { currentPassword, newUsername, newPassword } = req.body || {};
+  const ip = clientIp(req);
+
+  const locked = lockoutRemaining(ip);
+  if (locked) return tooManyAttempts(res, locked);
+
+  if (typeof currentPassword !== 'string' || !currentPassword) {
+    return res.status(400).json({ error: 'Bad Request', message: 'Current password is required' });
+  }
+
+  const changeUser = typeof newUsername === 'string' && newUsername.trim() !== '' && newUsername.trim() !== getUsername();
+  const changePass = typeof newPassword === 'string' && newPassword !== '';
+  if (!changeUser && !changePass) {
+    return res.status(400).json({ error: 'Bad Request', message: 'Nothing to change' });
+  }
+
+  if (changeUser) {
+    const err = validateUsername(newUsername);
+    if (err) return res.status(400).json({ error: 'Bad Request', message: err });
+  }
+  if (changePass) {
+    const err = validateNewPassword(newPassword, changeUser ? newUsername : getUsername());
+    if (err) return res.status(400).json({ error: 'Bad Request', message: err });
+  }
+
+  if (!(await verifyPassword(currentPassword))) {
+    recordFailedAuth(ip);
+    logger.info(`❌ [AUTH] Credential change rejected from ${ip}: wrong current password`);
+    await delay(FAILED_AUTH_DELAY_MS);
+    return res.status(403).json({ error: 'Forbidden', message: 'Current password is incorrect' });
+  }
+
+  if (changePass && newPassword === currentPassword) {
+    return res.status(400).json({ error: 'Bad Request', message: 'New password must differ from the current one' });
+  }
+
+  try {
+    await updateCredentials({
+      username: changeUser ? newUsername : undefined,
+      password: changePass ? newPassword : undefined,
+    });
+  } catch (err) {
+    logger.error(`❌ [AUTH] Failed to persist credentials: ${err.message}`);
+    return res.status(500).json({ error: 'Internal Server Error', message: 'Could not save the new credentials' });
+  }
+
+  clearAuthAttempts(ip);
+  const revoked = destroyAllSessions();
+  const token = generateSessionToken();
+  registerSession(token);
+  logger.info(`🔒 [AUTH] Credentials changed from ${ip}; ${revoked} session(s) revoked`);
+
+  res.json({ success: true, token, username: getUsername(), message: 'Credentials updated' });
 });
 
 // API endpoint to logout (invalidate session)
 app.post('/api/auth/logout', (req, res) => {
-  const authHeader = req.headers.authorization;
-  
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
-    destroySession(token);
-  }
-  
-  res.json({ 
-    success: true, 
-    message: 'Logged out successfully' 
+  const token = bearerToken(req);
+  if (token) destroySession(token);
+
+  res.json({
+    success: true,
+    message: 'Logged out successfully'
   });
 });
 
@@ -487,16 +596,8 @@ app.post('/api/auth/logout', (req, res) => {
 
 // API endpoint to get centralized config (public - read-only, but cleaner for admins)
 app.get('/api/config', publicReadLimiter, (req, res) => {
-  let isAdmin = false;
-  const authHeader = req.headers.authorization;
-  
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
-    // Valid session token → treat as admin (and refresh its timestamp)
-    if (touchSession(token)) {
-      isAdmin = true;
-    }
-  }
+  // Valid session token → treat as admin (and refresh its timestamp)
+  const isAdmin = isAdminRequest(req);
 
   const sanitized = sanitizeConfig(appConfig, isAdmin);
   attachAutoBackupWindows(sanitized);

@@ -67,7 +67,7 @@ export const useNodeStatus = (appConfig: AppConfig) => {
     }
 
     try {
-      const data = await api.get<StatusResponse>('/api/status');
+      const data = await api.get<StatusResponse>('api/status');
 
       if (data && data.statuses) {
         // Compare with previous statuses to detect changes and preserve statusChangedAt

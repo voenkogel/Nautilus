@@ -23,7 +23,7 @@ export const AuthModalHost: React.FC = () => {
       setError(null);
       // Best-effort: fetch the latest config so the modal uses the current accent color.
       try {
-        const res = await fetch('/api/config');
+        const res = await fetch('api/config');
         if (res.ok) setAppConfig(await res.json());
       } catch {
         // ignore — modal falls back to default styling

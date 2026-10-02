@@ -2,6 +2,7 @@ import React from 'react';
 import NetworkScanWindow from './NetworkScanWindow';
 import type { AppConfig, TreeNode } from '../types/config';
 import { createConfigFileInput } from '../utils/configBackup';
+import { assetUrl } from '../utils/assetUrl';
 
 interface EmptyNodesFallbackProps {
   onCreateStartingNode: () => void;
@@ -25,7 +26,7 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
     // Poll backend for scan status on mount
     const poll = async () => {
       try {
-        const res = await fetch('/api/network-scan/progress');
+        const res = await fetch('api/network-scan/progress');
         if (res.ok) {
           const data = await res.json();
           if (data.status === 'scanning') {
@@ -88,7 +89,7 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
         <div className="flex items-center justify-center mx-auto mb-6 h-16">
           {(appConfig?.appearance?.logo || appConfig?.appearance?.favicon) ? (
             <img 
-              src={appConfig.appearance.logo || appConfig.appearance.favicon} 
+              src={assetUrl(appConfig.appearance.logo || appConfig.appearance.favicon)} 
               alt={appConfig.general?.title || 'Logo'} 
               className="max-h-16 max-w-48 opacity-90 object-contain"
               onError={(e) => {

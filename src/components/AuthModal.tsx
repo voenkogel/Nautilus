@@ -40,14 +40,14 @@ const AuthModal: React.FC<AuthModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!username.trim() || !password.trim()) {
+    if (!username.trim() || !password) {
       return; // Don't submit if fields are empty
     }
 
     setIsSubmitting(true);
 
     try {
-      await onSubmit(username.trim(), password.trim());
+      await onSubmit(username.trim(), password);
     } finally {
       setIsSubmitting(false);
     }
@@ -108,6 +108,9 @@ const AuthModal: React.FC<AuthModalProps> = ({
                 id="username"
                 name="username"
                 type="text"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
@@ -137,6 +140,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                 id="password"
                 name="password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
