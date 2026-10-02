@@ -8,14 +8,6 @@
   "client": {
     "apiPollingInterval": 5000
   },
-  "appearance": {
-    "title": "Nautilus",
-    "accentColor": "#34a00d",
-    "favicon": "",
-    "backgroundImage": "",
-    "logo": "",
-    "disableBackground": true
-  },
   "tree": {
     "nodes": [
       {

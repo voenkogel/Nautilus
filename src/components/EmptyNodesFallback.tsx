@@ -1,8 +1,9 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
+import { Binoculars, Plus, Radar, Upload } from 'lucide-react';
 import NetworkScanWindow from './NetworkScanWindow';
 import type { AppConfig, TreeNode } from '../types/config';
 import { createConfigFileInput } from '../utils/configBackup';
-import { assetUrl } from '../utils/assetUrl';
 
 interface EmptyNodesFallbackProps {
   onCreateStartingNode: () => void;
@@ -15,7 +16,6 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
   appConfig,
   onRestoreConfig
 }) => {
-  const accentColor = '#65d7e8';
   const [showScanWindow, setShowScanWindow] = React.useState(false);
   const [scanActive, setScanActive] = React.useState(false);
   const [initialProgress, setInitialProgress] = React.useState<number>(0);
@@ -82,171 +82,41 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
     document.body.removeChild(input);
   };
   
-  return (
-    <div className="flex items-center justify-center min-h-[400px] w-full">
-      <div className="bg-surface/95 backdrop-blur-sm rounded-2xl shadow-lg p-8 max-w-md mx-auto text-center border border-line">
-        {/* Icon - Logo or Fallback */}
-        <div className="flex items-center justify-center mx-auto mb-6 h-16">
-          {(appConfig?.appearance?.logo || appConfig?.appearance?.favicon) ? (
-            <img 
-              src={assetUrl(appConfig.appearance.logo || appConfig.appearance.favicon)} 
-              alt={appConfig.general?.title || 'Logo'} 
-              className="max-h-16 max-w-48 opacity-90 object-contain"
-              onError={(e) => {
-                // Fallback to server icon if logo fails to load
-                console.warn('Logo failed to load in welcome card, showing server icon');
-                e.currentTarget.style.display = 'none';
-                // Show fallback server icon
-                const parent = e.currentTarget.parentElement;
-                if (parent && !parent.querySelector('.fallback-server-icon')) {
-                  const serverIcon = document.createElement('div');
-                  serverIcon.className = 'fallback-server-icon';
-                  serverIcon.innerHTML = `<svg width="48" height="48" viewBox="0 0 24 24" fill="none" style="color: ${accentColor}" class="opacity-80">
-                    <rect x="3" y="5" width="18" height="6" rx="2" stroke="currentColor" stroke-width="2" />
-                    <rect x="3" y="13" width="18" height="6" rx="2" stroke="currentColor" stroke-width="2" />
-                    <circle cx="8" cy="8" r="1" fill="currentColor" />
-                    <circle cx="8" cy="16" r="1" fill="currentColor" />
-                  </svg>`;
-                  parent.appendChild(serverIcon);
-                }
-              }}
-            />
-          ) : (
-            /* Fallback server icon when no logo is configured */
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" style={{ color: accentColor }} className="opacity-80">
-              <rect x="3" y="5" width="18" height="6" rx="2" stroke="currentColor" strokeWidth="2" />
-              <rect x="3" y="13" width="18" height="6" rx="2" stroke="currentColor" strokeWidth="2" />
-              <circle cx="8" cy="8" r="1" fill="currentColor" />
-              <circle cx="8" cy="16" r="1" fill="currentColor" />
-            </svg>
-          )}
+  // Portalled to <body>: the map stage isolates its stacking context, which would keep the app header on top.
+  return createPortal(
+    <div className="welcome-splash" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+      <div className="welcome-splash-content">
+        <div className="welcome-splash-mark">
+          <Binoculars size={36} strokeWidth={1.6} />
         </div>
 
-        {/* Title */}
-        <h2 className="text-2xl font-semibold text-ink mb-4">
-          Welcome to {appConfig.general?.title || 'Nautilus'}
-        </h2>
+        <h1 id="welcome-title">Welcome to {appConfig.general?.title || 'Nautilus'}</h1>
+        <p>Add your first node to start monitoring your network.</p>
 
-        {/* Description */}
-        <p className="text-muted mb-6 leading-relaxed">
-          Your infrastructure dashboard is ready, but no nodes have been configured yet. 
-          Get started by creating your first node to monitor your services and applications.
-        </p>
-
-        {/* Action buttons */}
-        <div className="space-y-3">
-          {/* Discover Nodes Button */}
+        <div className="welcome-splash-actions">
           <button
+            className="welcome-primary"
             onClick={async () => {
               const { authenticate } = await import('../utils/auth');
-              const authenticated = await authenticate();
-              if (!authenticated) {
-                // Silently fail, just stay on welcome card
-                return;
-              }
-              setShowScanWindow(true);
+              if (await authenticate()) setShowScanWindow(true);
             }}
-            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105"
-            style={{ backgroundColor: accentColor, color: '#07141e' }}
             disabled={scanActive}
           >
-            {/* SVG network icon */}
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-              <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2" />
-            </svg>
-            Discover Nodes
+            <Radar size={18} />Discover nodes
           </button>
-
-          <div className="w-full flex items-center justify-center">
-            <span className="text-muted font-medium text-sm">or</span>
-          </div>
-
-          {/* Create Node Manually Button */}
-          <button
-            onClick={onCreateStartingNode}
-            className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105"
-            style={{ backgroundColor: accentColor, color: '#07141e' }}
-          >
-            {/* SVG plus icon */}
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
-              <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" strokeWidth="2" />
-              <line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" strokeWidth="2" />
-            </svg>
-            Create Node Manually
+          <button className="welcome-secondary" onClick={onCreateStartingNode}>
+            <Plus size={18} />Create node manually
           </button>
-
           {onRestoreConfig && (
-            <>
-              <div className="w-full flex items-center justify-center">
-                <span className="text-muted font-medium text-sm">or</span>
-              </div>
-
-              {/* Restore Backup Button */}
-              <button
-                onClick={handleRestoreConfig}
-                disabled={isLoading}
-                className={`w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium border-2 transition-all duration-200 ${
-                  isLoading 
-                    ? 'opacity-50 cursor-not-allowed' 
-                    : 'hover:shadow-lg hover:scale-105'
-                }`}
-                style={{ 
-                  borderColor: accentColor,
-                  color: accentColor,
-                  backgroundColor: 'transparent'
-                }}
-              >
-                {isLoading ? (
-                  <>
-                    {/* Loading spinner */}
-                    <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none" style={{ color: accentColor }}>
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
-                      <path d="M4 12a8 8 0 018-8v8z" fill="currentColor" className="opacity-75" />
-                    </svg>
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    {/* SVG upload icon */}
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: accentColor }}>
-                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" stroke="currentColor" strokeWidth="2" />
-                      <polyline points="14,2 14,8 20,8" stroke="currentColor" strokeWidth="2" />
-                      <line x1="12" y1="18" x2="12" y2="12" stroke="currentColor" strokeWidth="2" />
-                      <polyline points="9,15 12,12 15,15" stroke="currentColor" strokeWidth="2" />
-                    </svg>
-                    Restore Backup
-                  </>
-                )}
-              </button>
-            </>
+            <button className="welcome-tertiary" onClick={handleRestoreConfig} disabled={isLoading}>
+              <Upload size={16} />{isLoading ? 'Restoring...' : 'Restore a backup'}
+            </button>
           )}
         </div>
 
-        {/* Error message */}
         {loadError && (
-          <div className="mt-4 bg-negative/10 border border-negative/25 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-negative mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-                <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2" />
-                <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2" />
-              </svg>
-              <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-medium text-negative mb-1">Backup Restore Failed</h4>
-                <div className="text-sm text-negative whitespace-pre-line">{loadError}</div>
-                <div className="mt-2 text-xs text-negative">
-                  Make sure you're uploading a valid Nautilus configuration file (.json)
-                </div>
-              </div>
-            </div>
-          </div>
+          <p className="welcome-splash-error" role="alert"><strong>Backup restore failed.</strong> {loadError}</p>
         )}
-
-        {/* Helpful hint */}
-        <p className="text-sm text-muted mt-4">
-          You can add nodes for servers, applications, services, or any infrastructure you want to monitor.
-        </p>
       </div>
       {showScanWindow && (
         <NetworkScanWindow
@@ -257,7 +127,8 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
           initialLogs={initialLogs}
         />
       )}
-    </div>
+    </div>,
+    document.body
   );
 };
 

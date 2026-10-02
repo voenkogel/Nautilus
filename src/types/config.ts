@@ -61,14 +61,6 @@ export interface ClientConfig {
 }
 
 
-export interface AppearanceConfig {
-  favicon?: string; // base64 encoded favicon
-  logo?: string; // base64 encoded logo image (falls back to favicon if not set)
-  accentColor: string;
-  backgroundImage?: string; // base64 encoded background image
-  disableBackground?: boolean; // when true, the background image is not rendered
-}
-
 export interface GeneralConfig {
   title: string;
 }
@@ -77,7 +69,6 @@ export interface AppConfig {
   general: GeneralConfig;
   server: ServerConfig;
   client: ClientConfig;
-  appearance: AppearanceConfig;
   tree: {
     nodes: TreeNode[];
   };

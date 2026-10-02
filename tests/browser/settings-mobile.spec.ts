@@ -25,7 +25,7 @@ test('settings fit a phone screen on every tab', async ({ page }, testInfo) => {
   const actions = await dialog.locator('.settings-actions button').evaluateAll(buttons => buttons.map(b => b.getBoundingClientRect()).map(r => ({ top: Math.round(r.top), height: Math.round(r.height) })));
   expect(new Set(actions.map(a => a.top)).size).toBe(1);
   actions.forEach(a => expect(a.height).toBeLessThan(48));
-  for (const tab of ['General', 'Nodes', 'Appearance', 'Notifications', 'Account']) {
+  for (const tab of ['General', 'Nodes', 'Notifications', 'Account']) {
     await dialog.getByRole('button', { name: tab, exact: true }).click();
     if (tab === 'Nodes') await page.screenshot({ path: testInfo.outputPath('settings-nodes-top.png') });
     if (tab === 'Nodes') for (const toggle of await dialog.getByRole('button', { name: 'Expand node details' }).all().then(all => all.slice(0, 3))) await toggle.click();

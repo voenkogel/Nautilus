@@ -19,7 +19,6 @@ export function normalizeConfig(serverConfig: AppConfig, defaults: AppConfig): A
     ...serverConfig,
     server: { ...defaults.server, ...serverConfig.server },
     client: { ...defaults.client, ...serverConfig.client },
-    appearance: { ...defaults.appearance, ...serverConfig.appearance },
     tree: { ...(serverConfig.tree || defaults.tree), nodes: networkBranches((serverConfig.tree || defaults.tree).nodes) },
   };
 }

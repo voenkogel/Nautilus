@@ -97,9 +97,7 @@ test('service launch, history, settings and editing use the new surfaces', async
   await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
   if (await page.locator('.radial-world').count()) await expect(page.locator('.radial-world')).toHaveAttribute('data-layout-settled', 'true');
   await page.screenshot({ animations: 'disabled', path: 'test-results/settings.png' });
-  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
-  await expect(page.getByText('Deep sea', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Accent Color')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Appearance', exact: true })).toHaveCount(0); // the look is fixed
   await page.getByRole('button', { name: 'Close settings' }).click();
   await page.getByRole('button', { name: 'Edit network', exact: true }).click();
   await page.locator('[data-select-node="home"]').click();
@@ -217,15 +215,17 @@ test('reparenting rejects descendants, persists moves, and reports failures', as
   expect(flatten(api.getConfig().tree.nodes).find(n => n.id === 'storage')?.children?.some(n => n.id === 'smart-home')).toBe(true);
 });
 
-test('empty network and history remain navigable', async ({ page }) => {
+test('empty network shows the full-screen welcome splash', async ({ page }) => {
   const config = fixture(); config.tree.nodes = [];
   await mockNetwork(page, config);
   await page.goto('/');
-  await expect(page.getByText('No monitored nodes.', { exact: false })).toBeVisible();
-  await expect(page.locator('.network-empty')).toBeVisible();
-  await page.getByRole('button', { name: 'History', exact: true }).click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await page.screenshot({ animations: 'disabled', path: 'test-results/history-empty.png' });
+  const splash = page.getByRole('dialog', { name: 'Welcome to Nautilus' });
+  await expect(splash).toBeVisible();
+  const box = await splash.boundingBox(), viewport = page.viewportSize()!;
+  expect(box).toMatchObject({ x: 0, y: 0, width: viewport.width, height: viewport.height });
+  await expect(splash.getByRole('button', { name: 'Discover nodes' })).toBeVisible();
+  await expect(splash.getByRole('button', { name: 'Create node manually' })).toBeVisible();
+  await page.screenshot({ animations: 'disabled', path: 'test-results/welcome-splash.png' });
 });
 
 test('discovery and authentication match the dark workspace', async ({ page }) => {
@@ -300,7 +300,7 @@ test('inventory, compact controls, settings sections and populated history', asy
   expect(new Set(columns).size).toBe(1);
   await page.screenshot({ animations: 'disabled', path: 'test-results/desktop-inventory.png' });
   await page.locator('[data-select-node="unmonitored"]').click();
-  await expect(page.getByText('Health checks are off')).toBeVisible();
+  await expect(page.locator('.inspector-status')).toHaveText('Unmonitored');
   await page.screenshot({ animations: 'disabled', path: 'test-results/unmonitored-inspector.png' });
   await page.getByRole('button', { name: 'Close inspector' }).click();
   await page.getByRole('button', { name: 'History', exact: true }).click();
@@ -312,7 +312,7 @@ test('inventory, compact controls, settings sections and populated history', asy
   await page.screenshot({ animations: 'disabled', path: 'test-results/history-service.png' });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  for (const section of ['Appearance', 'Notifications', 'Account']) {
+  for (const section of ['Notifications', 'Account']) {
     await page.getByRole('button', { name: section, exact: true }).click();
     await page.screenshot({ animations: 'disabled', path: `test-results/settings-${section.toLowerCase()}.png` });
   }

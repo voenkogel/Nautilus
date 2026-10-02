@@ -1,6 +1,6 @@
 import React from 'react';
 import { ChevronRight, ChevronDown, Plus, Trash2 } from 'lucide-react';
-import type { TreeNode, AppearanceConfig } from '../../types/config';
+import type { TreeNode } from '../../types/config';
 import { NodeFormFields } from '../NodeFormFields';
 
 interface SettingsNodeTreeProps {
@@ -8,7 +8,6 @@ interface SettingsNodeTreeProps {
   level?: number;
   collapsedNodes: Set<string>;
   isLoggedIn: boolean;
-  appearance: AppearanceConfig;
   onToggleCollapse: (nodeId: string) => void;
   onAddChild: (nodeId: string) => void;
   onDelete: (nodeId: string) => void;
@@ -21,7 +20,6 @@ export const SettingsNodeTree: React.FC<SettingsNodeTreeProps> = ({
   level = 0,
   collapsedNodes,
   isLoggedIn,
-  appearance,
   onToggleCollapse,
   onAddChild,
   onDelete,
@@ -86,7 +84,6 @@ export const SettingsNodeTree: React.FC<SettingsNodeTreeProps> = ({
               <NodeFormFields
                 node={node}
                 onChange={(updates) => onUpdateNode(node.id, updates)}
-                appearance={appearance}
               />
             </div>
           )}
@@ -103,7 +100,6 @@ export const SettingsNodeTree: React.FC<SettingsNodeTreeProps> = ({
               level={level + 1}
               collapsedNodes={collapsedNodes}
               isLoggedIn={isLoggedIn}
-              appearance={appearance}
               onToggleCollapse={onToggleCollapse}
               onAddChild={onAddChild}
               onDelete={onDelete}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { TreeNode, AppearanceConfig } from '../types/config';
+import type { TreeNode } from '../types/config';
 import { X, Trash, Plus, WrenchIcon } from 'lucide-react';
 import { NodeFormFields } from './NodeFormFields';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -12,12 +12,9 @@ interface NodeEditorProps {
   onClose: () => void;
   onDelete: () => void;
   onEditChild?: (childNode: TreeNode) => void;
-  appearance: AppearanceConfig;
 }
 
-export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, onDelete, onEditChild, appearance = { title: 'Nautilus', accentColor: '#3b82f6' } }) => {
-  // Ensure we have a valid appearance object with default values
-  const safeAppearance = appearance || { title: 'Nautilus', accentColor: '#3b82f6' };
+export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, onDelete, onEditChild }) => {
   
   const [editedNode, setEditedNode] = useState<TreeNode>({ ...node });
   const [isSaving, setIsSaving] = useState(false);
@@ -142,7 +139,6 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
           <NodeFormFields 
             node={editedNode} 
             onChange={(updates) => setEditedNode(prev => ({ ...prev, ...updates }))}
-            appearance={safeAppearance}
           />
 
           {/* Children Nodes */}

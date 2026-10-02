@@ -4,7 +4,6 @@ import type { NodeStatus } from '../hooks/useNodeStatus';
 import NodeCard from './NodeCard';
 import type { AppConfig } from '../types/config';
 import { getNodeTargetUrl } from '../utils/nodeUtils';
-import { assetUrl } from '../utils/assetUrl';
 
 type NodeFilter = 'online' | 'offline' | 'activity';
 
@@ -27,7 +26,6 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
   onNodeClick,
   isEditMode = false,
   accentColor = '#3b82f6',
-  appConfig,
   statusCard,
   activeFilter,
   filteredNodes,
@@ -221,21 +219,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
           })}
 
           {/* Logo at the bottom */}
-          {(appConfig?.appearance?.logo || appConfig?.appearance?.favicon) && (
-            <div className="flex justify-center items-center py-6 mt-4">
-              <img
-                src={assetUrl(appConfig.appearance.logo || appConfig.appearance.favicon)}
-                alt={appConfig.general?.title || 'Logo'}
-                className="max-h-12 max-w-24 opacity-80 filter drop-shadow-lg object-contain"
-                onError={(e) => {
-                  console.warn('Logo failed to load, trying fallback');
-                  e.currentTarget.src = 'nautilusIcon.png';
-                }}
-              />
-            </div>
-          )}
-
-          {!appConfig?.appearance?.logo && !appConfig?.appearance?.favicon && (
+          {(
             <div className="flex justify-center items-center py-6 mt-4">
               <img
                 src="nautilusIcon.png"

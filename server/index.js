@@ -148,12 +148,6 @@ const defaultConfig = {
     host: process.env.NAUTILUS_HOST || 'localhost',
     apiPollingInterval: parseInt(process.env.NAUTILUS_API_POLLING_INTERVAL, 10) || 5000,
   },
-  appearance: {
-    title: process.env.NAUTILUS_PAGE_TITLE || 'Nautilus',
-    accentColor: '#3b82f6',
-    favicon: 'nautilusIcon.png',
-    backgroundImage: 'background.png'
-  },
   tree: {
     nodes: [] // Default to no nodes
   },
@@ -188,7 +182,9 @@ try {
   logger.info(`🔧 Working directory: ${process.cwd()}`);
   
   const configContent = readFileSync(configPath, 'utf8');
-  const savedConfig = JSON.parse(configContent);
+  // Nautilus' look is fixed: drop the legacy `appearance` section (old custom
+  // logos/colours, often large base64 blobs). The next save purges it from disk.
+  const { appearance: _legacyAppearance, ...savedConfig } = JSON.parse(configContent);
   
   logger.info(`🔧 Loaded config with ${savedConfig.tree?.nodes?.length || 0} nodes`);
   
@@ -198,7 +194,6 @@ try {
     ...savedConfig,
     server: { ...defaultConfig.server, ...savedConfig.server },
     client: { ...defaultConfig.client, ...savedConfig.client },
-    appearance: { ...defaultConfig.appearance, ...savedConfig.appearance },
     backupDetection: { ...defaultConfig.backupDetection, ...savedConfig.backupDetection },
     tree: savedConfig.tree || defaultConfig.tree
   };
@@ -673,6 +668,9 @@ app.post('/api/config', authenticateRequest, (req, res) => {
     // Restore sensitive fields (unmask) BEFORE merging
     // This looks at the incoming 'masked' values and replaces them with real values from appConfig
     newConfig = restoreSensitiveFields(newConfig, appConfig);
+
+    // The appearance section no longer exists; ignore it from old clients and backups.
+    delete newConfig.appearance;
 
     // Never persist the server-derived `monitored` flag the client received.
     stripMonitoredFlag(newConfig);

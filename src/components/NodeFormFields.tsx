@@ -1,6 +1,6 @@
 import { Disclosure } from './ui/Disclosure';
 import React, { useState, useEffect, useRef } from 'react';
-import type { TreeNode, AppearanceConfig, BackupWindow } from '../types/config';
+import type { TreeNode, BackupWindow } from '../types/config';
 import * as LucideIcons from 'lucide-react';
 import { IconPicker } from './IconPicker';
 import Switch from './Switch';
@@ -12,7 +12,6 @@ import { describeBackupWindow, minutesToHHMM, hhmmToMinutes, DEFAULT_BACKUP_WIND
 interface NodeFormFieldsProps {
   node: TreeNode;
   onChange: (updates: Partial<TreeNode>) => void;
-  appearance: AppearanceConfig;
 }
 
 type ConnectionTestStatus = 'idle' | 'testing' | 'online' | 'offline';

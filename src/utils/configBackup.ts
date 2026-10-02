@@ -65,12 +65,12 @@ export const validateConfigFile = (configData: any): { isValid: boolean; errors:
     }
 
     // Check for required top-level properties
-    const requiredProperties = ['general', 'appearance', 'tree'];
+    const requiredProperties = ['general', 'tree'];
     const missingProperties = requiredProperties.filter(prop => !configData[prop]);
     
     if (missingProperties.length > 0) {
       errors.push(`Missing required sections: ${missingProperties.join(', ')}`);
-      errors.push('A valid Nautilus configuration must have general, appearance, and tree sections');
+      errors.push('A valid Nautilus configuration must have general and tree sections');
     }
 
     // Validate general section
@@ -79,15 +79,6 @@ export const validateConfigFile = (configData: any): { isValid: boolean; errors:
         errors.push('The "general" section must be an object');
       } else if (Array.isArray(configData.general)) {
         errors.push('The "general" section must be an object, not an array');
-      }
-    }
-
-    // Validate appearance section
-    if (configData.appearance) {
-      if (typeof configData.appearance !== 'object') {
-        errors.push('The "appearance" section must be an object');
-      } else if (Array.isArray(configData.appearance)) {
-        errors.push('The "appearance" section must be an object, not an array');
       }
     }
 
@@ -107,23 +98,18 @@ export const validateConfigFile = (configData: any): { isValid: boolean; errors:
     // Check if this looks like a Nautilus backup
     const hasBackupMetadata = configData._backup?.application === 'Nautilus';
     const hasNautilusStructure = (
-      configData.general?.title || 
-      configData.appearance?.accentColor ||
+      configData.general?.title ||
       configData.tree?.nodes
     );
     
     if (!hasBackupMetadata && !hasNautilusStructure) {
       errors.push('File does not appear to be a valid Nautilus configuration');
-      errors.push('Expected to find Nautilus-specific properties like accentColor, title, or nodes array');
+      errors.push('Expected to find Nautilus-specific properties like a title or nodes array');
     }
 
     // Additional helpful checks
     if (configData.general?.title && typeof configData.general.title !== 'string') {
       errors.push('Application title must be a string');
-    }
-
-    if (configData.appearance?.accentColor && typeof configData.appearance.accentColor !== 'string') {
-      errors.push('Accent color must be a string');
     }
 
     return { isValid: errors.length === 0, errors };
@@ -192,13 +178,6 @@ export const loadConfigFromFile = (file: File): Promise<AppConfig> => {
           },
           client: {
             apiPollingInterval: cleanConfig.client?.apiPollingInterval || 5000
-          },
-          appearance: {
-            accentColor: cleanConfig.appearance?.accentColor || '#34a00d',
-            favicon: cleanConfig.appearance?.favicon || '',
-            backgroundImage: cleanConfig.appearance?.backgroundImage || '',
-            logo: cleanConfig.appearance?.logo || '',
-            disableBackground: cleanConfig.appearance?.disableBackground ?? false
           },
           tree: {
             nodes: cleanConfig.tree?.nodes || []

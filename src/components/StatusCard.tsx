@@ -98,7 +98,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
   if (totalStreams > 0) activityParts.push(`${totalStreams} stream${totalStreams === 1 ? '' : 's'}`);
   if (totalPlayers > 0) activityParts.push(`${totalPlayers} player${totalPlayers === 1 ? '' : 's'}`);
   const activitySummary = activityParts.join(' · ');
-  const accent = appConfig.appearance?.accentColor || '#3b82f6';
+  const accent = '#65d7e8';
 
   // Calculate percentages for the progress bar
   const healthPercentage = totalNodes > 0 ? (healthyNodes / totalNodes) * 100 : 100; // Green portion

@@ -2,13 +2,12 @@ import { Disclosure } from './ui/Disclosure';
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ArrowLeft, Save, Trash2, GitBranch, Plus } from 'lucide-react';
-import type { AppearanceConfig, TreeNode } from '../types/config';
+import type { TreeNode } from '../types/config';
 import { NodeFormFields } from './NodeFormFields';
 import { ConfirmDialog } from './ConfirmDialog';
 
-export function InspectorEditor({ node, appearance, onSave, onCancel, onAddChild, onDelete, children }: {
+export function InspectorEditor({ node, onSave, onCancel, onAddChild, onDelete, children }: {
   node: TreeNode;
-  appearance: AppearanceConfig;
   onSave: (node: TreeNode) => Promise<void>;
   onCancel: () => void;
   onAddChild: () => void;
@@ -79,10 +78,10 @@ export function InspectorEditor({ node, appearance, onSave, onCancel, onAddChild
   return <div className="inspector-editor" onKeyDown={event => {
     if (event.key === 'Escape' && !document.querySelector('[aria-modal="true"]')) { event.stopPropagation(); cancel(); }
   }}>
-    <header className="inspector-editor-heading"><button aria-label="Back to node details" onClick={cancel} disabled={saving}><ArrowLeft size={18} /></button><div><h2>Edit node</h2><p>{node.title}</p></div><span>{dirty ? 'Unsaved changes' : 'Node settings'}</span></header>
+    <header className="inspector-editor-heading"><button aria-label="Back to node details" onClick={cancel} disabled={saving}><ArrowLeft size={18} /></button><div><h2>Edit node</h2><p>{node.title}</p></div>{dirty && <span>Unsaved changes</span>}</header>
     <div className="inspector-editor-content" ref={content}>
       <fieldset disabled={saving}>
-        <NodeFormFields node={draft} onChange={updates => setDraft(previous => ({ ...previous, ...updates }))} appearance={appearance} />
+        <NodeFormFields node={draft} onChange={updates => setDraft(previous => ({ ...previous, ...updates }))} />
         <Disclosure title="Position in network">{children}</Disclosure>
         <button type="button" className="wide-action editor-add-child" onClick={onAddChild}>Add child node<Plus size={14} /></button>
 

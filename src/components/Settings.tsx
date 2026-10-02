@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings as SettingsIcon, X, Plus, Trash2, Save, LogOut, Network, Download, Upload, SlidersHorizontal, Palette, Bell, Shield } from 'lucide-react';
+import { Settings as SettingsIcon, X, Plus, Trash2, Save, LogOut, Network, Download, Upload, SlidersHorizontal, Bell, Shield } from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
 import { findNodeById, countDescendants, getAllNodes } from '../utils/nodeUtils';
 import { clearAuthentication, isAuthenticated, isAuthDisabled } from '../utils/auth';
 import { downloadConfigBackup, createConfigFileInput } from '../utils/configBackup';
-import { assetUrl } from '../utils/assetUrl';
 import { useToast } from './Toast';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -39,13 +38,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     client: {
       apiPollingInterval: initialConfig.client?.apiPollingInterval ?? 5000
     },
-    appearance: {
-      accentColor: initialConfig.appearance?.accentColor ?? '#3b82f6',
-      favicon: initialConfig.appearance?.favicon ?? '',
-      backgroundImage: initialConfig.appearance?.backgroundImage ?? '',
-      logo: initialConfig.appearance?.logo ?? '',
-      disableBackground: initialConfig.appearance?.disableBackground ?? false
-    },
     tree: {
       nodes: initialConfig.tree?.nodes ?? []
     },
@@ -57,10 +49,9 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       }
     }
   }));
-  const [activeTab, setActiveTab] = useState<'general' | 'nodes' | 'appearance' | 'notifications' | 'account'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'nodes' | 'notifications' | 'account'>('general');
   const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
   const [iconDropdownOpen, setIconDropdownOpen] = useState<string | null>(null);
-  const [fileErrors, setFileErrors] = useState<{ favicon?: string; backgroundImage?: string; logo?: string }>({});
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -198,12 +189,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }
   }, [isOpen, initialConfig, focusNodeId]);
 
-  // Clear file errors when modal is closed
-  useEffect(() => {
-    if (!isOpen) {
-      setFileErrors({});
-    }
-  }, [isOpen]);
+
 
   // Close icon dropdown when clicking outside
   useEffect(() => {
@@ -240,16 +226,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }));
   };
 
-  const updateAppearanceConfig = (field: keyof AppConfig['appearance'], value: string | boolean) => {
-    setConfig(prev => ({
-      ...prev,
-      appearance: {
-        ...prev.appearance,
-        [field]: value
-      }
-    }));
-  };
-
   const updateGeneralConfig = (field: keyof AppConfig['general'], value: string) => {
     setConfig(prev => ({
       ...prev,
@@ -273,66 +249,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
 
   // Save handler ensures config matches centralized structure
   // ...existing code...
-  // Restore handleFileUpload for image uploads
-  const handleFileUpload = (file: File, field: 'favicon' | 'backgroundImage' | 'logo') => {
-    setFileErrors(prev => ({ ...prev, [field]: undefined })); // Clear previous error
-
-    if (!file) return;
-
-    // Rule 1: Basic type check
-    if (!file.type.startsWith('image/')) {
-      setFileErrors(prev => ({ ...prev, [field]: 'Invalid file type. Please select an image.' }));
-      return;
-    }
-
-    // Rule 2: Size limit - Server supports up to 50MB, but reasonable limit for images
-    const maxSizeBytes = 10 * 1024 * 1024; // 10MB limit (reasonable for logo images)
-    
-    if (file.size > maxSizeBytes) {
-      setFileErrors(prev => ({ 
-        ...prev, 
-        [field]: `File size exceeds 10MB limit. Current size: ${(file.size / 1024 / 1024).toFixed(2)} MB. Please compress your image or use a smaller file.` 
-      }));
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-
-    reader.onload = (e) => {
-      const base64 = e.target?.result as string;
-      if (!base64) {
-        setFileErrors(prev => ({ ...prev, [field]: 'Could not read the file.' }));
-        return;
-      }
-
-      // Rule 3: Validate it's a real image by loading it
-      const img = new Image();
-      img.src = base64;
-
-      img.onload = () => {
-        // Optional: Dimension check for favicon
-        if (field === 'favicon' && (img.width > 128 || img.height > 128)) {
-          setFileErrors(prev => ({ ...prev, [field]: 'Favicon dimensions should not exceed 128x128 pixels.' }));
-          return;
-        }
-        
-        // Note: No dimension restrictions for logo field - any size should work
-        // All checks passed, update config
-        updateAppearanceConfig(field, base64);
-        const fieldLabel = field === 'backgroundImage' ? 'Background image' : field === 'favicon' ? 'Favicon' : 'Logo';
-        addToast({ type: 'success', message: `${fieldLabel} updated`, duration: 2000 });
-      };
-
-      img.onerror = () => {
-        setFileErrors(prev => ({ ...prev, [field]: 'The selected file is not a valid or supported image.' }));
-      };
-    };
-
-    reader.onerror = () => {
-      setFileErrors(prev => ({ ...prev, [field]: 'An error occurred while reading the file.' }));
-    };
-  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -578,16 +494,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
 
   // Node tree extracted to <SettingsNodeTree /> (ARCH-2c)
 
-  const renderAppearanceTab = () => (
-    <div className="identity-settings">
-      <div className="theme-preview"><span className="theme-preview-orbit" /><div><strong>Deep sea</strong><p>Designed for a clear view of your network, day or night.</p></div></div>
-      {(['logo', 'favicon'] as const).map(kind => <section className="identity-upload" key={kind}>
-        <div className="identity-artwork">{config.appearance[kind] ? <img src={assetUrl(config.appearance[kind]!)} alt={`${kind} preview`} /> : <Palette size={28} />}</div>
-        <div><h4>{kind === 'logo' ? 'Workspace logo' : 'Browser icon'}</h4><p>{kind === 'logo' ? 'Your identity in the navigation bar.' : 'Find your network among your browser tabs.'}</p><small>PNG, JPG, SVG{kind === 'favicon' ? ', ICO' : ''} · Up to 10 MB</small><div className="identity-upload-actions"><label className="upload-button">Upload {kind}<input type="file" className="sr-only" accept={kind === 'favicon' ? 'image/png,image/jpeg,image/svg+xml,image/x-icon' : 'image/png,image/jpeg,image/svg+xml'} onChange={e => { const file = e.target.files?.[0]; if (file) handleFileUpload(file, kind); }} /></label>{config.appearance[kind] && <button onClick={() => updateAppearanceConfig(kind, '')}>Remove</button>}</div>{fileErrors[kind] && <p role="alert" className="text-negative">{fileErrors[kind]}</p>}</div>
-      </section>)}
-    </div>
-  );
-
   if (!isOpen) return null;
 
   return (
@@ -610,24 +516,22 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
 
         <nav className="settings-navigation" aria-label="Settings sections">
           {([
-            ['general', 'General', 'Preferences & backups', SlidersHorizontal],
-            ['nodes', 'Nodes', 'Services & hierarchy', Network],
-            ['appearance', 'Appearance', 'Your network identity', Palette],
-            ['notifications', 'Notifications', 'Alerts & delivery', Bell],
-            ['account', 'Account', 'Access & security', Shield],
-          ] as const).map(([id, label, hint, Icon]) => <button key={id} aria-label={label} aria-current={activeTab === id ? 'page' : undefined} onClick={() => setActiveTab(id)}><Icon size={19} /><span>{label}<small>{hint}</small></span></button>)}
+            ['general', 'General', SlidersHorizontal],
+            ['nodes', 'Nodes', Network],
+            ['notifications', 'Notifications', Bell],
+            ['account', 'Account', Shield],
+          ] as const).map(([id, label, Icon]) => <button key={id} aria-label={label} aria-current={activeTab === id ? 'page' : undefined} onClick={() => setActiveTab(id)}><Icon size={19} /><span>{label}</span></button>)}
         </nav>
         <div className={`settings-content settings-${activeTab}`}>
-          <header className="settings-section-title"><h3>{{ general: 'Make Nautilus yours', nodes: 'Manage your network', appearance: 'A familiar identity', notifications: 'Stay ahead of outages', account: 'Control your access' }[activeTab]}</h3><p>{{ general: 'Choose how your network is monitored and how you explore it.', nodes: 'Organize services, edit connections, and keep your topology up to date.', appearance: 'Your name and artwork, across the observatory.', notifications: 'Decide when and where changes in your network reach you.', account: 'Manage the credentials that protect your network.' }[activeTab]}</p></header>
           {activeTab === 'general' && <div className="preference-sections">
-            <section className="preference-section"><div><h4>Workspace</h4><p>How you recognize and navigate your network.</p></div><div className="preference-fields">
-              <label className="preference-field">App title<input value={config.general.title} onChange={e => updateGeneralConfig('title', e.target.value)} /><small>Appears in the header and browser tab.</small></label>
+            <section className="preference-section"><div><h4>Workspace</h4></div><div className="preference-fields">
+              <label className="preference-field">App title<input value={config.general.title} onChange={e => updateGeneralConfig('title', e.target.value)} /></label>
             </div></section>
-            <section className="preference-section"><div><h4>Monitoring cadence</h4><p>Balance fresh readings with traffic to your services.</p></div><div className="preference-fields"><label className="preference-field">Health check interval<div className="input-unit"><input type="number" min={2000} value={config.server.healthCheckInterval} onChange={e => updateServerConfig('healthCheckInterval', Math.max(2000, Number(e.target.value)))} /><span>ms</span></div><small>Minimum 2,000 ms. Applies to all monitored nodes.</small></label></div></section>
-            <section className="preference-section"><div><h4>Configuration backups</h4><p>Keep a copy of your nodes and preferences.</p></div><div className="backup-actions">
-              <button onClick={handleMakeBackup}><Download size={20} /><span>Create Backup<small>Download your current configuration</small></span></button>
-              <button onClick={handleRestoreBackup}><Upload size={20} /><span>Restore Backup<small>Choose a saved configuration file</small></span></button>
-              <p>Restoring replaces the current configuration.</p>{backupError && <p role="alert" className="text-negative">{backupError}</p>}
+            <section className="preference-section"><div><h4>Monitoring cadence</h4></div><div className="preference-fields"><label className="preference-field">Health check interval<div className="input-unit"><input type="number" min={2000} value={config.server.healthCheckInterval} onChange={e => updateServerConfig('healthCheckInterval', Math.max(2000, Number(e.target.value)))} /><span>ms</span></div><small>Min. 2,000 ms</small></label></div></section>
+            <section className="preference-section"><div><h4>Configuration backups</h4></div><div className="backup-actions">
+              <button onClick={handleMakeBackup}><Download size={20} /><span>Create Backup</span></button>
+              <button onClick={handleRestoreBackup}><Upload size={20} /><span>Restore Backup</span></button>
+              {backupError && <p role="alert" className="text-negative">{backupError}</p>}
             </div></section>
           </div>}
 
@@ -657,7 +561,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                     node={node}
                     collapsedNodes={collapsedNodes}
                     isLoggedIn={isLoggedIn}
-                    appearance={config.appearance}
                     onToggleCollapse={toggleNodeCollapse}
                     onAddChild={addChildNode}
                     onDelete={deleteNode}
@@ -671,17 +574,16 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
 
           )}
 
-          {activeTab === 'appearance' && renderAppearanceTab()}
 
           {activeTab === 'account' && <AccountSettings accentColor={accentColor} />}
 
           {activeTab === 'notifications' && <div className="preference-sections">
-            <section className="preference-section"><div><h4>Delivery destination</h4><p>Send status changes to your automation or notification service.</p></div><div className="preference-fields"><label className="preference-field">Webhook endpoint<input type="url" placeholder="https://example.com/webhook" value={config.webhooks?.statusNotifications?.endpoint || ''} onChange={e => setConfig({ ...config, webhooks: { ...config.webhooks, statusNotifications: { notifyOffline: false, notifyOnline: false, ...config.webhooks?.statusNotifications, endpoint: e.target.value } } })} /><small>Notifications are sent as a JSON POST request.</small></label></div></section>
-            <section className="preference-section"><div><h4>When to notify</h4><p>Choose the changes that need your attention.</p></div><div className="preference-fields">
-              {(['notifyOffline', 'notifyOnline'] as const).map(key => <div className="preference-toggle" key={key}><div><label htmlFor={key}>{key === 'notifyOffline' ? 'A service goes offline' : 'A service recovers'}</label><p>{key === 'notifyOffline' ? 'Know when a health check fails.' : 'Get confirmation when it is back online.'}</p></div><Switch id={key} checked={config.webhooks?.statusNotifications?.[key] || false} onChange={checked => setConfig({ ...config, webhooks: { ...config.webhooks, statusNotifications: { endpoint: '', notifyOffline: false, notifyOnline: false, ...config.webhooks?.statusNotifications, [key]: checked } } })} accentColor={accentColor} /></div>)}
-              {config.webhooks?.statusNotifications?.notifyOffline && <label className="preference-field notification-delay">Wait before alerting<div className="input-unit"><input type="number" min={0} step={30} value={config.webhooks.statusNotifications.notifyAfterSeconds ?? 0} onChange={e => setConfig({ ...config, webhooks: { ...config.webhooks, statusNotifications: { ...config.webhooks!.statusNotifications!, notifyAfterSeconds: Math.max(0, Number(e.target.value)) } } })} /><span>seconds</span></div><small>Use a delay to avoid alerts for brief interruptions.</small></label>}
+            <section className="preference-section"><div><h4>Delivery destination</h4></div><div className="preference-fields"><label className="preference-field">Webhook endpoint<input type="url" placeholder="https://example.com/webhook" value={config.webhooks?.statusNotifications?.endpoint || ''} onChange={e => setConfig({ ...config, webhooks: { ...config.webhooks, statusNotifications: { notifyOffline: false, notifyOnline: false, ...config.webhooks?.statusNotifications, endpoint: e.target.value } } })} /></label></div></section>
+            <section className="preference-section"><div><h4>When to notify</h4></div><div className="preference-fields">
+              {(['notifyOffline', 'notifyOnline'] as const).map(key => <div className="preference-toggle" key={key}><div><label htmlFor={key}>{key === 'notifyOffline' ? 'A service goes offline' : 'A service recovers'}</label></div><Switch id={key} checked={config.webhooks?.statusNotifications?.[key] || false} onChange={checked => setConfig({ ...config, webhooks: { ...config.webhooks, statusNotifications: { endpoint: '', notifyOffline: false, notifyOnline: false, ...config.webhooks?.statusNotifications, [key]: checked } } })} accentColor={accentColor} /></div>)}
+              {config.webhooks?.statusNotifications?.notifyOffline && <label className="preference-field notification-delay">Wait before alerting<div className="input-unit"><input type="number" min={0} step={30} value={config.webhooks.statusNotifications.notifyAfterSeconds ?? 0} onChange={e => setConfig({ ...config, webhooks: { ...config.webhooks, statusNotifications: { ...config.webhooks!.statusNotifications!, notifyAfterSeconds: Math.max(0, Number(e.target.value)) } } })} /><span>seconds</span></div></label>}
             </div></section>
-            <section className="preference-section"><div><h4>Verify delivery</h4><p>Send a sample notification to check the connection.</p></div><div className="backup-actions"><button disabled={isTestingSend || !config.webhooks?.statusNotifications?.endpoint} onClick={handleSendTestNotification}><Bell size={20} /><span>{isTestingSend ? 'Sending…' : 'Send test notification'}<small>Uses the endpoint entered above</small></span></button></div></section>
+            <section className="preference-section"><div><h4>Verify delivery</h4></div><div className="backup-actions"><button disabled={isTestingSend || !config.webhooks?.statusNotifications?.endpoint} onClick={handleSendTestNotification}><Bell size={20} /><span>{isTestingSend ? 'Sending…' : 'Send test notification'}</span></button></div></section>
           </div>}
 
         </div>

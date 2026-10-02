@@ -1,7 +1,7 @@
 import { HomeConstellation } from './HomeConstellation';
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import { Activity, ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, CircleDot, Clock3, Compass, Crosshair, Edit3, ExternalLink, Film, Gamepad2, History, List, Minus, Network, Plus, RefreshCw, Search, Settings, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, Binoculars, CircleDot, Crosshair, Edit3, Film, Gamepad2, History, List, Minus, Network, Plus, RefreshCw, Search, Settings, X } from 'lucide-react';
 import type { AppConfig, NodeStatus, TreeNode } from '../types/config';
 import { activity, matchesNode, summarize, healthDescription, healthStates } from '../utils/networkSummary';
 import type { NetworkFilter } from '../utils/networkSummary';
@@ -10,7 +10,6 @@ import type { RadialLayout } from '../utils/radialLayout';
 import { getAllNodes, getNodeTargetUrl, isNodeMonitored, getNodeSiblingPosition } from '../utils/nodeUtils';
 import { iconRegistry } from '../utils/iconUtils';
 import { getStatusColor, statusLabels } from '../utils/colors';
-import { assetUrl } from '../utils/assetUrl';
 import { NodeHistoryView } from './history/NodeHistoryView';
 import { PeriodPicker } from './history/historyCharts';
 import type { HistoryPeriod } from '../hooks/useStatusHistory';
@@ -156,6 +155,9 @@ export default function RadialDashboard(props: Props) {
   // Mobile inspector is a bottom sheet: drag the handle up to expand, down to collapse or dismiss.
   const [sheetExpanded, setSheetExpanded] = useState(false);
   const [sheetStyle, setSheetStyle] = useState<CSSProperties | null>(null);
+  const [closing, setClosing] = useState<'animate' | 'away' | null>(null);
+  const closeTimer = useRef<number | undefined>(undefined);
+  const closeRef = useRef<() => void>(() => {});
   const sheetDrag = useRef<{ id: number; y: number; height: number; dy: number; active: boolean } | null>(null);
   const savedCamera = useRef<Camera | null>(null);
   const cameraRef = useRef(camera);
@@ -251,8 +253,7 @@ export default function RadialDashboard(props: Props) {
         setHoveredId(null);
         setSearchOpen(false);
         if (document.querySelector('[aria-modal="true"], .inspector-editor')) return;
-        setSelectedId(null);
-        if (selectedId) document.querySelector<HTMLButtonElement>(`[data-select-node="${CSS.escape(selectedId)}"]`)?.focus();
+        closeRef.current();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -267,7 +268,7 @@ export default function RadialDashboard(props: Props) {
     if (!selectedId) return;
     setMoveParent(parents.get(selectedId) ?? '');
     setMoveError('');
-    inspector.current?.focus();
+    inspector.current?.focus({ preventScroll: true }); // it is still sliding in; scrolling the stage to it makes the map jump
   }, [selectedId, parents]); // Updating telemetry must not steal focus.
 
   function select(node: TreeNode, reveal = false) {
@@ -368,12 +369,22 @@ export default function RadialDashboard(props: Props) {
     catch (error) { setMoveError(error instanceof Error ? error.message : 'Could not move node. Try again.'); }
     finally { setMoving(false); setDragged(null); setDropId(null); }
   }
-  useEffect(() => { setSheetExpanded(false); setSheetStyle(null); }, [selectedId]);
-  function closeInspector() {
+  useEffect(() => { setSheetExpanded(false); setSheetStyle(null); setClosing(null); window.clearTimeout(closeTimer.current); }, [selectedId]);
+  useEffect(() => () => window.clearTimeout(closeTimer.current), []);
+  /** Plays the exit animation (unless the drag already slid it away), then unmounts the inspector. */
+  function closeInspector(alreadyAway = false) {
     const id = selectedId;
-    setSelectedId(null);
-    if (id) document.querySelector<HTMLButtonElement>(`[data-select-node="${CSS.escape(id)}"]`)?.focus();
+    if (!id || closing) return;
+    const finish = () => {
+      setSelectedId(null);
+      document.querySelector<HTMLButtonElement>(`[data-select-node="${CSS.escape(id)}"]`)?.focus({ preventScroll: true });
+    };
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { finish(); return; }
+    setClosing(alreadyAway ? 'away' : 'animate');
+    if (!alreadyAway) setSheetStyle(null);
+    closeTimer.current = window.setTimeout(finish, 240);
   }
+  closeRef.current = closeInspector;
   function sheetDown(event: ReactPointerEvent<HTMLElement>) {
     if (!isMobile || event.button !== 0 || !inspector.current) return;
     sheetDrag.current = { id: event.pointerId, y: event.clientY, height: inspector.current.getBoundingClientRect().height, dy: 0, active: false };
@@ -389,7 +400,7 @@ export default function RadialDashboard(props: Props) {
     }
     // Upward grows the sheet toward full height; downward slides it away.
     setSheetStyle(drag.dy < 0
-      ? { maxHeight: 'none', height: Math.min(drag.height - drag.dy, window.innerHeight * .92), transition: 'none' }
+      ? { maxHeight: 'none', height: Math.min(drag.height - drag.dy, (stage.current?.clientHeight ?? window.innerHeight) - 8), transition: 'none' }
       : { transform: `translateY(${drag.dy}px)`, transition: 'none' });
   }
   function sheetUp(event: ReactPointerEvent<HTMLElement>) {
@@ -398,7 +409,7 @@ export default function RadialDashboard(props: Props) {
     if (!drag?.active || drag.id !== event.pointerId) return;
     if (drag.dy < -40) { setSheetExpanded(true); setSheetStyle(null); }
     else if (drag.dy > 80 && sheetExpanded) { setSheetExpanded(false); setSheetStyle(null); }
-    else if (drag.dy > 80) { setSheetStyle({ transform: 'translateY(100%)' }); setTimeout(closeInspector, 220); }
+    else if (drag.dy > 80) { setSheetStyle({ transform: 'translateY(100%)' }); closeInspector(true); }
     else setSheetStyle(null);
   }
 
@@ -428,7 +439,7 @@ export default function RadialDashboard(props: Props) {
         <button className="list-fold" aria-label={`${effectiveCollapsed.has(node.id) ? 'Expand' : 'Collapse'} ${node.title}`} disabled={!node.children?.length} onClick={() => toggleFold(node)}>{effectiveCollapsed.has(node.id) ? <ChevronRight size={16} /> : <ChevronDown size={16} />}</button>
         <button className="list-node" data-select-node={node.id} onClick={() => select(node)}>
           <span className="list-node-icon" style={{ color: getStatusColor(s, isNodeMonitored(node)) }}><NodeIcon node={node} /></span>
-          <span className="list-identity"><strong>{node.title}</strong><small>{node.subtitle || (parents.get(node.id) ? byId.get(parents.get(node.id)!)?.title : 'Home lab')}{effectiveCollapsed.has(node.id) && stats.total ? ` · ${stats.total} hidden${stats.offline ? ` · ${stats.offline} offline` : ''}` : ''}</small></span>
+          <span className="list-identity"><strong>{node.title}</strong>{(() => { const meta = [node.subtitle, effectiveCollapsed.has(node.id) && stats.total ? `${stats.total} hidden${stats.offline ? ` · ${stats.offline} offline` : ''}` : ''].filter(Boolean).join(' · '); return meta ? <small>{meta}</small> : null; })()}</span>
           <span className="list-health" style={{ color: getStatusColor(s, isNodeMonitored(node)) }}><i className="health-dot" style={{ background: 'currentColor' }} />{statusText(node, s)}</span>
           <span className="list-response">{s?.responseTime != null && isNodeMonitored(node) ? `${s.responseTime} ms` : '\u2014'}</span>
           <span className="list-count">{counts.streams + counts.players > 0 ? <>{counts.streams ? <Film size={14} /> : <Gamepad2 size={14} />}{counts.streams || counts.players}</> : '\u2014'}</span>
@@ -441,7 +452,7 @@ export default function RadialDashboard(props: Props) {
   return <main className={`nautilus-shell ${editMode ? 'is-edit-mode' : ''}`}>
     <header className={`network-header ${searchOpen ? 'search-open' : ''}`}>
       <a className="network-brand" href="#" onClick={event => { event.preventDefault(); returnToNetwork(); }}>
-        {config.appearance.logo || config.appearance.favicon ? <img src={assetUrl(config.appearance.logo || config.appearance.favicon!)} alt="" /> : <span className="brand-mark"><Compass size={25} strokeWidth={1.4} /></span>}
+        <span className="brand-mark"><Binoculars size={22} strokeWidth={1.6} /></span>
         <span>{config.general.title || 'Nautilus'}<small>Network observatory</small></span>
       </a>
     <section className="monitor-strip" aria-label="Network monitoring">
@@ -514,27 +525,46 @@ export default function RadialDashboard(props: Props) {
       {editMode && dragged && isList && <div className="root-drop" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void moveNode(dragged, null); }}>Connect directly to Home lab</div>}
       {editMode && !dragged && <div className="edit-hint">Drag onto a node to move beneath it, or use the inspector’s parent selector.</div>}
       {moveError && !selected && <div className="network-notice" role="alert">{moveError}</div>}
-      {selected && isMobile && !editorNode && <div className="sheet-backdrop" aria-hidden="true" onClick={closeInspector} />}
-      {selected && <aside ref={inspector} tabIndex={-1} className={`node-inspector ${editorNode ? 'is-editing' : ''} ${sheetExpanded ? 'sheet-expanded' : ''}`} style={sheetStyle ?? undefined} aria-label={`${selected.title} details`}>
-        {editorNode ? <InspectorEditor key={editorNode.id} node={editorNode} appearance={config.appearance} onCancel={finishEdit} onAddChild={() => props.onAdd(selected.id)} onDelete={keepChildren => props.onDelete(selected.id, keepChildren)} onSave={async node => { await props.onSaveNode({ ...node, children: byId.get(node.id)?.children }); }}>
+      {selected && isMobile && !editorNode && <div className={`sheet-backdrop ${closing ? 'is-closing' : ''}`} aria-hidden="true" onClick={() => closeInspector()} />}
+      {selected && <aside ref={inspector} tabIndex={-1} className={`node-inspector ${editorNode ? 'is-editing' : ''} ${sheetExpanded ? 'sheet-expanded' : ''} ${closing === 'animate' ? 'is-closing' : ''}`} style={sheetStyle ?? undefined} onScroll={event => { if (isMobile && !sheetExpanded && !editorNode && event.currentTarget.scrollTop > 0) setSheetExpanded(true); }} aria-label={`${selected.title} details`}>
+        {editorNode ? <InspectorEditor key={editorNode.id} node={editorNode} onCancel={finishEdit} onAddChild={() => props.onAdd(selected.id)} onDelete={keepChildren => props.onDelete(selected.id, keepChildren)} onSave={async node => { await props.onSaveNode({ ...node, children: byId.get(node.id)?.children }); }}>
           <label className="parent-picker">Parent<select aria-label="Parent" value={moveParent} onChange={e => setMoveParent(e.target.value)}><option value="">Home lab</option>{all.filter(n => n.id !== selected.id && !getAllNodes(selected.children ?? []).some(child => child.id === n.id)).map(n => <option key={n.id} value={n.id}>{n.title}</option>)}</select></label><button className="wide-action" disabled={moving || moveParent === (parents.get(selected.id) ?? '')} onClick={() => void moveNode(selected.id, moveParent || null)}>{moving ? 'Moving...' : 'Move node'}<ArrowUpRight size={14} /></button><div className="manage-actions"><button disabled={getNodeSiblingPosition(config.tree.nodes, selected.id)?.index === 0} onClick={() => props.onOrder(selected.id, 'up')}>Move earlier</button><button onClick={() => props.onOrder(selected.id, 'down')}>Move later</button></div>{moveError && <p role="alert" className="inspector-error">{moveError}</p>}
         </InspectorEditor> : <>
-        <div className="inspector-heading" onPointerDown={sheetDown} onPointerMove={sheetMove} onPointerUp={sheetUp} onPointerCancel={sheetUp}>{isMobile && <span className="sheet-grabber" aria-hidden="true" />}<span className="inspector-breadcrumb"><Network size={14} />{parents.get(selected.id) ? byId.get(parents.get(selected.id)!)?.title : 'Home lab'}</span><button aria-label="Close inspector" onClick={closeInspector}><X size={18} /></button></div>
-        <div className="inspector-identity"><span style={{ color: getStatusColor(selectedStatus, isNodeMonitored(selected)) }}><NodeIcon node={selected} /></span><h2>{selected.title}</h2><p>{selected.subtitle}</p><div className="inspector-status" style={{ color: getStatusColor(selectedStatus, isNodeMonitored(selected)) }}><i style={{ background: 'currentColor' }} />{statusText(selected, selectedStatus)}</div></div>
+        <div className="inspector-heading" onPointerDown={sheetDown} onPointerMove={sheetMove} onPointerUp={sheetUp} onPointerCancel={sheetUp}>{isMobile && <span className="sheet-grabber" aria-hidden="true" />}</div><button className="inspector-close" aria-label="Close inspector" onClick={() => closeInspector()}><X size={18} /></button>
+        <div className="inspector-identity"><span style={{ color: getStatusColor(selectedStatus, isNodeMonitored(selected)) }}><NodeIcon node={selected} /></span><h2>{selected.title}</h2>{selected.subtitle && <p>{selected.subtitle}</p>}<div className="inspector-status" style={{ color: getStatusColor(selectedStatus, isNodeMonitored(selected)) }}><i style={{ background: 'currentColor' }} />{statusText(selected, selectedStatus)}</div></div>
         <div className="inspector-tabs animated-segments" style={{ '--segment-index': tab === 'history' ? 1 : 0 } as CSSProperties}><button aria-pressed={tab === 'overview'} onClick={() => setTab('overview')}>Overview</button><button aria-pressed={tab === 'history'} onClick={() => setTab('history')} disabled={!isNodeMonitored(selected)}>History</button></div>
         <div className="inspector-content">{tab === 'history' ? <><PeriodPicker active={period} onChange={setPeriod} /><NodeHistoryView nodeId={selected.id} period={period} accentColor="#65d7e8" /></> : <>
-          <h3><Activity size={14} />Monitoring</h3>{!isNodeMonitored(selected) ? <div className="monitoring-empty"><Activity size={22} /><strong>Health checks are off</strong><p>Enable monitoring to track availability and response time.</p><button onClick={() => void beginEdit(selected)} disabled={openingEditor}>Configure monitoring<ArrowUpRight size={14} /></button></div> : <dl className="monitoring-readings"><div><dt>Response time</dt><dd>{selectedStatus?.responseTime != null ? `${selectedStatus.responseTime} ms` : '—'}</dd></div><div><dt>Last checked</dt><dd>{elapsed(selectedStatus?.lastChecked)}</dd></div><div><dt>Status changed</dt><dd>{elapsed(selectedStatus?.statusChangedAt)}</dd></div><div><dt>Health check</dt><dd>{selected.healthCheckType || (isNodeMonitored(selected) ? 'HTTP' : 'Disabled')}</dd></div></dl>}
-          {selectedStatus?.error && <p className="inspector-error">{selectedStatus.error}</p>}
-          {(selected.healthCheckType === 'plex' || selected.healthCheckType === 'minecraft') && <div className="inspector-activity">{selected.healthCheckType === 'plex' ? <Film size={20} /> : <Gamepad2 size={20} />}<strong>{selectedStatus?.status === 'online' ? selected.healthCheckType === 'plex' ? selectedStatus.streams ?? 0 : `${selectedStatus.players?.online ?? 0} / ${selectedStatus.players?.max ?? '—'}` : '—'}</strong><span>{selected.healthCheckType === 'plex' ? 'live streams' : 'players online'}</span></div>}
-          <h3><ArrowUpRight size={14} />Connection</h3><dl className="connection-readings"><div><dt>Service address</dt><dd>{getNodeTargetUrl(selected) || 'Not configured'}</dd></div>{selected.internalAddress && selected.internalAddress !== '********' && <div><dt>Monitoring address</dt><dd>{selected.internalAddress}</dd></div>}</dl>
-          {selected.backupWindow?.enabled && <><h3><Clock3 size={14} />Backup window</h3><p>{selected.backupWindow.frequency}{selected.backupWindow.frequency === 'weekly' ? ` · ${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][selected.backupWindow.dayOfWeek ?? 0]}` : ''} at {String(Math.floor(selected.backupWindow.startMinute / 60)).padStart(2, '0')}:{String(selected.backupWindow.startMinute % 60).padStart(2, '0')} for {selected.backupWindow.durationMinutes} minutes. {selected.backupWindow.source === 'auto' ? 'Automatically detected.' : ''}</p></>}
-          {!!selected.children?.length && <><h3><Network size={14} />Branch health</h3><div className="branch-summary"><strong>{branchStats.get(selected.id)?.total}<small>descendants</small></strong><strong>{branchStats.get(selected.id)?.online}<small>online</small></strong><strong className={branchStats.get(selected.id)?.offline ? 'has-outage' : ''}>{branchStats.get(selected.id)?.offline}<small>offline</small></strong></div></>}
-
+          {(() => {
+            // Only what is actually known about this node: no section headings, no placeholder rows.
+            const monitored = isNodeMonitored(selected);
+            const readings = monitored ? [
+              selectedStatus?.responseTime != null && ['Response time', `${selectedStatus.responseTime} ms`],
+              selectedStatus?.lastChecked && ['Last checked', elapsed(selectedStatus.lastChecked)],
+              selectedStatus?.statusChangedAt && ['Status changed', elapsed(selectedStatus.statusChangedAt)],
+              ['Health check', selected.healthCheckType || 'HTTP'],
+            ].filter(Boolean) as [string, string][] : [];
+            const backup = selected.backupWindow?.enabled ? selected.backupWindow : null;
+            const pad = (n: number) => String(n).padStart(2, '0');
+            const details = [
+              getNodeTargetUrl(selected) && ['Service address', getNodeTargetUrl(selected)],
+              selected.internalAddress && selected.internalAddress !== '********' && ['Monitoring address', selected.internalAddress],
+              backup && ['Backup window', `${backup.frequency === 'weekly' ? ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'][backup.dayOfWeek ?? 0] : 'Daily'} ${pad(Math.floor(backup.startMinute / 60))}:${pad(backup.startMinute % 60)} · ${backup.durationMinutes} min${backup.source === 'auto' ? ' · detected' : ''}`],
+            ].filter(Boolean) as [string, string][];
+            const activityType = selected.healthCheckType === 'plex' || selected.healthCheckType === 'minecraft' ? selected.healthCheckType : null;
+            const branch = selected.children?.length ? branchStats.get(selected.id) : undefined;
+            return <div className="inspector-overview">
+              {readings.length > 0 && <dl className="monitoring-readings">{readings.map(([label, value]) => <div key={label} className={label === 'Response time' ? 'is-primary' : undefined}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
+              {selectedStatus?.error && <p className="inspector-error">{selectedStatus.error}</p>}
+              {activityType && selectedStatus?.status === 'online' && <div className="inspector-activity">{activityType === 'plex' ? <Film size={20} /> : <Gamepad2 size={20} />}<strong>{activityType === 'plex' ? selectedStatus.streams ?? 0 : `${selectedStatus.players?.online ?? 0} / ${selectedStatus.players?.max ?? '?'}`}</strong><span>{activityType === 'plex' ? 'live streams' : 'players online'}</span></div>}
+              {details.length > 0 && <dl className="connection-readings">{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
+              {branch && <div className="branch-summary"><strong>{branch.total}<small>descendants</small></strong><strong>{branch.online}<small>online</small></strong><strong className={branch.offline ? 'has-outage' : ''}>{branch.offline}<small>offline</small></strong></div>}
+            </div>;
+          })()}
           {moveError && <p role="alert" className="inspector-error">{moveError}</p>}
           {editorError && <p role="alert" className="inspector-error">{editorError}</p>}
           <button className="inspector-edit-button" onClick={() => void beginEdit(selected)} disabled={openingEditor}><Edit3 size={15} />{openingEditor ? 'Opening...' : 'Edit node'}</button>
         </>}</div>
-        {getNodeTargetUrl(selected) && <footer className="inspector-bottom-actions"><button className="inspector-open-button" onClick={() => props.onOpen(selected)}><span>Open {selected.title}</span><ExternalLink size={16} /></button></footer>}
+        {getNodeTargetUrl(selected) && <footer className="inspector-bottom-actions"><button className="inspector-open-button" onClick={() => props.onOpen(selected)}><span>Open {selected.title}</span></button></footer>}
         </>}
       </aside>}
     </div>

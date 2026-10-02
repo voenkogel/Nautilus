@@ -23,13 +23,6 @@ const initialAppConfig: AppConfig = {
   general: {
     title: "Nautilus"
   },
-  appearance: {
-    // Removed title from appearance config
-    accentColor: "#3b82f6",
-    backgroundImage: "",
-    favicon: "",
-    logo: ""
-  },
   tree: {
     nodes: []
   },
@@ -912,7 +905,6 @@ const Canvas: React.FC = () => {
           onClose={() => setEditingNode(null)}
           onDelete={handleDeleteNode}
           onEditChild={handleEditChildNode}
-          appearance={currentConfig.appearance}
         />
       )}
 

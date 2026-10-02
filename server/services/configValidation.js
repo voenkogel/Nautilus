@@ -32,7 +32,7 @@ export function validateConfig(config) {
   }
 
   // Check for required top-level properties
-  const requiredFields = ['appearance', 'tree'];
+  const requiredFields = ['tree'];
   for (const field of requiredFields) {
     if (!config[field] || typeof config[field] !== 'object') {
       return { valid: false, error: `Missing or invalid ${field} configuration` };
