@@ -1,16 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Settings as SettingsIcon, X, Plus, Trash2, Save, LogOut, Network, Download, Upload, SlidersHorizontal, Bell, Shield } from 'lucide-react';
-import type { AppConfig, TreeNode } from '../types/config';
-import { findNodeById, countDescendants, getAllNodes } from '../utils/nodeUtils';
+import { Settings as SettingsIcon, X, Trash2, Save, LogOut, Network, Download, Upload, SlidersHorizontal, Bell, Shield } from 'lucide-react';
+import type { AppConfig } from '../types/config';
+import { getAllNodes } from '../utils/nodeUtils';
 import { clearAuthentication, isAuthenticated, isAuthDisabled } from '../utils/auth';
 import { downloadConfigBackup, createConfigFileInput } from '../utils/configBackup';
 import { useToast } from './Toast';
 import { ConfirmDialog } from './ConfirmDialog';
 
-import { SettingsNodeTree } from './settings/SettingsNodeTree';
 import { AccountSettings } from './settings/AccountSettings';
 import Switch from './Switch';
-import { useFocusTrap } from '../hooks/useFocusTrap';
+import { Modal } from './ui/Modal';
+import { useAnimatedClose } from '../hooks/useAnimatedClose';
 
 interface SettingsProps {
   isOpen: boolean;
@@ -18,15 +18,14 @@ interface SettingsProps {
   initialConfig: AppConfig;
   onSave: (config: AppConfig) => Promise<void>;
   onRestore: (config: AppConfig) => Promise<void>;
-  focusNodeId?: string; // Optional node ID to focus on and expand
 }
 
-const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onSave, onRestore, focusNodeId }) => {
+const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onSave, onRestore }) => {
   const { addToast } = useToast();
   
   // Use initialConfig as the source of truth, reflecting merged config from env vars and config.json
-  const settingsRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(settingsRef, isOpen);
+  // Every close path goes through requestClose so the sheet can slide away.
+  const { closing, requestClose } = useAnimatedClose(onClose);
   const [config, setConfig] = useState<AppConfig>(() => ({
     general: {
       title: initialConfig.general?.title ?? 'Nautilus',
@@ -49,9 +48,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
       }
     }
   }));
-  const [activeTab, setActiveTab] = useState<'general' | 'nodes' | 'notifications' | 'account'>('general');
-  const [collapsedNodes, setCollapsedNodes] = useState<Set<string>>(new Set());
-  const [iconDropdownOpen, setIconDropdownOpen] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'general' | 'notifications' | 'account'>('general');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -62,12 +59,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   const editingSession = useRef(false);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [isTestingSend, setIsTestingSend] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState<{
-    isOpen: boolean;
-    nodeId: string;
-    nodeTitle: string;
-    childCount: number;
-  } | null>(null);
   const [versionInfo, setVersionInfo] = useState<{ version: string; sha: string; tag: string | null } | null>(null);
 
   // Check authentication status on mount
@@ -93,7 +84,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     if (window.confirm('Are you sure you want to logout?')) {
       await clearAuthentication();
       setIsLoggedIn(false);
-      onClose(); // Close settings modal after logout
+      requestClose(); // Close settings modal after logout
     }
   };
 
@@ -147,7 +138,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     if (pendingRestoreConfig) {
       setConfig(pendingRestoreConfig);
       setRestoreStaged(true);
-      setCollapsedNodes(new Set());
       setPendingRestoreConfig(null);
       setShowRestoreConfirm(false);
       setBackupError(null);
@@ -164,44 +154,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
 
   // Get accent color from configuration
   const accentColor = '#65d7e8';
-
-  // Initialize collapsed state for all nodes when opening settings
-  useEffect(() => {
-    if (isOpen) {
-      const nodeIds = new Set<string>();
-      const collectNodeIds = (nodes: TreeNode[]) => {
-        nodes.forEach(node => {
-          nodeIds.add(node.id);
-          if (node.children) {
-            collectNodeIds(node.children);
-          }
-        });
-      };
-      collectNodeIds(initialConfig.tree.nodes);
-      
-      // If focusNodeId is provided, expand that node and switch to nodes tab
-      if (focusNodeId) {
-        nodeIds.delete(focusNodeId);
-        setActiveTab('nodes');
-      }
-      
-      setCollapsedNodes(nodeIds);
-    }
-  }, [isOpen, initialConfig, focusNodeId]);
-
-
-
-  // Close icon dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (iconDropdownOpen && !(event.target as Element).closest('.icon-dropdown')) {
-        setIconDropdownOpen(null);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [iconDropdownOpen]);
 
   // Refresh between editing sessions; live updates must not overwrite a draft.
   useEffect(() => {
@@ -247,8 +199,15 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }));
   };
 
-  // Save handler ensures config matches centralized structure
-  // ...existing code...
+  // The scan window lives on the canvas, so Settings steps aside for it.
+  const handleDiscover = async () => {
+    if (!await isAuthenticated()) {
+      addToast({ type: 'error', message: 'Admin authentication required to discover nodes.', duration: 4000 });
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('openScanWindow'));
+    requestClose();
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -257,7 +216,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     try {
       await (restoreStaged ? onRestore(config) : onSave(config));
       addToast({ type: 'success', message: restoreStaged ? 'Backup restored and saved' : 'Settings saved', duration: 2000 });
-      onClose();
+      requestClose();
     } catch (error) {
       console.error('Error saving settings:', error);
       
@@ -347,158 +306,21 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     }
   };
 
-  // ...existing code...
-
-  const addNode = () => {
-    const newNode: TreeNode = {
-      id: `node-${Date.now()}`,
-      title: 'New Node',
-      subtitle: 'Description',
-      icon: 'server',
-      type: 'square',
-      children: []
-    };
-
-    setConfig(prev => ({
-      ...prev,
-      tree: {
-        ...prev.tree,
-        nodes: [...prev.tree.nodes, newNode]
-      }
-    }));
-  };
-
-  const updateNode = (nodeId: string, updatedNode: Partial<TreeNode>) => {
-    const updateNodeRecursive = (nodes: TreeNode[], currentPath: number[]): TreeNode[] => {
-      return nodes.map((node, index) => {
-        const newPath = [...currentPath, index];
-        
-        if (node.id === nodeId) {
-          return { ...node, ...updatedNode };
-        }
-        
-        if (node.children && node.children.length > 0) {
-          return {
-            ...node,
-            children: updateNodeRecursive(node.children, newPath)
-          };
-        }
-        
-        return node;
-      });
-    };
-
-    setConfig(prev => ({
-      ...prev,
-      tree: {
-        ...prev.tree,
-        nodes: updateNodeRecursive(prev.tree.nodes, [])
-      }
-    }));
-  };
-
-  // findNodeById and countDescendants are imported from utils/nodeUtils
-
-  // Core delete function
-  const performDeleteNode = (nodeId: string) => {
-    const deleteNodeRecursive = (nodes: TreeNode[]): TreeNode[] => {
-      return nodes
-        .filter(node => node.id !== nodeId)
-        .map(node => ({
-          ...node,
-          children: node.children ? deleteNodeRecursive(node.children) : []
-        }));
-    };
-
-    setConfig(prev => ({
-      ...prev,
-      tree: {
-        ...prev.tree,
-        nodes: deleteNodeRecursive(prev.tree.nodes)
-      }
-    }));
-  };
-
-  const deleteNode = (nodeId: string) => {
-    const node = findNodeById(config.tree.nodes, nodeId);
-    if (!node) return;
-
-    const childCount = countDescendants(node);
-
-    if (childCount > 0) {
-      // Show confirmation dialog for nodes with children
-      setDeleteConfirmation({
-        isOpen: true,
-        nodeId,
-        nodeTitle: node.title,
-        childCount
-      });
-    } else {
-      // Delete directly if no children
-      performDeleteNode(nodeId);
-    }
-  };
-
-  const addChildNode = (parentId: string) => {
-    const newNode: TreeNode = {
-      id: `node-${Date.now()}`,
-      title: 'New Child Node',
-      subtitle: 'Description',
-      icon: 'server',
-      type: 'square',
-      children: []
-    };
-
-    const addChildRecursive = (nodes: TreeNode[]): TreeNode[] => {
-      return nodes.map(node => {
-        if (node.id === parentId) {
-          return {
-            ...node,
-            children: [...(node.children || []), newNode]
-          };
-        }
-        
-        if (node.children && node.children.length > 0) {
-          return {
-            ...node,
-            children: addChildRecursive(node.children)
-          };
-        }
-        
-        return node;
-      });
-    };
-
-    setConfig(prev => ({
-      ...prev,
-      tree: {
-        ...prev.tree,
-        nodes: addChildRecursive(prev.tree.nodes)
-      }
-    }));
-  };
-
-  const toggleNodeCollapse = (nodeId: string) => {
-    setCollapsedNodes(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(nodeId)) {
-        newSet.delete(nodeId);
-      } else {
-        newSet.add(nodeId);
-      }
-      return newSet;
-    });
-  };
-
-
-
-  // Node tree extracted to <SettingsNodeTree /> (ARCH-2c)
-
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4 animate-fade-in">
-      <div ref={settingsRef} onKeyDown={event => { if (event.key === "Escape" && !document.querySelector('[role="alertdialog"]')) { event.stopPropagation(); onClose(); } }} className="settings-workspace" role="dialog" aria-modal="true" aria-label="Settings">
+    <>
+      <Modal
+        isOpen
+        variant="sheet"
+        closing={closing}
+        onClose={requestClose}
+        closeOnEscape={false}
+        zIndexClassName="z-[9999]"
+        containerClassName="settings-workspace"
+        ariaLabel="Settings"
+        onKeyDown={event => { if (event.key === "Escape" && !document.querySelector('[role="alertdialog"]')) { event.stopPropagation(); requestClose(); } }}
+      >
         {/* Header */}
         <div className="settings-heading flex items-center justify-between border-b border-line flex-shrink-0">
           <div className="flex items-center space-x-2">
@@ -506,7 +328,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
             <h2 className="text-xl font-semibold text-ink">Settings</h2>
           </div>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Close settings"
             className="p-2 text-muted hover:text-muted hover:bg-raised rounded-full transition-colors"
           >
@@ -517,7 +339,6 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
         <nav className="settings-navigation" aria-label="Settings sections">
           {([
             ['general', 'General', SlidersHorizontal],
-            ['nodes', 'Nodes', Network],
             ['notifications', 'Notifications', Bell],
             ['account', 'Account', Shield],
           ] as const).map(([id, label, Icon]) => <button key={id} aria-label={label} aria-current={activeTab === id ? 'page' : undefined} onClick={() => setActiveTab(id)}><Icon size={19} /><span>{label}</span></button>)}
@@ -533,47 +354,11 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
               <button onClick={handleRestoreBackup}><Upload size={20} /><span>Restore Backup</span></button>
               {backupError && <p role="alert" className="text-negative">{backupError}</p>}
             </div></section>
+            <section className="preference-section"><div><h4>Network</h4></div><div className="backup-actions">
+              <button onClick={handleDiscover}><Network size={20} /><span>Discover nodes</span></button>
+              <button className="danger-action" onClick={() => setShowClearNodesConfirm(true)} disabled={!config.tree.nodes.length}><Trash2 size={20} /><span>Clear all nodes</span></button>
+            </div></section>
           </div>}
-
-          {activeTab === 'nodes' && (
-            <div className="space-y-6">
-              <div className="settings-node-toolbar">
-                <button className="toolbar-primary" onClick={addNode}><Plus size={16} /><span>Add node</span></button>
-                <button
-                  aria-label="Discover Nodes"
-                  onClick={async () => {
-                    // Require admin authentication before opening scan window
-                    const authenticated = await isAuthenticated();
-                    if (!authenticated) {
-                      alert('Admin authentication required to discover nodes.');
-                      return;
-                    }
-                    window.dispatchEvent(new CustomEvent('openScanWindow'));
-                    onClose();
-                  }}
-                ><Network size={16} /><span>Discover</span></button>
-                <button className="toolbar-danger" onClick={() => setShowClearNodesConfirm(true)} disabled={!config.tree.nodes.length}><Trash2 size={15} /><span>Clear all</span></button>
-              </div>
-              <div className="settings-node-tree">
-                {config.tree.nodes.map(node => (
-                  <SettingsNodeTree
-                    key={node.id}
-                    node={node}
-                    collapsedNodes={collapsedNodes}
-                    isLoggedIn={isLoggedIn}
-                    onToggleCollapse={toggleNodeCollapse}
-                    onAddChild={addChildNode}
-                    onDelete={deleteNode}
-                    onUpdateNode={updateNode}
-                  />
-                ))}
-              </div>
-
-
-            </div>
-
-          )}
-
 
           {activeTab === 'account' && <AccountSettings accentColor={accentColor} />}
 
@@ -621,7 +406,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
           
           <div className="settings-actions">
             {isLoggedIn && !isAuthDisabled() && <button className="settings-logout" onClick={handleLogout}><LogOut size={16} /><span>Log out</span></button>}
-            <button className="settings-cancel" onClick={onClose} disabled={isSaving}>Cancel</button>
+            <button className="settings-cancel" onClick={requestClose} disabled={isSaving}>Cancel</button>
             <button className="settings-save" onClick={handleSave} disabled={isSaving}>
               {isSaving ? <><span className="settings-spinner" aria-hidden="true" /><span>Saving…</span></> : <><Save size={16} /><span>{restoreStaged ? 'Save restored network' : 'Save'}</span></>}
             </button>
@@ -640,27 +425,14 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
             </div>
           )}
         </div>
-      </div>
+      </Modal>
 
+      {/* Confirmations sit above the z-[9999] sheet, outside its panel. */}
+      <div className="relative z-[10000]">
       {showClearNodesConfirm && <ConfirmDialog isOpen title="Clear all nodes?" message={`This removes all ${getAllNodes(config.tree.nodes).length} nodes from the configuration. Nothing changes until you save.`} confirmLabel="Clear all" cancelLabel="Cancel" variant="danger" onConfirm={() => { clearNodes(); setShowClearNodesConfirm(false); }} onCancel={() => setShowClearNodesConfirm(false)} />}
       {showRestoreConfirm && <ConfirmDialog isOpen title="Restore backup?" message={`Load ${pendingRestoreConfig ? getAllNodes(pendingRestoreConfig.tree.nodes).length : 0} nodes into Settings? Your current network stays unchanged until you save the restored configuration.`} confirmLabel="Restore backup" cancelLabel="Cancel" variant="danger" onConfirm={confirmRestore} onCancel={cancelRestore} />}
-      {/* Delete Confirmation Dialog */}
-      {deleteConfirmation && (
-        <ConfirmDialog
-          isOpen={deleteConfirmation.isOpen}
-          title="Delete Node with Children"
-          message={`"${deleteConfirmation.nodeTitle}" has ${deleteConfirmation.childCount} child node${deleteConfirmation.childCount > 1 ? 's' : ''}. Deleting this node will also delete all its children. This action cannot be undone.`}
-          confirmLabel="Delete All"
-          cancelLabel="Cancel"
-          variant="danger"
-          onConfirm={() => {
-            performDeleteNode(deleteConfirmation.nodeId);
-            setDeleteConfirmation(null);
-          }}
-          onCancel={() => setDeleteConfirmation(null)}
-        />
-      )}
-    </div>
+      </div>
+    </>
   );
 };
 

@@ -1,14 +1,15 @@
 import React, { useMemo } from 'react';
 import { TrendingUp, AlertCircle, CheckCircle } from 'lucide-react';
 import type { AppConfig } from '../../types/config';
-import { useGlobalHistory, type HistoryPeriod } from '../../hooks/useStatusHistory';
+import { useGlobalHistory, type HistoryRange, type HistoryStats } from '../../hooks/useStatusHistory';
 import { getAllNodes, isNodeMonitored } from '../../utils/nodeUtils';
-import { computeStats, uptimeColor, formatShortDate } from './historyUtils';
+import { uptimeColor, formatRange } from './historyUtils';
 import { Spinner, StatCard, UptimeTimeline } from './historyCharts';
-import { statusColors } from '../../utils/colors';
+
+const EMPTY_STATS: HistoryStats = { uptimePercent: null, outageCount: 0, avgResponseTime: null };
 
 export const GlobalHistoryView: React.FC<{
-  period: HistoryPeriod;
+  period: HistoryRange;
   appConfig: AppConfig;
   accentColor: string;
   onSelectNode: (nodeId: string, nodeName: string) => void;
@@ -19,20 +20,8 @@ export const GlobalHistoryView: React.FC<{
     return getAllNodes(appConfig.tree.nodes).filter(isNodeMonitored);
   }, [appConfig.tree.nodes]);
 
-  // Aggregate once per data change rather than on every render. Tooltip hovers
-  // and parent re-renders were re-flattening + re-reducing the whole dataset and
-  // re-running computeStats for every node row each time.
-  const globalStats = useMemo(
-    () => computeStats(data ? Object.values(data.records).flat() : []),
-    [data]
-  );
-  const nodeStats = useMemo(() => {
-    const stats = new Map<string, ReturnType<typeof computeStats>>();
-    monitoredNodes.forEach(node => {
-      stats.set(node.id, computeStats(data?.records[node.id] || []));
-    });
-    return stats;
-  }, [monitoredNodes, data]);
+  // Stats and timeline buckets arrive pre-aggregated from the server.
+  const globalStats = data?.summary ?? EMPTY_STATS;
 
   if (loading) return <Spinner />;
   if (error)   return <div className="text-center text-negative text-sm py-12">Error: {error}</div>;
@@ -64,14 +53,14 @@ export const GlobalHistoryView: React.FC<{
         />
       </div>
 
-      <section className="availability-ledger"><div className="ledger-heading"><h3>Service availability</h3><span>{data ? formatShortDate(data.sinceMs) : 'Period start'} — Now</span></div>
+      <section className="availability-ledger"><div className="ledger-heading"><h3>Service availability</h3><span>{data ? formatRange(data.sinceMs, data.nowMs, data.period === 'custom') : 'Period start — Now'}</span></div>
       <div className="ledger-columns"><span>Service</span><span>Availability over time</span><span>Uptime</span></div>
       <div>
         {monitoredNodes.map(node => {
           const nodeId = node.id;
 
-          const nodeRecords = data?.records[nodeId] || [];
-          const stats       = nodeStats.get(nodeId)!;
+          const nodeSummary = data?.nodes[nodeId];
+          const stats       = nodeSummary?.stats ?? EMPTY_STATS;
 
           return (
             <div
@@ -82,13 +71,13 @@ export const GlobalHistoryView: React.FC<{
             >
               {/* Node name */}
               <div className="ledger-name">
-                {node.title}<small>{stats.outageCount ? `${stats.outageCount} ${stats.outageCount === 1 ? 'outage' : 'outages'}` : nodeRecords.length ? 'No outages recorded' : 'Awaiting readings'}</small>
+                {node.title}<small>{stats.outageCount ? `${stats.outageCount} ${stats.outageCount === 1 ? 'outage' : 'outages'}` : nodeSummary?.recordCount ? 'No outages recorded' : 'Awaiting readings'}</small>
               </div>
 
               {/* Timeline */}
               <div className="flex-1 min-w-0">
-                {nodeRecords.length > 0 && data ? (
-                  <UptimeTimeline records={nodeRecords} sinceMs={data.sinceMs} nowMs={data.nowMs} />
+                {nodeSummary?.recordCount && data ? (
+                  <UptimeTimeline buckets={nodeSummary.buckets} sinceMs={data.sinceMs} nowMs={data.nowMs} />
                 ) : (
                   <div className="h-9 bg-raised rounded-lg flex items-center justify-center text-[10px] text-muted font-roboto">
                     No data
@@ -116,23 +105,6 @@ export const GlobalHistoryView: React.FC<{
       </div>
 
       </section>
-      {/* Legend */}
-      <div className="flex items-center gap-4 pt-1">
-        {[
-          { color: statusColors.online, label: 'Online' },
-          { color: statusColors.offline, label: 'Offline' },
-          { color: statusColors.backup, label: 'Backup' },
-          { color: '#263e4b', label: 'No data' },
-        ].map(({ color, label }) => (
-          <div key={label} className="flex items-center gap-1.5 text-[10px] text-muted font-roboto">
-            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
-            {label}
-          </div>
-        ))}
-        <span className="text-[10px] text-muted font-roboto ml-auto">
-          Click a row to drill in
-        </span>
-      </div>
     </div>
   );
 };

@@ -203,45 +203,6 @@ function default_settings() {
   read -p "Press enter to continue or ctrl+c to cancel..."
   echo
   
-  # Prompt for admin credentials
-  echo -e "${BL}═══════════════════════════════════════════════════════${CL}"
-  echo -e "${YW}Admin Credentials Configuration${CL}"
-  echo -e "${BL}═══════════════════════════════════════════════════════${CL}"
-  echo
-  echo -e "Set up your Nautilus administrator account:"
-  echo
-  
-  # Username prompt
-  read -p "Admin username (admin): " NAUTILUS_USERNAME
-  NAUTILUS_USERNAME=${NAUTILUS_USERNAME:-admin}
-  
-  # Password prompt with validation
-  while true; do
-    echo
-    echo -e "${YW}Password requirements:${CL}"
-    echo -e "  • At least 8 characters"
-    echo -e "  • Mix of letters, numbers recommended"
-    echo
-    read -s -p "Admin password: " NAUTILUS_PASSWORD
-    echo
-    if [ ${#NAUTILUS_PASSWORD} -lt 8 ]; then
-      echo -e "${RD}Password too short. Must be at least 8 characters.${CL}"
-      continue
-    fi
-    if [ "$NAUTILUS_PASSWORD" = "1234" ] || [ "$NAUTILUS_PASSWORD" = "password" ]; then
-      echo -e "${RD}Password too weak. Please choose a stronger password.${CL}"
-      continue
-    fi
-    read -s -p "Confirm password: " NAUTILUS_PASSWORD_CONFIRM
-    echo
-    if [ "$NAUTILUS_PASSWORD" = "$NAUTILUS_PASSWORD_CONFIRM" ]; then
-      echo -e "${GN}✓ Credentials configured successfully${CL}"
-      break
-    else
-      echo -e "${RD}Passwords don't match. Please try again.${CL}"
-    fi
-  done
-  echo
   
   # Set defaults
   CT_TYPE="1"
@@ -367,41 +328,6 @@ function advanced_settings() {
     esac
   done
   
-  # Admin credentials
-  echo
-  echo -e "${BL}═══════════════════════════════════════════════════════${CL}"
-  echo -e "${YW}Admin Credentials Configuration${CL}"
-  echo -e "${BL}═══════════════════════════════════════════════════════${CL}"
-  echo
-  
-  read -p "Admin username (admin): " NAUTILUS_USERNAME
-  NAUTILUS_USERNAME=${NAUTILUS_USERNAME:-admin}
-  
-  while true; do
-    echo
-    echo -e "${YW}Password requirements:${CL}"
-    echo -e "  • At least 8 characters"
-    echo -e "  • Mix of letters, numbers recommended"
-    echo
-    read -s -p "Admin password: " NAUTILUS_PASSWORD
-    echo
-    if [ ${#NAUTILUS_PASSWORD} -lt 8 ]; then
-      echo -e "${RD}Password too short. Must be at least 8 characters.${CL}"
-      continue
-    fi
-    if [ "$NAUTILUS_PASSWORD" = "1234" ] || [ "$NAUTILUS_PASSWORD" = "password" ]; then
-      echo -e "${RD}Password too weak. Please choose a stronger password.${CL}"
-      continue
-    fi
-    read -s -p "Confirm password: " NAUTILUS_PASSWORD_CONFIRM
-    echo
-    if [ "$NAUTILUS_PASSWORD" = "$NAUTILUS_PASSWORD_CONFIRM" ]; then
-      echo -e "${GN}✓ Credentials configured${CL}"
-      break
-    else
-      echo -e "${RD}Passwords don't match. Please try again.${CL}"
-    fi
-  done
   
   # Optional: Advanced environment variables
   echo
@@ -1261,8 +1187,6 @@ Restart=always
 RestartSec=5
 Environment=NODE_ENV=production
 Environment=PORT=${NAUTILUS_SERVER_PORT:-3069}
-Environment=NAUTILUS_ADMIN_USERNAME=$NAUTILUS_USERNAME
-Environment=NAUTILUS_ADMIN_PASSWORD=$NAUTILUS_PASSWORD
 Environment=NAUTILUS_SERVER_PORT=${NAUTILUS_SERVER_PORT:-3069}
 Environment=NAUTILUS_CLIENT_PORT=${NAUTILUS_CLIENT_PORT:-3070}
 Environment=NAUTILUS_HOST=${NAUTILUS_HOST:-localhost}
@@ -1648,8 +1572,7 @@ EOF
   echo -e " ${YW}SSH Access: ${CL}ssh root@$IP"
   echo
   echo -e " ${BL}Login Credentials:${CL}"
-  echo -e " ${YW}Username: ${CL}${GN}$NAUTILUS_USERNAME${CL}"
-  echo -e " ${YW}Password: ${CL}${GN}[configured during setup]${CL}"
+  echo -e " ${YW}First visit: ${CL}${GN}open the web interface and create your administrator account${CL}"
   echo
   echo -e " ${BL}Service Management:${CL}"
   echo -e " ${YW}Start: ${CL}pct exec $CT_ID -- systemctl start nautilus"

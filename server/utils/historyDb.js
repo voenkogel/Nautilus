@@ -153,24 +153,39 @@ export function recordStatusHistory(nodeId, statusResult) {
   }
 }
 
-export function getNodeHistory(nodeId, sinceMs) {
+export function getNodeHistory(nodeId, sinceMs, untilMs = Number.MAX_SAFE_INTEGER) {
   return queryAll(
     `SELECT status, timestamp, response_time, error, players_online, players_max, streams
      FROM   status_history
-     WHERE  node_id = ? AND timestamp >= ?
+     WHERE  node_id = ? AND timestamp >= ? AND timestamp < ?
      ORDER  BY timestamp ASC`,
-    [nodeId, sinceMs]
+    [nodeId, sinceMs, untilMs]
   );
 }
 
-export function getAllNodesHistory(sinceMs) {
-  return queryAll(
-    `SELECT node_id, status, timestamp, response_time, error, players_online, players_max, streams
+/**
+ * Streams the slim columns needed for summaries, ordered per node then time,
+ * without materialising row objects — a 7d/30d window holds hundreds of
+ * thousands of rows, so building an array of objects dominated request time.
+ * Callback receives (nodeId, status, timestamp, responseTime).
+ */
+export function forEachHistoryRow(sinceMs, untilMs, fn) {
+  if (!db) return;
+  const stmt = db.prepare(
+    `SELECT node_id, status, timestamp, response_time
      FROM   status_history
-     WHERE  timestamp >= ?
-     ORDER  BY node_id, timestamp ASC`,
-    [sinceMs]
+     WHERE  timestamp >= ? AND timestamp < ?
+     ORDER  BY node_id, timestamp ASC`
   );
+  try {
+    stmt.bind([sinceMs, untilMs]);
+    while (stmt.step()) {
+      const [nodeId, status, timestamp, responseTime] = stmt.get();
+      fn(nodeId, status, timestamp, responseTime);
+    }
+  } finally {
+    stmt.free();
+  }
 }
 
 // ── Backup schedules (auto-detected windows) ──────────────────────────────────

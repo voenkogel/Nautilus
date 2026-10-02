@@ -1,6 +1,6 @@
 import React from 'react';
 import { TrendingUp, AlertCircle } from 'lucide-react';
-import { useNodeHistory, type HistoryPeriod } from '../../hooks/useStatusHistory';
+import { useNodeHistory, type HistoryRange } from '../../hooks/useStatusHistory';
 import { computeStats, getTransitions, formatShortDate, formatTimestamp } from './historyUtils';
 import {
   Spinner,
@@ -10,11 +10,10 @@ import {
   UptimeTimeline,
   ResponseSparkline,
 } from './historyCharts';
-import { statusColors } from '../../utils/colors';
 
 export const NodeHistoryView: React.FC<{
   nodeId: string;
-  period: HistoryPeriod;
+  period: HistoryRange;
   accentColor: string;
 }> = ({ nodeId, period, accentColor }) => {
   const { data, loading, error } = useNodeHistory(nodeId, period);
@@ -59,21 +58,7 @@ export const NodeHistoryView: React.FC<{
         <UptimeTimeline records={data.records} sinceMs={data.sinceMs} nowMs={data.nowMs} />
         <div className="flex justify-between text-[10px] text-muted mt-1.5 font-roboto">
           <span>{formatShortDate(data.sinceMs)}</span>
-          <span>Now</span>
-        </div>
-        {/* Legend */}
-        <div className="flex items-center gap-4 mt-2">
-          {[
-            { color: statusColors.online, label: 'Online' },
-            { color: statusColors.offline, label: 'Offline' },
-            { color: statusColors.backup, label: 'Backup' },
-            { color: '#263e4b', label: 'No data' },
-          ].map(({ color, label }) => (
-            <div key={label} className="flex items-center gap-1.5 text-[10px] text-muted font-roboto">
-              <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
-              {label}
-            </div>
-          ))}
+          <span>{data.period === 'custom' ? formatShortDate(data.nowMs) : 'Now'}</span>
         </div>
       </div>
 

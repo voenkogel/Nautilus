@@ -172,365 +172,210 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange }
   };
 
   const statusDisplay = getConnectionStatusDisplay();
+  const checksEnabled = node.healthCheckType !== 'disabled' && !node.disableHealthCheck;
+  const internalAddress = node.internalAddress || (node.ip ? (node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : node.ip) : '');
+  const ring = { '--tw-ring-color': accentColor } as React.CSSProperties;
+  const selectClass = 'w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2';
 
+  // Groups are separated by space and a hairline rather than headings; labels carry the meaning.
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <h3 className="form-section-heading col-span-1 md:col-span-2">Identity</h3>
-        {/* Title */}
-        <div>
-          <label htmlFor={`${node.id}-title`} className="block text-sm font-medium text-ink mb-1">Title</label>
-          <FormInput
-            id={`${node.id}-title`}
-            accentColor={accentColor}
-            type="text"
-            value={node.title}
-            onChange={(e) => onChange({ title: e.target.value })}
-          />
-        </div>
-
-        {/* Subtitle */}
-        <div>
-          <label htmlFor={`${node.id}-subtitle`} className="block text-sm font-medium text-ink mb-1">Subtitle</label>
-          <FormInput
-            id={`${node.id}-subtitle`}
-            accentColor={accentColor}
-            type="text"
-            value={node.subtitle}
-            onChange={(e) => onChange({ subtitle: e.target.value })}
-          />
-        </div>
-
-        <h3 className="form-section-heading col-span-1 md:col-span-2">Monitoring</h3>
-        {/* Health Check Type */}
-        <div className="col-span-1 md:col-span-2">
-          <label htmlFor={`${node.id}-healthCheckType`} className="block text-sm font-medium text-ink mb-1">Health Check Type</label>
-          <select
-            id={`${node.id}-healthCheckType`}
-            value={node.healthCheckType || (node.disableHealthCheck ? 'disabled' : 'http')}
-            onChange={(e) => {
-              const type = e.target.value as 'http' | 'minecraft' | 'plex' | 'disabled';
-              onChange({ 
-                healthCheckType: type,
-                disableHealthCheck: type === 'disabled' // Keep legacy field in sync
-              });
-            }}
-            className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2"
-            style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
-          >
-            <option value="http">Regular Health Check (HTTP/TCP)</option>
-            <option value="ping">ICMP Ping</option>
-            <option value="minecraft">Minecraft Server</option>
-            <option value="plex">Plex Media Server</option>
-            <option value="disabled">Disable Health Checking</option>
-          </select>
-          <p className="text-xs text-muted mt-1">
-            Select how the status of this node should be monitored.
-          </p>
-        </div>
-
-        {/* Plex Token Input */}
-        {node.healthCheckType === 'plex' && (
-          <div className="col-span-1 md:col-span-2">
-            <label className="block text-sm font-medium text-ink mb-1">
-              Plex Token (X-Plex-Token)
-            </label>
-            <div className="relative">
-              <FormInput
-                accentColor={accentColor}
-                className="pr-10"
-                type={showPlexToken ? "text" : "password"}
-                value={node.plexToken || ''}
-                onChange={(e) => onChange({ plexToken: e.target.value })}
-                placeholder="Enter your Plex Token"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPlexToken(!showPlexToken)}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted hover:text-muted focus:outline-none"
-              >
-                {showPlexToken ? <LucideIcons.EyeOff size={18} /> : <LucideIcons.Eye size={18} />}
-              </button>
-            </div>
-            <p className="text-xs text-muted mt-1">
-              Required to fetch session count. Found in Plex XML feeds or URL.
-            </p>
+    <div className="node-form">
+      {/* Identity: the icon tile sits beside the title it belongs to. */}
+      <div className="node-form-group">
+        <div className="node-form-identity">
+          <button type="button" className="node-form-icon" onClick={() => setShowIconPicker(true)} title="Change icon" aria-label={`Icon: ${node.icon || 'none'}. Change icon`}>
+            {node.icon ? renderIconPreview(node.icon, 22) : <LucideIcons.ImagePlus size={20} />}
+          </button>
+          <div className="node-form-field">
+            <label htmlFor={`${node.id}-title`}>Title</label>
+            <FormInput id={`${node.id}-title`} accentColor={accentColor} type="text" value={node.title} onChange={(e) => onChange({ title: e.target.value })} />
           </div>
+        </div>
+        <div className="node-form-field">
+          <label htmlFor={`${node.id}-subtitle`}>Subtitle</label>
+          <FormInput id={`${node.id}-subtitle`} accentColor={accentColor} type="text" value={node.subtitle} placeholder="Optional" onChange={(e) => onChange({ subtitle: e.target.value })} />
+        </div>
+        {showIconPicker && (
+          <IconPicker currentIcon={node.icon || ''} onSelect={(iconName) => onChange({ icon: iconName })} onClose={() => setShowIconPicker(false)} />
         )}
+      </div>
 
-        {/* Per-node check interval */}
-        {node.healthCheckType !== 'disabled' && !node.disableHealthCheck && (
-          <div className="col-span-1 md:col-span-2">
-            <label htmlFor={`${node.id}-checkInterval`} className="block text-sm font-medium text-ink mb-1">Check Interval (ms)</label>
-            <FormInput
-              id={`${node.id}-checkInterval`}
-              accentColor={intervalInvalid ? undefined : accentColor}
-              type="number"
-              min={MIN_CHECK_INTERVAL}
-              step={1000}
-              value={node.healthCheckInterval ?? ''}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                onChange({ healthCheckInterval: val > 0 ? val : undefined });
-              }}
-              placeholder="Default (global setting)"
-              aria-invalid={intervalInvalid}
-              aria-describedby={`${node.id}-checkInterval-help`}
-              className={intervalInvalid ? 'border-red-400 focus:ring-red-300' : ''}
-            />
-            <p
-              id={`${node.id}-checkInterval-help`}
-              className={`text-xs mt-1 ${intervalInvalid ? 'text-negative' : 'text-muted'}`}
-            >
-              {intervalInvalid
-                ? 'Must be at least 5000 ms (5 seconds).'
-                : 'Override the global check interval for this node. Leave empty to use the global setting.'}
-            </p>
-          </div>
-        )}
-
-        {/* Internal Address */}
-        <div className="col-span-1 md:col-span-2">
-          <label htmlFor={`${node.id}-internalAddress`} className="block text-sm font-medium text-ink mb-1">
-            Internal Address
-          </label>
+      {/* Monitoring: where to check, how, and how often. */}
+      <div className="node-form-group">
+        <div className="node-form-field">
+          <label htmlFor={`${node.id}-internalAddress`}>Address</label>
           <FormInput
             id={`${node.id}-internalAddress`}
             accentColor={accentColor}
             type="text"
-            value={node.internalAddress || (node.ip ? (node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : node.ip) : '')}
-            onChange={(e) => {
-              const val = e.target.value;
-              onChange({
-                internalAddress: val || undefined,
-                // Clear legacy fields to complete migration for this node
-                ip: undefined,
-                healthCheckPort: undefined
-              });
-            }}
-            placeholder="192.168.1.100:8080 or http://internal-service:3000"
+            value={internalAddress}
+            onChange={(e) => onChange({
+              internalAddress: e.target.value || undefined,
+              // Clear legacy fields to complete migration for this node
+              ip: undefined,
+              healthCheckPort: undefined
+            })}
+            placeholder="192.168.1.100:8080"
           />
-          <p className="text-xs text-muted mt-1">
-            Address used by the server to check status. Also serves as the default Access URL if not specified below.
-          </p>
-          
-          {/* Connection Status Indicator */}
-          {statusDisplay && (
-            <div 
-              className="mt-2 px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-all"
-              style={{ 
-                backgroundColor: `${statusDisplay.color}15`,
-                color: statusDisplay.color,
-                borderLeft: `3px solid ${statusDisplay.color}`
+          {statusDisplay && <p className="node-form-status" style={{ color: statusDisplay.color }}>{statusDisplay.icon}<span>{statusDisplay.text}</span></p>}
+        </div>
+        <div className="node-form-row">
+          <div className="node-form-field">
+            <label htmlFor={`${node.id}-healthCheckType`}>Health check</label>
+            <select
+              id={`${node.id}-healthCheckType`}
+              value={node.healthCheckType || (node.disableHealthCheck ? 'disabled' : 'http')}
+              onChange={(e) => {
+                const type = e.target.value as 'http' | 'minecraft' | 'plex' | 'disabled';
+                onChange({ healthCheckType: type, disableHealthCheck: type === 'disabled' }); // Keep legacy field in sync
               }}
+              className={selectClass}
+              style={ring}
             >
-              {statusDisplay.icon}
-              <span>{statusDisplay.text}</span>
+              <option value="http">HTTP / TCP</option>
+              <option value="ping">Ping</option>
+              <option value="minecraft">Minecraft</option>
+              <option value="plex">Plex</option>
+              <option value="disabled">Off</option>
+            </select>
+          </div>
+          {checksEnabled && (
+            <div className="node-form-field">
+              <label htmlFor={`${node.id}-checkInterval`}>Interval</label>
+              <div className="node-form-suffixed">
+                <FormInput
+                  id={`${node.id}-checkInterval`}
+                  accentColor={intervalInvalid ? undefined : accentColor}
+                  type="number"
+                  min={MIN_CHECK_INTERVAL / 1000}
+                  step={1}
+                  value={node.healthCheckInterval ? node.healthCheckInterval / 1000 : ''}
+                  onChange={(e) => {
+                    const seconds = parseFloat(e.target.value);
+                    onChange({ healthCheckInterval: seconds > 0 ? Math.round(seconds * 1000) : undefined });
+                  }}
+                  placeholder="Default"
+                  aria-invalid={intervalInvalid}
+                  aria-describedby={intervalInvalid ? `${node.id}-checkInterval-help` : undefined}
+                  className={intervalInvalid ? 'border-red-400 focus:ring-red-300' : ''}
+                />
+                <span aria-hidden="true">s</span>
+              </div>
             </div>
           )}
         </div>
-
-        <h3 className="form-section-heading col-span-1 md:col-span-2">Appearance</h3>
-        {/* Icon Selection */}
-        <div className="col-span-1 md:col-span-2">
-          <label className="block text-sm font-medium text-ink mb-2">Icon</label>
-          
-          <div className="flex items-center p-3 border border-line rounded-md bg-surface">
-            {/* Icon Preview */}
-            <div className="flex items-center justify-center w-12 h-12 bg-raised rounded-lg border border-line mr-4">
-              {node.icon ? renderIconPreview(node.icon, 24) : <LucideIcons.HelpCircle size={24} className="text-muted" />}
+        {intervalInvalid && <p id={`${node.id}-checkInterval-help`} className="node-form-hint is-error">Use at least 5 seconds.</p>}
+        {node.healthCheckType === 'plex' && (
+          <div className="node-form-field">
+            <label htmlFor={`${node.id}-plexToken`}>Plex token</label>
+            <div className="relative">
+              <FormInput
+                id={`${node.id}-plexToken`}
+                accentColor={accentColor}
+                className="pr-10"
+                type={showPlexToken ? 'text' : 'password'}
+                value={node.plexToken || ''}
+                onChange={(e) => onChange({ plexToken: e.target.value })}
+                placeholder="X-Plex-Token, for stream counts"
+              />
+              <button
+                type="button"
+                aria-label={showPlexToken ? 'Hide token' : 'Show token'}
+                onClick={() => setShowPlexToken(!showPlexToken)}
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted focus:outline-none"
+              >
+                {showPlexToken ? <LucideIcons.EyeOff size={16} /> : <LucideIcons.Eye size={16} />}
+              </button>
             </div>
-            
-            {/* Icon Details */}
-            <div className="flex-1">
-              <div className="text-sm font-medium text-ink">
-                {node.icon ? kebabToPascal(node.icon) : 'No Icon Selected'}
-              </div>
-              <div className="text-xs text-muted">
-                {node.icon || 'Select an icon to display on the node'}
-              </div>
-            </div>
-            
-            {/* Change Button */}
-            <button
-              type="button"
-              onClick={() => setShowIconPicker(true)}
-              className="px-4 py-2 text-sm font-medium rounded-md transition-colors"
-              style={{ 
-                color: accentColor, 
-                backgroundColor: `${accentColor}10` 
-              }}
-            >
-              {node.icon ? 'Change' : 'Select'}
-            </button>
           </div>
-        </div>
-
-        {/* Icon Picker Modal */}
-        {showIconPicker && (
-          <IconPicker
-            currentIcon={node.icon || ''}
-            onSelect={(iconName) => onChange({ icon: iconName })}
-            onClose={() => setShowIconPicker(false)}
-          />
         )}
-
-        {/* Interaction Settings */}
-        <div className="col-span-1 md:col-span-2 space-y-4 pt-4 border-t border-line">
-          <div className="flex items-center justify-between">
-              <label className="block text-sm font-medium text-ink">Interaction</label>
-              <div className="flex items-center">
-                <Switch
-                  id={`isInteractable-${node.id}`}
-                  checked={node.isInteractable !== false} // Default to true
-                  onChange={(checked) => onChange({ isInteractable: checked })}
-                  accentColor={accentColor}
-                />
-                <label htmlFor={`isInteractable-${node.id}`} className="ml-2 text-sm text-muted cursor-pointer">
-                  Interactable
-                </label>
-              </div>
-            </div>
-
-            {node.isInteractable !== false && (
-              <div className="space-y-4 pl-4 border-l-2 border-line">
-                {/* External Address */}
-                <div>
-                  <label className="block text-sm font-medium text-ink mb-1">
-                    Access URL
-                  </label>
-                  <FormInput
-                    accentColor={accentColor}
-                    type="text"
-                    value={node.externalAddress || node.url || ''}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      onChange({
-                        externalAddress: val || undefined,
-                        // Clear legacy field
-                        url: undefined
-                      });
-                    }}
-                    placeholder={(() => {
-                      const internal = node.internalAddress || (node.ip ? (node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : node.ip) : '');
-                      if (!internal) return "https://myapp.com";
-                      return internal.includes('://') ? internal : `http://${internal}`;
-                    })()}
-                  />
-                  <p className="text-xs text-muted mt-1">
-                    Public address for opening the service. If empty, defaults to Internal Address.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-
-        {/* Backup window (advanced, optional) — subtle, collapsed by default */}
-        <div className="col-span-1 md:col-span-2">
-          <Disclosure title={<>Backup window{bw?.enabled && <small>Enabled</small>}{bw?.source === 'auto' && <small>Auto-detected</small>}</>}>
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label htmlFor={`backupEnabled-${node.id}`} className="text-sm font-medium text-ink">
-                  Suppress status &amp; notifications during backups
-                </label>
-                <Switch
-                  id={`backupEnabled-${node.id}`}
-                  checked={!!bw?.enabled}
-                  onChange={(checked) => updateBackup({ enabled: checked })}
-                  accentColor={accentColor}
-                />
-              </div>
-
-              {bw?.enabled && (
-                <div className="space-y-3 pl-4 border-l-2 border-line">
-                  {bw.source === 'auto' && (
-                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-maintenance/10 text-violet-700 text-xs">
-                      <span>
-                        Auto-detected{bw.detectedAt ? ` on ${new Date(bw.detectedAt).toLocaleDateString()}` : ''}. Editing switches it to manual.
-                      </span>
-                      <button
-                        type="button"
-                        className="underline whitespace-nowrap"
-                        onClick={() => onChange({ backupWindow: undefined, disableBackupDetection: true })}
-                      >
-                        Stop auto-detecting
-                      </button>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-xs font-medium text-muted mb-1">Repeat</label>
-                    <select
-                      value={bw.frequency}
-                      onChange={(e) => updateBackup({ frequency: e.target.value as BackupWindow['frequency'] })}
-                      className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2 text-sm"
-                      style={{ ['--tw-ring-color' as string]: accentColor } as React.CSSProperties}
-                    >
-                      <option value="daily">Every day</option>
-                      <option value="weekly">Weekly</option>
-                    </select>
-                  </div>
-
-                  {bw.frequency === 'weekly' && (
-                    <div>
-                      <label className="block text-xs font-medium text-muted mb-1">Day</label>
-                      <select
-                        value={bw.dayOfWeek ?? 0}
-                        onChange={(e) => updateBackup({ dayOfWeek: parseInt(e.target.value) })}
-                        className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2 text-sm"
-                        style={{ ['--tw-ring-color' as string]: accentColor } as React.CSSProperties}
-                      >
-                        {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-                      </select>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-muted mb-1">Start</label>
-                      <input
-                        type="time"
-                        value={minutesToHHMM(bw.startMinute)}
-                        onChange={(e) => {
-                          // Ignore a cleared/invalid field so it can't silently snap to 00:00.
-                          const mins = hhmmToMinutes(e.target.value);
-                          if (mins !== null) updateBackup({ startMinute: mins });
-                        }}
-                        className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2 text-sm"
-                        style={{ ['--tw-ring-color' as string]: accentColor } as React.CSSProperties}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-muted mb-1">Duration (min)</label>
-                      <FormInput
-                        accentColor={accentColor}
-                        type="number"
-                        min={1}
-                        step={15}
-                        value={bw.durationMinutes}
-                        onChange={(e) => updateBackup({ durationMinutes: Math.max(1, parseInt(e.target.value) || 0) })}
-                      />
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-muted">{describeBackupWindow(bw)}</p>
-                  <p className="text-[11px] text-muted">
-                    Start time uses the server’s timezone (the container’s local time), which may
-                    differ from your browser.
-                  </p>
-                </div>
-              )}
-
-              {!bw?.enabled && (
-                <p className="text-xs text-muted">
-                  When a node goes down inside this window it shows as “backing up” (violet) and no
-                  notifications are sent. Left off, backup windows are detected automatically.
-                </p>
-              )}
-            </div>
-          </Disclosure>
-        </div>
       </div>
+
+      {/* Interaction: whether clicking opens the service, and where. */}
+      <div className="node-form-group">
+        <div className="node-form-toggle">
+          <label htmlFor={`isInteractable-${node.id}`}>Interactable</label>
+          <Switch id={`isInteractable-${node.id}`} checked={node.isInteractable !== false} onChange={(checked) => onChange({ isInteractable: checked })} accentColor={accentColor} />
+        </div>
+        {node.isInteractable !== false && (
+          <div className="node-form-field">
+            <label htmlFor={`${node.id}-externalAddress`}>Open URL</label>
+            <FormInput
+              id={`${node.id}-externalAddress`}
+              accentColor={accentColor}
+              type="text"
+              value={node.externalAddress || node.url || ''}
+              onChange={(e) => onChange({
+                externalAddress: e.target.value || undefined,
+                // Clear legacy field
+                url: undefined
+              })}
+              placeholder={!internalAddress ? 'https://myapp.com' : internalAddress.includes('://') ? internalAddress : `http://${internalAddress}`}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Backup window (advanced, optional): collapsed by default. */}
+      <Disclosure title={<>Backup window{bw?.enabled && <small>{bw.source === 'auto' ? 'Detected' : 'On'}</small>}</>}>
+        <div className="node-form-group is-nested">
+          <div className="node-form-toggle">
+            <label htmlFor={`backupEnabled-${node.id}`}>Quiet during backups</label>
+            <Switch id={`backupEnabled-${node.id}`} checked={!!bw?.enabled} onChange={(checked) => updateBackup({ enabled: checked })} accentColor={accentColor} />
+          </div>
+          {!bw?.enabled && <p className="node-form-hint">Downtime inside the window shows as backing up, without alerts. Left off, windows are detected automatically.</p>}
+          {bw?.enabled && <>
+            {bw.source === 'auto' && (
+              <p className="node-form-hint">
+                Detected{bw.detectedAt ? ` ${new Date(bw.detectedAt).toLocaleDateString()}` : ''}; editing makes it manual.{' '}
+                <button type="button" className="underline" onClick={() => onChange({ backupWindow: undefined, disableBackupDetection: true })}>Stop detecting</button>
+              </p>
+            )}
+            <div className="node-form-row">
+              <div className="node-form-field">
+                <label htmlFor={`${node.id}-backupRepeat`}>Repeat</label>
+                <select id={`${node.id}-backupRepeat`} value={bw.frequency} onChange={(e) => updateBackup({ frequency: e.target.value as BackupWindow['frequency'] })} className={selectClass} style={ring}>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                </select>
+              </div>
+              {bw.frequency === 'weekly' && (
+                <div className="node-form-field">
+                  <label htmlFor={`${node.id}-backupDay`}>Day</label>
+                  <select id={`${node.id}-backupDay`} value={bw.dayOfWeek ?? 0} onChange={(e) => updateBackup({ dayOfWeek: parseInt(e.target.value) })} className={selectClass} style={ring}>
+                    {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="node-form-row">
+              <div className="node-form-field">
+                <label htmlFor={`${node.id}-backupStart`}>Start</label>
+                <input
+                  id={`${node.id}-backupStart`}
+                  type="time"
+                  value={minutesToHHMM(bw.startMinute)}
+                  onChange={(e) => {
+                    // Ignore a cleared/invalid field so it can't silently snap to 00:00.
+                    const mins = hhmmToMinutes(e.target.value);
+                    if (mins !== null) updateBackup({ startMinute: mins });
+                  }}
+                  className={selectClass}
+                  style={ring}
+                />
+              </div>
+              <div className="node-form-field">
+                <label htmlFor={`${node.id}-backupDuration`}>Duration</label>
+                <div className="node-form-suffixed">
+                  <FormInput id={`${node.id}-backupDuration`} accentColor={accentColor} type="number" min={1} step={15} value={bw.durationMinutes} onChange={(e) => updateBackup({ durationMinutes: Math.max(1, parseInt(e.target.value) || 0) })} />
+                  <span aria-hidden="true">min</span>
+                </div>
+              </div>
+            </div>
+            <p className="node-form-hint">{describeBackupWindow(bw)} · server time</p>
+          </>}
+        </div>
+      </Disclosure>
     </div>
   );
 };

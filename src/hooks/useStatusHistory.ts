@@ -13,22 +13,52 @@ export interface HistoryRecord {
 
 export type HistoryPeriod = '1h' | '24h' | '7d' | '30d';
 
+/** A preset ending now, or a custom window in epoch ms (end exclusive). */
+export type HistoryRange = HistoryPeriod | { from: number; to: number };
+
+export function isCustomRange(range: HistoryRange): range is { from: number; to: number } {
+  return typeof range === 'object';
+}
+
+function rangeQuery(range: HistoryRange): string {
+  return isCustomRange(range)
+    ? `from=${Math.round(range.from)}&to=${Math.round(range.to)}`
+    : `period=${range}`;
+}
+
 export interface NodeHistoryData {
   nodeId: string;
   records: HistoryRecord[];
-  period: HistoryPeriod;
+  period: HistoryPeriod | 'custom';
   sinceMs: number;
   nowMs: number;
+}
+
+export type TimelineBucket = 'online' | 'offline' | 'checking' | 'backup' | 'empty';
+
+export interface HistoryStats {
+  uptimePercent: number | null;
+  outageCount: number;
+  avgResponseTime: number | null;
+}
+
+/** Server-side summary of one node's history (see server/utils/historySummary.js). */
+export interface NodeHistorySummary {
+  buckets: TimelineBucket[];
+  recordCount: number;
+  stats: HistoryStats;
 }
 
 export interface GlobalHistoryData {
-  records: Record<string, HistoryRecord[]>;
-  period: HistoryPeriod;
+  nodes: Record<string, NodeHistorySummary>;
+  summary: HistoryStats;
+  period: HistoryPeriod | 'custom';
   sinceMs: number;
   nowMs: number;
 }
 
-export function useNodeHistory(nodeId: string | null, period: HistoryPeriod) {
+export function useNodeHistory(nodeId: string | null, range: HistoryRange) {
+  const query = rangeQuery(range);
   const [data, setData]       = useState<NodeHistoryData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
@@ -40,7 +70,7 @@ export function useNodeHistory(nodeId: string | null, period: HistoryPeriod) {
     setLoading(true);
     setError(null);
 
-    api.get<NodeHistoryData>(`api/history/${encodeURIComponent(nodeId)}?period=${period}`, { signal: controller.signal })
+    api.get<NodeHistoryData>(`api/history/${encodeURIComponent(nodeId)}?${query}`, { signal: controller.signal })
       .then((d) => { setData(d); setLoading(false); })
       .catch(err => {
         // Ignore the abort fired when nodeId/period changes mid-flight — a newer
@@ -52,12 +82,13 @@ export function useNodeHistory(nodeId: string | null, period: HistoryPeriod) {
     // Abort the in-flight request when the inputs change so a slow earlier
     // response can't resolve after a newer one and render stale data.
     return () => controller.abort();
-  }, [nodeId, period]);
+  }, [nodeId, query]);
 
   return { data, loading, error };
 }
 
-export function useGlobalHistory(period: HistoryPeriod) {
+export function useGlobalHistory(range: HistoryRange) {
+  const query = rangeQuery(range);
   const [data, setData]       = useState<GlobalHistoryData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
@@ -67,7 +98,7 @@ export function useGlobalHistory(period: HistoryPeriod) {
     setLoading(true);
     setError(null);
 
-    api.get<GlobalHistoryData>(`api/history?period=${period}`, { signal: controller.signal })
+    api.get<GlobalHistoryData>(`api/history?${query}`, { signal: controller.signal })
       .then((d) => { setData(d); setLoading(false); })
       .catch(err => {
         // Ignore the abort fired when `period` changes mid-flight.
@@ -78,7 +109,7 @@ export function useGlobalHistory(period: HistoryPeriod) {
     // Abort the in-flight request on period change so a slow earlier response
     // can't overwrite a newer one (last-write-wins stale render).
     return () => controller.abort();
-  }, [period]);
+  }, [query]);
 
   return { data, loading, error };
 }

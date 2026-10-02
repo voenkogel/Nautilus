@@ -65,4 +65,19 @@ export const PERIODS: { value: HistoryPeriod; label: string }[] = [
   { value: '30d', label: '30d' },
 ];
 
+export const PERIOD_MS: Record<HistoryPeriod, number> = {
+  '1h':  3_600_000,
+  '24h': 86_400_000,
+  '7d':  604_800_000,
+  '30d': 2_592_000_000,
+};
+
+/** The server prunes history older than this (see pruneOldHistory). */
+export const HISTORY_RETENTION_MS = PERIOD_MS['30d'];
+
+/** "Sep 25 — Now" for presets; both ends with times for a custom window. */
+export function formatRange(sinceMs: number, endMs: number, custom: boolean): string {
+  return custom ? `${formatTimestamp(sinceMs)} — ${formatTimestamp(endMs)}` : `${formatShortDate(sinceMs)} — Now`;
+}
+
 export const BUCKETS = 160;

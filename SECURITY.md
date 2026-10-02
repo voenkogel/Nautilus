@@ -7,8 +7,9 @@ Nautilus now includes **server-side authentication** to protect configuration ch
 ## 🚨 Important Security Information
 
 ### Default Configuration
-- **No default password.** The server **refuses to start** unless `NAUTILUS_ADMIN_PASSWORD` is set, and it explicitly rejects the insecure value `1234`.
-- **Production**: use a strong, unique password (12+ chars). It is read from the environment only and is never committed (`.env` is git-ignored).
+- **No default login.** On a fresh install the login prompt is replaced by a one-time **Create administrator account** form (`POST /api/auth/setup`, 12+ character password, common ones rejected). Once an account exists that endpoint answers `409`.
+- The server logs a warning at startup while no account exists.
+- ⚠️ Until the account is created, **whoever reaches the instance first creates it**. Do it right after installing, before exposing the instance anywhere.
 
 ### What's Protected
 - ✅ **Settings Panel**: Requires authentication
@@ -21,13 +22,12 @@ Nautilus now includes **server-side authentication** to protect configuration ch
 
 ## 🔑 Changing the Username & Password
 
-Log in, open **Settings → Account**, and enter a new username and/or password (min. 12 characters) plus your current password.
+Open **Settings → Account** and enter a new username and/or password (min. 12 characters) plus your current password.
 
-- Credentials are stored as a **scrypt hash** in `credentials.json` (in `NAUTILUS_DATA_DIR`, or next to `config.json`; `/data` in Docker), file mode `600`.
-- Once that file exists it **overrides** `NAUTILUS_ADMIN_USERNAME` / `NAUTILUS_ADMIN_PASSWORD`. The env vars are only used on first boot.
+- Credentials are stored as a **scrypt hash** in `credentials.json` (in `NAUTILUS_DATA_DIR`, or next to `config.json`; `/data` in Docker), file mode `600`. There are no credential env vars.
 - Changing credentials **signs out every session** (the session that made the change gets a fresh token).
 
-**Forgot the password?** Start the server once with `NAUTILUS_RESET_CREDENTIALS=true`. The stored file is deleted and the `.env` credentials apply again. Remove the flag afterwards.
+**Forgot the password?** Delete `credentials.json`, or start the server once with `NAUTILUS_RESET_CREDENTIALS=true` (remove the flag afterwards). Either way the next visit shows the account setup form again.
 
 ### Authless Mode (local use)
 Set `NAUTILUS_AUTH_DISABLED=true` to skip login entirely, e.g. on a dev machine or a trusted home LAN. No admin password is needed in this mode.
@@ -51,12 +51,8 @@ Create or update your `.env` file:
 cp .env.example .env
 ```
 
-**Required Security Variables:**
+No credentials go in `.env`. Optional settings:
 ```bash
-# CRITICAL: Change this password for production!
-NAUTILUS_ADMIN_PASSWORD=your_secure_password_here
-
-# Optional: Other settings
 NAUTILUS_SERVER_PORT=3069
 NAUTILUS_CLIENT_PORT=3070
 NAUTILUS_HOST=localhost
@@ -66,11 +62,7 @@ NAUTILUS_HOST=localhost
 
 **Before deploying to production:**
 
-1. **Change the admin password**:
-   ```bash
-   # In .env file
-   NAUTILUS_ADMIN_PASSWORD=YourSuperSecurePasswordHere123!
-   ```
+1. **Create the administrator account** right after installing, before the instance is reachable by anyone else.
 
 2. **Use HTTPS** (recommended):
    - Deploy behind a reverse proxy (nginx, Apache)
@@ -93,7 +85,7 @@ NAUTILUS_HOST=localhost
 ### 3. Authentication Flow
 
 1. **First Access**: User attempts to open settings or edit nodes
-2. **Password Prompt**: Browser prompts for admin password
+2. **Password Prompt**: Browser prompts for admin username and password (on a fresh install: a one-time "create administrator account" form)
 3. **Server Validation**: Password validated server-side
 4. **Session Token**: Server issues secure session token
 5. **Authenticated Requests**: All config changes use the token
@@ -109,12 +101,16 @@ NAUTILUS_HOST=localhost
 - `GET /api/network-scan/status` - Whether a scan is currently active
 - `GET /api/version` - Build version (git sha/tag)
 - `GET /health` - Basic health check
+- `GET /api/auth/status` - Whether login or first-run setup is needed
+- `POST /api/auth/setup` - Create the first account (fresh install only; `409` afterwards)
 
 #### Protected (Authentication Required)
 - `POST /api/config` - Update configuration
 - `POST /api/auth/login` - Authenticate user
 - `POST /api/auth/logout` - End session
 - `GET /api/auth/validate` - Check session validity
+- `GET /api/auth/account` - Current username
+- `POST /api/auth/credentials` - Change username/password
 - `POST /api/network-scan/start` - Start network scan
 - `GET /api/network-scan/progress` - Get scan progress
 - `POST /api/network-scan/cancel` - Cancel network scan
@@ -125,13 +121,12 @@ NAUTILUS_HOST=localhost
 
 ### Development Mode
 - Uses `.env` file for configuration
-- A password is still required — the server will not start without `NAUTILUS_ADMIN_PASSWORD` (and `1234` is rejected)
+- Same login flow as production: create the account on first visit (delete `credentials.json` next to `config.json` to start over)
 - Session tokens stored in browser sessionStorage
 - Detailed error messages
 
 ### Production Recommendations
 - **Strong password** (12+ characters, mixed case, numbers, symbols)
-- **Environment variables** set at system level
 - **HTTPS only**
 - **Restricted network access**
 - **Regular password rotation**

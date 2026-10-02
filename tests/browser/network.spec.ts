@@ -14,6 +14,8 @@ function fixture(): AppConfig {
   ] };
   return { general: { title: 'Nautilus' }, appearance: { accentColor: '#ff0000' }, server: { healthCheckInterval: 20000, corsOrigins: [] }, client: { apiPollingInterval: 60000 }, tree: { nodes: [root] } };
 }
+/** Resolves on the next scheduled status poll; the dashboard has no manual refresh control. */
+const nextPoll = (page: Page) => page.waitForResponse(response => new URL(response.url()).pathname === '/api/status');
 const flatten = (nodes: TreeNode[]): TreeNode[] => nodes.flatMap(n => [n, ...flatten(n.children ?? [])]);
 async function mockNetwork(page: Page, initial = fixture()) {
   let config = structuredClone(initial);
@@ -39,7 +41,7 @@ async function mockNetwork(page: Page, initial = fixture()) {
     else if (url.pathname === '/api/status') {
       if (unavailable) return route.fulfill({ status: 503, json: { error: 'Monitoring unavailable' } });
       data = { timestamp: now, statuses };
-    } else if (url.pathname.startsWith('/api/history')) data = { records: url.pathname === '/api/history' ? {} : [], nodeId: url.pathname.split('/').at(-1), period: '7d', sinceMs: Date.now() - 86400000, nowMs: Date.now() };
+    } else if (url.pathname.startsWith('/api/history')) data = url.pathname === '/api/history' ? { nodes: {}, summary: { uptimePercent: null, outageCount: 0, avgResponseTime: null }, period: '7d', sinceMs: Date.now() - 86400000, nowMs: Date.now() } : { records: [], nodeId: url.pathname.split('/').at(-1), period: '7d', sinceMs: Date.now() - 86400000, nowMs: Date.now() };
     else if (url.pathname.includes('network-scan')) data = { active: false, hasRecentResults: false, status: 'idle' };
     else if (url.pathname === '/api/version') data = { tag: 'Design preview', sha: 'local' };
     return route.fulfill({ json: data });
@@ -100,8 +102,7 @@ test('service launch, history, settings and editing use the new surfaces', async
   await expect(page.getByRole('button', { name: 'Appearance', exact: true })).toHaveCount(0); // the look is fixed
   await page.getByRole('button', { name: 'Close settings' }).click();
   await page.getByRole('button', { name: 'Edit network', exact: true }).click();
-  await page.locator('[data-select-node="home"]').click();
-  await page.getByRole('button', { name: 'Edit node', exact: true }).click();
+  await page.locator('[data-select-node="home"]').click(); // edit mode opens the editor directly
   await expect(page.getByLabel('Title', { exact: true })).toHaveValue('Home lab');
   await page.getByLabel('Title', { exact: true }).fill('Observatory');
   await page.screenshot({ animations: 'disabled', path: 'test-results/node-editor.png' });
@@ -141,6 +142,7 @@ test('large sample opens folded; show all and stale status remain usable', async
   large.appearance = { accentColor: '#65d7e8' };
   large.general = { title: 'Nautilus' };
   flatten(large.tree.nodes).forEach(n => { n.monitored = true; n.collapsed = false; });
+  large.server = { ...large.server, healthCheckInterval: 1000 };
   const api = await mockNetwork(page, large);
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Show all', exact: true })).toBeVisible();
@@ -154,7 +156,7 @@ test('large sample opens folded; show all and stale status remain usable', async
   if (await page.locator('.radial-world').count()) await expect(page.locator('.radial-world')).toHaveAttribute('data-layout-settled', 'true');
   await page.screenshot({ animations: 'disabled', path: 'test-results/large-expanded.png' });
   const before = await page.locator('.radial-node').evaluateAll(nodes => nodes.map(n => (n as HTMLElement).style.transform));
-  await page.getByRole('button', { name: 'Refresh status', exact: true }).click();
+  await nextPoll(page);
   expect(await page.locator('.radial-node').evaluateAll(nodes => nodes.map(n => (n as HTMLElement).style.transform))).toEqual(before);
   const [frames] = await Promise.all([
     page.evaluate(() => new Promise<number[]>(resolve => {
@@ -170,7 +172,7 @@ test('large sample opens folded; show all and stale status remain usable', async
   ]);
   console.log(`126-node pan: mean ${(frames.reduce((a, b) => a + b, 0) / frames.length).toFixed(1)} ms/frame`);
   api.disconnect();
-  await page.getByRole('button', { name: 'Refresh status', exact: true }).click();
+  await nextPoll(page);
   await expect(page.getByRole('status')).toContainText('Showing last known readings');
 });
 
@@ -200,9 +202,10 @@ test('failed collapse saves retain the local view and rapid toggles finish consi
 });
 
 test('reparenting rejects descendants, persists moves, and reports failures', async ({ page }) => {
+  // The parent picker only exists on phones; desktop moves nodes on the canvas.
+  await page.setViewportSize({ width: 390, height: 844 });
   const api = await mockNetwork(page);
   await page.goto('/');
-  await page.getByRole('button', { name: 'Edit network', exact: true }).click();
   await page.locator('[data-select-node="smart-home"]').click();
   await page.getByRole('button', { name: 'Edit node', exact: true }).click();
   await page.getByText('Position in network', { exact: true }).click();
@@ -234,8 +237,7 @@ test('discovery and authentication match the dark workspace', async ({ page }) =
   await mockNetwork(page);
   await page.goto('/');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await page.getByRole('button', { name: 'Nodes', exact: true }).click();
-  await page.getByRole('button', { name: 'Discover Nodes', exact: true }).click();
+  await page.getByRole('button', { name: 'Discover nodes', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Network discovery' })).toBeVisible();
   await page.screenshot({ animations: 'disabled', path: 'test-results/discovery.png' });
   await page.getByRole('button', { name: 'Close', exact: true }).click();
@@ -294,7 +296,10 @@ test('inventory, compact controls, settings sections and populated history', asy
   await mockNetwork(page, config);
   const nowMs = Date.now(), sinceMs = nowMs - 86400000;
   const records = Array.from({ length: 160 }, (_, i) => ({ timestamp: sinceMs + i * 540000, status: i > 70 && i < 78 ? 'offline' : 'online', responseTime: 15 + i % 12, error: i === 71 ? 'Connection timed out' : null, playersOnline: null, playersMax: null, streams: null }));
-  await page.route('**/api/history**', route => route.fulfill({ json: { records: new URL(route.request().url()).pathname === '/api/history' ? Object.fromEntries(flatten(config.tree.nodes).map(n => [n.id, records])) : records, sinceMs, nowMs, period: '7d' } }));
+  const summary = { buckets: records.map(r => r.status), recordCount: records.length, stats: { uptimePercent: 95, outageCount: 1, avgResponseTime: 20 } };
+  await page.route('**/api/history**', route => route.fulfill({ json: new URL(route.request().url()).pathname === '/api/history'
+    ? { nodes: Object.fromEntries(flatten(config.tree.nodes).map(n => [n.id, summary])), summary: summary.stats, sinceMs, nowMs, period: '7d' }
+    : { records, sinceMs, nowMs, period: '7d' } }));
   await page.goto('/');
   await page.getByRole('button', { name: 'List', exact: true }).click();
   await expect(page.locator('.inventory-columns')).toBeVisible();
@@ -391,7 +396,9 @@ test('saved restore remains visible when its follow-up config read fails', async
 
 
 test('activity chip only shows active counts and clears an expired activity filter', async ({ page }) => {
-  await mockNetwork(page);
+  const config = fixture();
+  config.server.healthCheckInterval = 1000;
+  await mockNetwork(page, config);
   let streams = 0, players = 0;
   await page.route('**/api/status', route => route.fulfill({ json: { timestamp: new Date().toISOString(), statuses: {
     plex: { status: 'online', streams, lastChecked: new Date().toISOString() },
@@ -400,17 +407,17 @@ test('activity chip only shows active counts and clears an expired activity filt
   await page.goto('/');
   await expect(page.locator('.activity-total')).toHaveCount(0);
   streams = 2;
-  await page.getByRole('button', { name: 'Refresh status' }).click();
+  await nextPoll(page);
   await expect(page.locator('.activity-total')).toContainText('2streams');
   await expect(page.locator('.activity-total')).not.toContainText('players');
   await page.locator('.activity-total').click();
   await expect(page.getByRole('complementary', { name: 'Search results' })).toContainText('Plex');
   streams = 0; players = 1;
-  await page.getByRole('button', { name: 'Refresh status' }).click();
+  await nextPoll(page);
   await expect(page.locator('.activity-total')).toContainText('1player');
   await expect(page.locator('.activity-total')).not.toContainText('streams');
   players = 0;
-  await page.getByRole('button', { name: 'Refresh status' }).click();
+  await nextPoll(page);
   await expect(page.locator('.activity-total')).toHaveCount(0);
   await expect(page.getByRole('complementary', { name: 'Search results' })).toHaveCount(0);
 });
@@ -534,7 +541,8 @@ test('inspector disclosures, switches and delete with preserved children', async
     await interaction.click();
     await expect(interaction).toHaveAttribute('aria-checked', i === 0 ? 'false' : 'true');
   }
-  for (const name of ['Backup window', 'Position in network']) {
+  await expect(editor.getByRole('button', { name: 'Position in network', exact: true })).toHaveCount(0); // desktop moves on the canvas
+  for (const name of ['Backup window']) {
     const disclosure = editor.getByRole('button', { name, exact: true });
     await disclosure.click();
     await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
@@ -581,4 +589,26 @@ test('edit mode drops a whole branch onto the home lab center and persists its n
   await page.reload();
   await expect(page.locator('[data-select-node="smart-home"]')).toBeVisible();
   expect(api.getConfig().tree.nodes.some(n => n.id === 'smart-home')).toBe(true);
+});
+
+test('history accepts a custom date range', async ({ page }) => {
+  await mockNetwork(page);
+  const queries: URLSearchParams[] = [];
+  page.on('request', request => { const url = new URL(request.url()); if (url.pathname === '/api/history') queries.push(url.searchParams); });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await page.getByRole('button', { name: 'Custom range', exact: true }).click();
+  const popover = page.getByRole('dialog', { name: 'Custom range' });
+  const day = (offset: number) => { const d = new Date(Date.now() - offset * 86400000); d.setHours(9, 0, 0, 0); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  await popover.getByLabel('To').fill(day(3));
+  await popover.getByLabel('From').fill(day(2));
+  await expect(popover.getByRole('button', { name: 'Apply' })).toBeDisabled(); // end before start
+  await popover.getByLabel('From').fill(day(5));
+  await popover.getByRole('button', { name: 'Apply' }).click();
+  await expect(popover).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Custom range', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => queries.at(-1)?.get('from')).toBe(String(new Date(day(5)).getTime()));
+  expect(queries.at(-1)?.get('to')).toBe(String(new Date(day(3)).getTime()));
+  await page.keyboard.press('Escape'); // closes the sheet itself, popover is gone
+  await expect(page.getByRole('dialog')).toHaveCount(0);
 });

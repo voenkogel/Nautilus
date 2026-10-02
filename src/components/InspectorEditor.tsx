@@ -12,7 +12,8 @@ export function InspectorEditor({ node, onSave, onCancel, onAddChild, onDelete, 
   onCancel: () => void;
   onAddChild: () => void;
   onDelete: (keepChildren: boolean) => Promise<void>;
-  children: ReactNode;
+  /** Parent/order controls; omitted on desktop, where the canvas handles moves. */
+  children?: ReactNode;
 }) {
   const [draft, setDraft] = useState(() => structuredClone(node));
   const [saving, setSaving] = useState(false);
@@ -78,13 +79,12 @@ export function InspectorEditor({ node, onSave, onCancel, onAddChild, onDelete, 
   return <div className="inspector-editor" onKeyDown={event => {
     if (event.key === 'Escape' && !document.querySelector('[aria-modal="true"]')) { event.stopPropagation(); cancel(); }
   }}>
-    <header className="inspector-editor-heading"><button aria-label="Back to node details" onClick={cancel} disabled={saving}><ArrowLeft size={18} /></button><div><h2>Edit node</h2><p>{node.title}</p></div>{dirty && <span>Unsaved changes</span>}</header>
+    <header className="inspector-editor-heading"><button aria-label="Back to node details" onClick={cancel} disabled={saving}><ArrowLeft size={18} /></button><div><p>Editing</p><h2>{draft.title.trim() || node.title}</h2></div>{dirty && <span className="editor-dirty" title="Unsaved changes"><i aria-hidden="true" />Unsaved</span>}</header>
     <div className="inspector-editor-content" ref={content}>
       <fieldset disabled={saving}>
         <NodeFormFields node={draft} onChange={updates => setDraft(previous => ({ ...previous, ...updates }))} />
-        <Disclosure title="Position in network">{children}</Disclosure>
-        <button type="button" className="wide-action editor-add-child" onClick={onAddChild}>Add child node<Plus size={14} /></button>
-
+        {children && <Disclosure title="Position in network">{children}</Disclosure>}
+        <button type="button" className="editor-add-child" onClick={onAddChild}><Plus size={14} />Add child node</button>
       </fieldset>
     </div>
     <footer className="inspector-editor-footer">

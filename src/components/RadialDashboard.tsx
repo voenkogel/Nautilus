@@ -1,7 +1,7 @@
 import { HomeConstellation } from './HomeConstellation';
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import { ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, Binoculars, CircleDot, Crosshair, Edit3, Film, Gamepad2, History, List, Minus, Network, Plus, RefreshCw, Search, Settings, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, Binoculars, CircleDot, Crosshair, Edit3, Film, Gamepad2, History, List, Minus, Network, Plus, Search, Settings, X } from 'lucide-react';
 import type { AppConfig, NodeStatus, TreeNode } from '../types/config';
 import { activity, matchesNode, summarize, healthDescription, healthStates } from '../utils/networkSummary';
 import type { NetworkFilter } from '../utils/networkSummary';
@@ -12,7 +12,7 @@ import { iconRegistry } from '../utils/iconUtils';
 import { getStatusColor, statusLabels } from '../utils/colors';
 import { NodeHistoryView } from './history/NodeHistoryView';
 import { PeriodPicker } from './history/historyCharts';
-import type { HistoryPeriod } from '../hooks/useStatusHistory';
+import type { HistoryRange } from '../hooks/useStatusHistory';
 import { HealthRing, NetworkHealth } from './HealthRing';
 import { InspectorEditor } from './InspectorEditor';
 import { useDeviceDetection } from '../hooks/useDeviceDetection';
@@ -22,8 +22,6 @@ interface Props {
   statuses: Record<string, NodeStatus>;
   connected: boolean;
   loading: boolean;
-  querying: boolean;
-  countdown: number;
   error: string | null;
   collapsed: Set<string>;
   editMode: boolean;
@@ -35,7 +33,7 @@ interface Props {
   onOpen: (node: TreeNode) => void;
   onEdit: (id: string) => Promise<TreeNode | null>;
   onSaveNode: (node: TreeNode) => Promise<void>;
-  onAdd: (id: string) => void;
+  onAdd: (id: string | null) => void;
   onDelete: (id: string, keepChildren: boolean) => Promise<void>;
   onMove: (id: string, parent: string | null, index: number) => Promise<void>;
   onOrder: (id: string, direction: 'up' | 'down') => void;
@@ -142,7 +140,7 @@ export default function RadialDashboard(props: Props) {
   const [explicitFolds, setExplicitFolds] = useState<Map<string, boolean>>(new Map());
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
   const [tab, setTab] = useState<'overview' | 'history'>('overview');
-  const [period, setPeriod] = useState<HistoryPeriod>('7d');
+  const [period, setPeriod] = useState<HistoryRange>('7d');
   const [moveParent, setMoveParent] = useState('');
   const [moving, setMoving] = useState(false);
   const [moveError, setMoveError] = useState('');
@@ -177,13 +175,15 @@ export default function RadialDashboard(props: Props) {
   const summary = useMemo(() => summarize(config.tree.nodes, statuses), [config.tree.nodes, statuses]);
   useEffect(() => { if (filter === 'activity' && summary.streams + summary.players === 0) setFilter(null); }, [filter, summary.streams, summary.players]);
   const roots = useMemo(() => focusId && byId.has(focusId) ? [byId.get(focusId)!] : config.tree.nodes, [focusId, byId, config.tree.nodes]);
+  // Edit mode shows the whole tree so every node is reachable to drag, drop and extend.
   const effectiveCollapsed = useMemo(() => {
+    if (editMode) return new Set<string>();
     const result = new Set(collapsed);
     if (!showAll && !focusId) automaticFolds.forEach(id => result.add(id));
     revealed.forEach(id => result.delete(id));
     explicitFolds.forEach((folded, id) => folded ? result.add(id) : result.delete(id));
     return result;
-  }, [collapsed, automaticFolds, showAll, focusId, revealed, explicitFolds]);
+  }, [editMode, collapsed, automaticFolds, showAll, focusId, revealed, explicitFolds]);
   const layout = useMemo(() => radialLayout(roots, effectiveCollapsed), [roots, effectiveCollapsed]);
   const frame = useAnimatedLayout(layout);
   const frameById = useMemo(() => new Map(frame.nodes.map(n => [n.id, n])), [frame.nodes]);
@@ -219,6 +219,13 @@ export default function RadialDashboard(props: Props) {
   }, [layout, selectedId, changeCamera]);
   const initialized = useRef(false);
   const overviewInitialized = useRef(false);
+  // Entering or leaving edit mode unfolds or refolds the map; refit once the new layout is in.
+  const editModeFitted = useRef(editMode);
+  useEffect(() => {
+    if (editModeFitted.current === editMode || isList || !initialized.current) return;
+    editModeFitted.current = editMode;
+    fit(layout);
+  }, [editMode, layout, isList, fit]);
   useLayoutEffect(() => {
     if (all.length && !overviewInitialized.current && stage.current) {
       overviewInitialized.current = true;
@@ -293,8 +300,11 @@ export default function RadialDashboard(props: Props) {
       }
     }
     setSelectedId(node.id); setTab('overview'); setHoveredId(null);
+    // In edit mode a click means "edit this node": open the editor directly.
+    if (editMode) void beginEdit(node);
   }
   function toggleFold(node: TreeNode) {
+    if (editMode) return;
     const folded = !effectiveCollapsed.has(node.id);
     setExplicitFolds(previous => new Map(previous).set(node.id, folded));
     props.onCollapse(node.id, folded);
@@ -426,7 +436,6 @@ export default function RadialDashboard(props: Props) {
   const hovered = hoveredId ? byId.get(hoveredId) : undefined;
   const hoverPosition = frame.nodes.find(n => n.id === hoveredId);
   const selectedStatus = selected ? statuses[selected.id] : undefined;
-  const lastChecked = Object.values(statuses).map(s => s.lastChecked).sort().at(-1);
   const ancestorNames: TreeNode[] = [];
   let ancestor = focusId ? parents.get(focusId) : null;
   while (ancestor) { const n = byId.get(ancestor); if (n) ancestorNames.unshift(n); ancestor = parents.get(ancestor); }
@@ -436,7 +445,7 @@ export default function RadialDashboard(props: Props) {
     if (hasFilter && !relevant.has(node.id)) return null;
     return <Fragment key={node.id}>
       <div className={`network-list-row ${selectedId === node.id ? 'selected' : ''}`} style={{ '--depth': depth } as CSSProperties}>
-        <button className="list-fold" aria-label={`${effectiveCollapsed.has(node.id) ? 'Expand' : 'Collapse'} ${node.title}`} disabled={!node.children?.length} onClick={() => toggleFold(node)}>{effectiveCollapsed.has(node.id) ? <ChevronRight size={16} /> : <ChevronDown size={16} />}</button>
+        <button className="list-fold" aria-label={`${effectiveCollapsed.has(node.id) ? 'Expand' : 'Collapse'} ${node.title}`} disabled={editMode || !node.children?.length} onClick={() => toggleFold(node)}>{effectiveCollapsed.has(node.id) ? <ChevronRight size={16} /> : <ChevronDown size={16} />}</button>
         <button className="list-node" data-select-node={node.id} onClick={() => select(node)}>
           <span className="list-node-icon" style={{ color: getStatusColor(s, isNodeMonitored(node)) }}><NodeIcon node={node} /></span>
           <span className="list-identity"><strong>{node.title}</strong>{(() => { const meta = [node.subtitle, effectiveCollapsed.has(node.id) && stats.total ? `${stats.total} hidden${stats.offline ? ` · ${stats.offline} offline` : ''}` : ''].filter(Boolean).join(' · '); return meta ? <small>{meta}</small> : null; })()}</span>
@@ -460,7 +469,6 @@ export default function RadialDashboard(props: Props) {
       <div className="monitor-metrics">
         {summary.streams + summary.players > 0 && <button aria-pressed={filter === 'activity'} title="Filter nodes with active streams or players" className={`activity-total ${filter === 'activity' ? 'active' : ''}`} onClick={() => setFilter(filter === 'activity' ? null : 'activity')}><span className="activity-chip-label">Activity</span>{summary.streams > 0 && <><Film size={14} /><strong>{summary.streams}</strong><span>{summary.streams === 1 ? 'stream' : 'streams'}</span></>}{summary.players > 0 && <><Gamepad2 size={15} /><strong>{summary.players}</strong><span>{summary.players === 1 ? 'player' : 'players'}</span></>}</button>}
       </div>
-      <button className="refresh-status" onClick={props.onRefresh} title={`Last update: ${elapsed(lastChecked)}. Refresh status.`} aria-label="Refresh status"><RefreshCw size={14} className={props.querying ? 'refreshing' : ''} /><span>{props.querying ? 'Checking' : `${Math.max(0, Math.ceil(props.countdown))}s`}</span></button>
     </section>
       <button className="mobile-search-toggle" aria-label="Search network" aria-expanded={searchOpen} aria-controls="network-search-field" onClick={() => setSearchOpen(v => !v)}><Search size={18} /></button><div id="network-search-field" className="network-search"><Search size={17} /><input ref={searchInput} aria-label="Search network" placeholder="Find a node…" value={query} onChange={e => setQuery(e.target.value)} />{(query || searchOpen) && <button aria-label="Clear search" onClick={() => { setQuery(''); setSearchOpen(false); }}><X size={15} /></button>}</div>
       <nav aria-label="Application"><button aria-label="History" title="History" onClick={props.onHistory}><History size={17} /><span>History</span></button><button aria-label="Settings" title="Settings" onClick={props.onSettings}><Settings size={17} /><span>Settings</span></button></nav>
@@ -497,8 +505,9 @@ export default function RadialDashboard(props: Props) {
                 {counts.streams + counts.players > 0 && <span key={counts.streams + ':' + counts.players} className="node-activity" aria-label={`${counts.streams || counts.players} ${counts.streams ? 'streams' : 'players'}`}>{counts.streams ? <Film size={10} /> : <Gamepad2 size={11} />}{counts.streams || counts.players}</span>}
               </button>}
               {node && <div className="node-caption"><span className={`node-label ${camera.scale < .4 && position.depth > 1 && !activePath.has(position.id) && s?.status !== 'offline' ? 'distant' : ''}`}>{node.title}</span></div>}
-              {node && !!node.children?.length && !folded && <button className={`branch-collapse ${hoveredBranch === node.id ? 'revealed' : ''}`} style={{ '--dx': `${Math.cos(position.angle) * 44}px`, '--dy': `${Math.sin(position.angle) * 44}px` } as CSSProperties} title={stats ? healthDescription(stats) : undefined} aria-expanded="true" aria-label={`Collapse ${node.title}; ${stats?.total} descendants, ${stats?.offline} offline`} onPointerEnter={() => showBranch(node.id)} onPointerLeave={hideBranch} onFocus={() => showBranch(node.id)} onBlur={hideBranch} onClick={() => toggleFold(node)}><Minus size={11} strokeWidth={2.2} /></button>}
-              {node && !!node.children?.length && folded && <button className="branch-toggle" title={stats ? healthDescription(stats) : undefined} aria-expanded="false" aria-label={`Expand ${node.title}; ${stats?.total} descendants, ${stats?.offline} offline`} onClick={() => toggleFold(node)}><span className="branch-glyph" aria-hidden="true"><span /><span /></span>{stats && <HealthRing summary={stats} only={['online', 'offline']} />}<span className="branch-count">{stats?.total}</span>{matchCount > 0 && <span className="branch-matches" title={`${matchCount} matches`}><Search size={10} />{matchCount}</span>}</button>}
+              {editMode && !dragged && <button className="node-add" style={(node ? { '--dx': `${Math.cos(position.angle) * 44}px`, '--dy': `${Math.sin(position.angle) * 44}px` } : { '--dx': '0px', '--dy': '92px' }) as CSSProperties} title={`Add a node beneath ${node?.title ?? 'Home lab'}`} aria-label={`Add a node beneath ${node?.title ?? 'Home lab'}`} onClick={() => props.onAdd(node?.id ?? null)}><Plus size={12} strokeWidth={2.4} /></button>}
+              {!editMode && node && !!node.children?.length && !folded && <button className={`branch-collapse ${hoveredBranch === node.id ? 'revealed' : ''}`} style={{ '--dx': `${Math.cos(position.angle) * 44}px`, '--dy': `${Math.sin(position.angle) * 44}px` } as CSSProperties} title={stats ? healthDescription(stats) : undefined} aria-expanded="true" aria-label={`Collapse ${node.title}; ${stats?.total} descendants, ${stats?.offline} offline`} onPointerEnter={() => showBranch(node.id)} onPointerLeave={hideBranch} onFocus={() => showBranch(node.id)} onBlur={hideBranch} onClick={() => toggleFold(node)}><Minus size={11} strokeWidth={2.2} /></button>}
+              {!editMode && node && !!node.children?.length && folded && <button className="branch-toggle" title={stats ? healthDescription(stats) : undefined} aria-expanded="false" aria-label={`Expand ${node.title}; ${stats?.total} descendants, ${stats?.offline} offline`} onClick={() => toggleFold(node)}><span className="branch-glyph" aria-hidden="true"><span /><span /></span>{stats && <HealthRing summary={stats} only={['online', 'offline']} />}<span className="branch-count">{stats?.total}</span>{matchCount > 0 && <span className="branch-matches" title={`${matchCount} matches`}><Search size={10} />{matchCount}</span>}</button>}
             </div>;
           })}
         </div>
@@ -518,17 +527,16 @@ export default function RadialDashboard(props: Props) {
       {hasFilter && <aside className="network-results" aria-label="Search results"><div><strong>{matches.length} {matches.length === 1 ? 'match' : 'matches'}{filter && ` · ${filter === 'backup' ? 'backing up' : filter}`}</strong><button aria-label="Clear filters" onClick={() => { setQuery(''); setFilter(null); }}><X size={14} /></button></div>{matches.length ? matches.map(n => <button key={n.id} onClick={() => select(n, true)}><i style={{ background: getStatusColor(statuses[n.id], isNodeMonitored(n)) }} /><span>{n.title}<small>{statusText(n, statuses[n.id])}</small></span><ArrowUpRight size={13} /></button>) : <p>No nodes match. <button onClick={() => { setQuery(''); setFilter(null); }}>Reset filters</button></p>}</aside>}
       <footer className="map-toolbar">
         <div className="view-switch animated-segments" style={{ '--segment-index': isList ? 1 : 0 } as CSSProperties} aria-label="Network view"><button aria-label="Map" title="Map" aria-pressed={!isList} onClick={() => { setView('map'); initialized.current = false; }}><CircleDot size={18} /></button><button aria-label="List" title="List" aria-pressed={isList} onClick={() => setView('list')}><List size={18} /></button></div>
-        <div className="viewport-controls">{!isList && <><button aria-label="Zoom out" onClick={() => zoom(.8)}><Minus size={16} /></button><span>{Math.round(camera.scale * 100)}%</span><button aria-label="Zoom in" onClick={() => zoom(1.25)}><Plus size={16} /></button><button onClick={() => fit()}><Crosshair size={15} /><span>Fit network</span></button></>}{automaticFolds.size > 0 && !showAll && <button onClick={() => { setShowAll(true); fit(radialLayout(roots, new Set([...collapsed].filter(id => explicitFolds.get(id) !== false)))); }}><Plus size={14} />Show all</button>}</div>
-        {!isList && <div className="map-legend"><span><i className="health-dot online" />Online</span><span><i className="health-dot offline" />Offline</span><span><i className="health-dot backup" />Backup</span><span><i className="health-dot neutral" />Unmonitored</span></div>}
+        <div className="viewport-controls">{!isList && <><button aria-label="Zoom out" onClick={() => zoom(.8)}><Minus size={16} /></button><span>{Math.round(camera.scale * 100)}%</span><button aria-label="Zoom in" onClick={() => zoom(1.25)}><Plus size={16} /></button><button aria-label="Fit network" title="Fit network" onClick={() => fit()}><Crosshair size={16} /></button></>}{automaticFolds.size > 0 && !showAll && !editMode && <button onClick={() => { setShowAll(true); fit(radialLayout(roots, new Set([...collapsed].filter(id => explicitFolds.get(id) !== false)))); }}><Plus size={14} />Show all</button>}</div>
         {!isMobile && <button aria-label={editMode ? 'Done editing' : 'Edit network'} title={editMode ? 'Done editing' : 'Edit network'} aria-pressed={editMode} className={`edit-toggle ${editMode ? 'active' : ''}`} onClick={props.onEditMode}>{editMode ? <><span className="edit-toggle-pulse" aria-hidden="true" /><span className="edit-toggle-label">Now editing</span><span className="edit-toggle-done"><Check size={15} strokeWidth={2.4} />Done</span></> : <Edit3 size={18} />}</button>}
       </footer>
       {editMode && dragged && isList && <div className="root-drop" onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void moveNode(dragged, null); }}>Connect directly to Home lab</div>}
-      {editMode && !dragged && <div className="edit-hint">Drag onto a node to move beneath it, or use the inspector’s parent selector.</div>}
+      {editMode && !dragged && <div className="edit-hint">Drag onto a node to move beneath it, or press + on a node to add a child.</div>}
       {moveError && !selected && <div className="network-notice" role="alert">{moveError}</div>}
       {selected && isMobile && !editorNode && <div className={`sheet-backdrop ${closing ? 'is-closing' : ''}`} aria-hidden="true" onClick={() => closeInspector()} />}
       {selected && <aside ref={inspector} tabIndex={-1} className={`node-inspector ${editorNode ? 'is-editing' : ''} ${sheetExpanded ? 'sheet-expanded' : ''} ${closing === 'animate' ? 'is-closing' : ''}`} style={sheetStyle ?? undefined} onScroll={event => { if (isMobile && !sheetExpanded && !editorNode && event.currentTarget.scrollTop > 0) setSheetExpanded(true); }} aria-label={`${selected.title} details`}>
-        {editorNode ? <InspectorEditor key={editorNode.id} node={editorNode} onCancel={finishEdit} onAddChild={() => props.onAdd(selected.id)} onDelete={keepChildren => props.onDelete(selected.id, keepChildren)} onSave={async node => { await props.onSaveNode({ ...node, children: byId.get(node.id)?.children }); }}>
-          <label className="parent-picker">Parent<select aria-label="Parent" value={moveParent} onChange={e => setMoveParent(e.target.value)}><option value="">Home lab</option>{all.filter(n => n.id !== selected.id && !getAllNodes(selected.children ?? []).some(child => child.id === n.id)).map(n => <option key={n.id} value={n.id}>{n.title}</option>)}</select></label><button className="wide-action" disabled={moving || moveParent === (parents.get(selected.id) ?? '')} onClick={() => void moveNode(selected.id, moveParent || null)}>{moving ? 'Moving...' : 'Move node'}<ArrowUpRight size={14} /></button><div className="manage-actions"><button disabled={getNodeSiblingPosition(config.tree.nodes, selected.id)?.index === 0} onClick={() => props.onOrder(selected.id, 'up')}>Move earlier</button><button onClick={() => props.onOrder(selected.id, 'down')}>Move later</button></div>{moveError && <p role="alert" className="inspector-error">{moveError}</p>}
+        {editorNode ? <InspectorEditor key={editorNode.id} node={editorNode} onCancel={finishEdit} onAddChild={() => props.onAdd(selected.id)} onDelete={keepChildren => props.onDelete(selected.id, keepChildren)} onSave={async node => { await props.onSaveNode({ ...node, children: byId.get(node.id)?.children }); }}>{isMobile && <>
+          <label className="parent-picker">Parent<select aria-label="Parent" value={moveParent} onChange={e => setMoveParent(e.target.value)}><option value="">Home lab</option>{all.filter(n => n.id !== selected.id && !getAllNodes(selected.children ?? []).some(child => child.id === n.id)).map(n => <option key={n.id} value={n.id}>{n.title}</option>)}</select></label><button className="wide-action" disabled={moving || moveParent === (parents.get(selected.id) ?? '')} onClick={() => void moveNode(selected.id, moveParent || null)}>{moving ? 'Moving...' : 'Move node'}<ArrowUpRight size={14} /></button><div className="manage-actions"><button disabled={getNodeSiblingPosition(config.tree.nodes, selected.id)?.index === 0} onClick={() => props.onOrder(selected.id, 'up')}>Move earlier</button><button onClick={() => props.onOrder(selected.id, 'down')}>Move later</button></div>{moveError && <p role="alert" className="inspector-error">{moveError}</p>}</>}
         </InspectorEditor> : <>
         <div className="inspector-heading" onPointerDown={sheetDown} onPointerMove={sheetMove} onPointerUp={sheetUp} onPointerCancel={sheetUp}>{isMobile && <span className="sheet-grabber" aria-hidden="true" />}</div><button className="inspector-close" aria-label="Close inspector" onClick={() => closeInspector()}><X size={18} /></button>
         <div className="inspector-identity"><span style={{ color: getStatusColor(selectedStatus, isNodeMonitored(selected)) }}><NodeIcon node={selected} /></span><h2>{selected.title}</h2>{selected.subtitle && <p>{selected.subtitle}</p>}<div className="inspector-status" style={{ color: getStatusColor(selectedStatus, isNodeMonitored(selected)) }}><i style={{ background: 'currentColor' }} />{statusText(selected, selectedStatus)}</div></div>

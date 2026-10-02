@@ -1,11 +1,12 @@
 // Admin credential store.
 //
-// Credentials changed from the UI are persisted as a scrypt hash in
-// credentials.json (next to config.json, or in NAUTILUS_DATA_DIR). When that
-// file is absent, the NAUTILUS_ADMIN_USERNAME / NAUTILUS_ADMIN_PASSWORD env
-// vars are the source of truth (first boot). Once the file exists it wins over
-// the env vars; set NAUTILUS_RESET_CREDENTIALS=true to discard it and fall back
-// to the env vars again (recovery path for a forgotten password).
+// There is no default login. Until an administrator account exists, the UI
+// shows a one-time setup form (POST /api/auth/setup) instead of the login
+// prompt. Credentials are persisted as a scrypt hash in credentials.json (next
+// to config.json, or in NAUTILUS_DATA_DIR) and can be changed later from
+// Settings → Account. Deleting that file, or starting once with
+// NAUTILUS_RESET_CREDENTIALS=true, brings the setup form back (recovery path
+// for a forgotten password).
 import crypto from 'crypto';
 import { promisify } from 'util';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, chmodSync, unlinkSync } from 'fs';
@@ -24,9 +25,9 @@ export const PASSWORD_MIN = 12;
 // Upper bound keeps attacker-supplied input from making scrypt do extra work.
 export const PASSWORD_MAX = 256;
 
-const INSECURE_PASSWORDS = new Set(['1234', 'admin', 'password', 'changeme', 'changeme_use_strong_password_here']);
+const INSECURE_PASSWORDS = new Set(['1234', 'admin', 'password', 'changeme', 'nautilus']);
 
-let current = null; // { username, hash: Buffer, salt: Buffer, params, source }
+let current = null; // { username, hash: Buffer, salt: Buffer, params }; null until set up
 let credentialsPath = null;
 
 async function hashPassword(password, salt = crypto.randomBytes(16), params = SCRYPT_PARAMS) {
@@ -77,14 +78,12 @@ function loadFromFile(path) {
     hash: Buffer.from(raw.hash, 'base64'),
     salt: Buffer.from(raw.salt, 'base64'),
     params: raw.params,
-    source: 'file',
   };
 }
 
 /**
  * Initialise the store. `configPath` is where config.json lives; the credentials
- * file sits beside it unless NAUTILUS_DATA_DIR is set. Exits the process if no
- * usable credentials can be established (no file and no secure env password).
+ * file sits beside it unless NAUTILUS_DATA_DIR is set.
  */
 export async function initCredentials(configPath) {
   credentialsPath = process.env.NAUTILUS_DATA_DIR
@@ -94,7 +93,7 @@ export async function initCredentials(configPath) {
   if (process.env.NAUTILUS_RESET_CREDENTIALS === 'true' && existsSync(credentialsPath)) {
     try {
       unlinkSync(credentialsPath);
-      logger.warn('⚠️  NAUTILUS_RESET_CREDENTIALS=true: stored credentials discarded, using env vars. Remove the flag after logging in.');
+      logger.warn('⚠️  NAUTILUS_RESET_CREDENTIALS=true: stored credentials discarded. Remove the flag after creating the new account.');
     } catch (err) {
       logger.error(`❌ Could not remove ${credentialsPath}: ${err.message}`);
     }
@@ -103,26 +102,20 @@ export async function initCredentials(configPath) {
   if (existsSync(credentialsPath)) {
     try {
       current = loadFromFile(credentialsPath);
-      logger.info(`🔒 Authentication: using credentials stored in ${credentialsPath} (env vars ignored)`);
-      return true;
+      logger.info(`🔒 Authentication: using credentials stored in ${credentialsPath}`);
+      return;
     } catch (err) {
-      logger.error(`❌ Credentials file ${credentialsPath} is unreadable (${err.message}); falling back to env vars`);
+      logger.error(`❌ Credentials file ${credentialsPath} is unreadable (${err.message})`);
     }
   }
 
-  const envUser = (process.env.NAUTILUS_ADMIN_USERNAME || 'admin').trim();
-  const envPass = process.env.NAUTILUS_ADMIN_PASSWORD;
-  if (!envPass || INSECURE_PASSWORDS.has(envPass.toLowerCase())) return false;
-  if (envPass.length < PASSWORD_MIN) {
-    logger.warn(`⚠️  NAUTILUS_ADMIN_PASSWORD is shorter than ${PASSWORD_MIN} characters — change it from Settings → Account.`);
-  }
-  current = { username: envUser, ...(await hashPassword(envPass)), source: 'env' };
-  logger.info('🔒 Authentication: using credentials from environment variables');
-  return true;
+  logger.warn('⚠️  Authentication: no administrator account yet. Open Nautilus in a browser to create one.');
 }
 
+/** True until an administrator account has been created. */
+export const isSetupRequired = () => current === null;
+
 export const getUsername = () => current?.username ?? null;
-export const getCredentialSource = () => current?.source ?? null;
 
 /**
  * Constant-time-ish verification. The password is always hashed (even when the
@@ -146,7 +139,10 @@ export async function verifyPassword(password) {
 
 /** Persist new credentials. Either field may be omitted to keep the current one. */
 export async function updateCredentials({ username, password }) {
-  if (!current || !credentialsPath) throw new Error('Credential store not initialised');
+  if (!credentialsPath) throw new Error('Credential store not initialised');
+  if (!current && (username === undefined || password === undefined)) {
+    throw new Error('Both username and password are required for the first account');
+  }
   const nextUser = username !== undefined ? username.trim() : current.username;
   const next = password !== undefined
     ? { username: nextUser, ...(await hashPassword(password)) }
@@ -162,6 +158,25 @@ export async function updateCredentials({ username, password }) {
     updatedAt: new Date().toISOString(),
   }, null, 2));
 
-  current = { ...next, source: 'file' };
+  current = next;
   logger.info(`🔒 Admin credentials updated (${username !== undefined ? 'username' : ''}${username !== undefined && password !== undefined ? ' + ' : ''}${password !== undefined ? 'password' : ''})`);
+}
+
+// Set while the first account is being written, so two setup requests racing
+// through the async hash can't both succeed.
+let creating = false;
+
+/**
+ * Create the first administrator account. Returns false if one already exists
+ * (or another request is creating it right now).
+ */
+export async function createInitialCredentials({ username, password }) {
+  if (current || creating) return false;
+  creating = true;
+  try {
+    await updateCredentials({ username, password });
+    return true;
+  } finally {
+    creating = false;
+  }
 }

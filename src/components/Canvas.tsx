@@ -48,7 +48,6 @@ const Canvas: React.FC = () => {
   const [scanActive, setScanActive] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [authAttemptedForCurrentScan, setAuthAttemptedForCurrentScan] = useState(false);
-  const [focusNodeId, setFocusNodeId] = useState<string | undefined>(undefined);
   const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
   const [currentConfig, setCurrentConfig] = useState<AppConfig>(initialAppConfig);
   const [collapsedNodeIds, setCollapsedNodeIds] = useState<Set<string>>(new Set());
@@ -76,9 +75,7 @@ const Canvas: React.FC = () => {
     statuses, 
     isLoading, 
     error, 
-    isConnected, 
-    nextCheckCountdown, 
-    isQuerying,
+    isConnected,
     forceRefresh
   } = useNodeStatus(currentConfig);
 
@@ -435,7 +432,6 @@ const Canvas: React.FC = () => {
     });
     collectFolds(restoredConfig.tree.nodes);
     setCollapsedNodeIds(restoredFolds);
-    setFocusNodeId(undefined);
     setIsEditMode(false);
     setNetworkRevision(value => value + 1);
     iconImageCache.clear();
@@ -510,7 +506,8 @@ const Canvas: React.FC = () => {
     }
   });
 
-  const handleAddChildNode = withAuthGuard(async (parentNodeId: string) => {
+  /** Appends a new node beneath `parentNodeId`, or at the top level (under Home lab) when it is null. */
+  const handleAddChildNode = withAuthGuard(async (parentNodeId: string | null) => {
     const newNode: TreeNode = {
       id: `node_${Date.now()}`,
       title: "New Node",
@@ -521,16 +518,19 @@ const Canvas: React.FC = () => {
 
     // Add to config
     const newConfig = JSON.parse(JSON.stringify(currentConfig)); // Deep copy
-    const parentNode = findNodeById(newConfig.tree.nodes, parentNodeId);
-    
-    if (parentNode) {
-      if (!parentNode.children) {
-        parentNode.children = [];
+    const parentNode = parentNodeId ? findNodeById(newConfig.tree.nodes, parentNodeId) : null;
+
+    if (parentNode || !parentNodeId) {
+      if (!parentNode) newConfig.tree.nodes.push(newNode);
+      else {
+        if (!parentNode.children) {
+          parentNode.children = [];
+        }
+        parentNode.children.push(newNode);
       }
-      parentNode.children.push(newNode);
-      
+
       // If parent was collapsed, expand it
-      if (collapsedNodeIds.has(parentNodeId)) {
+      if (parentNodeId && collapsedNodeIds.has(parentNodeId)) {
         setCollapsedNodeIds(prev => {
           const next = new Set(prev);
           next.delete(parentNodeId);
@@ -856,7 +856,7 @@ const Canvas: React.FC = () => {
     <div className="app-surface">
       <RadialDashboard key={networkRevision}
         config={currentConfig} statuses={statuses} connected={isConnected} loading={isLoading}
-        querying={isQuerying} countdown={nextCheckCountdown} error={error}
+        error={error}
         collapsed={collapsedNodeIds} editMode={isEditMode} onCollapse={toggleNodeCollapse}
         onEditMode={async () => { if (isEditMode) setIsEditMode(false); else if (await authenticateWithState()) setIsEditMode(true); }}
         onSettings={handleOpenSettings} onHistory={() => setHistoryModal({ nodeId: null })}
@@ -868,14 +868,10 @@ const Canvas: React.FC = () => {
       {/* Settings Modal - Rendered at root level for full page overlay */}
       <Settings
         isOpen={isSettingsOpen}
-        onClose={() => {
-          setIsSettingsOpen(false);
-          setFocusNodeId(undefined);
-        }}
+        onClose={() => setIsSettingsOpen(false)}
         initialConfig={currentConfig}
         onSave={handleSaveConfig}
         onRestore={handleRestoreConfig}
-        focusNodeId={focusNodeId}
       />
 
       {/* Network Scan Window */}

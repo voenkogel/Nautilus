@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { KeyRound, ShieldAlert } from 'lucide-react';
 import { changeCredentials, fetchAccount, isAuthDisabled, type AccountInfo } from '../../utils/auth';
-import { FormInput } from '../ui/FormInput';
 import { Button } from '../ui/Button';
 import { useToast } from '../Toast';
 
@@ -63,7 +62,7 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ accentColor })
     setIsSubmitting(false);
     if (result.success) {
       const username = result.username ?? newUsername.trim();
-      setAccount({ username, source: 'file' });
+      setAccount({ username });
       setNewUsername(username);
       setNewPassword('');
       setConfirmPassword('');
@@ -80,113 +79,92 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ accentColor })
 
   if (isAuthDisabled()) {
     return (
-      <div className="account-access-state">
-        <h3>Open access</h3>
-        <div className="text-sm text-warning bg-warning/10 border border-warning/25 rounded-lg p-3 flex items-start gap-2">
-          <ShieldAlert size={18} className="flex-shrink-0 mt-0.5 text-amber-500" />
-          <div>
-            Authentication is disabled on this server (<code>NAUTILUS_AUTH_DISABLED=true</code>), so anyone on
-            your local network has admin access. Remove the flag and restart the server to require a login again.
+      <div className="preference-sections">
+        <section className="preference-section">
+          <div><h4>Open access</h4><p>No sign-in is required.</p></div>
+          <div className="account-open-access">
+            <ShieldAlert size={18} />
+            <p>
+              Authentication is disabled on this server (<code>NAUTILUS_AUTH_DISABLED=true</code>), so anyone on
+              your local network has admin access. Remove the flag and restart the server to require a login again.
+            </p>
           </div>
-        </div>
+        </section>
       </div>
     );
   }
 
+  const pending = usernameChanged || passwordChanged;
+
   return (
-    <div className="account-security">
-      <div className="account-summary">
-        <KeyRound size={24} /><h3 className="text-lg font-medium text-ink mb-1">Administrator credentials</h3>
-        <p className="text-sm text-muted">
-          Change the administrator username and password. Saving signs out every other session.
-        </p>
-      </div>
+    <form onSubmit={handleSubmit} className="preference-sections">
+      <section className="preference-section">
+        <div><h4>Administrator</h4><p>The account used to sign in and edit the network.</p></div>
+        <div className="preference-fields">
+          <label className="preference-field">Username
+            <input
+              type="text"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              maxLength={USERNAME_MAX}
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              disabled={!account || isSubmitting}
+            />
+          </label>
+        </div>
+      </section>
 
-      {account?.source === 'env' && (
-        <div className="text-sm text-warning bg-warning/10 border border-warning/25 rounded-lg p-3 flex items-start gap-2">
-          <ShieldAlert size={18} className="flex-shrink-0 mt-0.5 text-amber-500" />
-          <div>
-            You are signed in with the password from the <code>.env</code> file. Once you change it here,
-            the new credentials are stored hashed on the server and <code>NAUTILUS_ADMIN_PASSWORD</code> is
-            no longer used.
+      <section className="preference-section">
+        <div><h4>Password</h4><p>Leave empty to keep the current password.</p></div>
+        <div className="preference-fields account-password-fields">
+          <div className="preference-field">
+            <label htmlFor="account-new-password">New password</label>
+            <input
+              id="account-new-password"
+              type="password"
+              autoComplete="new-password"
+              aria-describedby="account-password-hint"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              disabled={!account || isSubmitting}
+            />
+            <small id="account-password-hint">At least {PASSWORD_MIN} characters. A long passphrase works well.</small>
           </div>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="account-form">
-        <div>
-          <label htmlFor="account-username" className="block text-sm font-medium text-ink mb-1">Username</label>
-          <FormInput
-            id="account-username"
-            type="text"
-            autoComplete="username"
-            autoCapitalize="none"
-            spellCheck={false}
-            maxLength={USERNAME_MAX}
-            value={newUsername}
-            onChange={(e) => setNewUsername(e.target.value)}
-            accentColor={`${accentColor}40`}
-            disabled={!account || isSubmitting}
-          />
-        </div>
-
-        <div>
-          <label htmlFor="account-new-password" className="block text-sm font-medium text-ink mb-1">New password</label>
-          <FormInput
-            id="account-new-password"
-            type="password"
-            autoComplete="new-password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="Leave empty to keep the current password"
-            accentColor={`${accentColor}40`}
-            disabled={!account || isSubmitting}
-          />
-          <p className="text-xs text-muted mt-1">At least {PASSWORD_MIN} characters. A long passphrase works well.</p>
-        </div>
-
-        {passwordChanged && (
-          <div>
-            <label htmlFor="account-confirm-password" className="block text-sm font-medium text-ink mb-1">Confirm new password</label>
-            <FormInput
-              id="account-confirm-password"
+          <label className="preference-field">Confirm new password
+            <input
               type="password"
               autoComplete="new-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              accentColor={`${accentColor}40`}
-              disabled={isSubmitting}
+              disabled={!passwordChanged || isSubmitting}
             />
-          </div>
-        )}
-
-        <div className="account-confirmation">
-          <label htmlFor="account-current-password" className="block text-sm font-medium text-ink mb-1 mt-2">Current password</label>
-          <FormInput
-            id="account-current-password"
-            type="password"
-            autoComplete="current-password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            placeholder="Required to confirm changes"
-            accentColor={`${accentColor}40`}
-            disabled={!account || isSubmitting}
-          />
+          </label>
         </div>
+      </section>
 
-        {(usernameChanged || passwordChanged) && validationError && (
-          <p className="text-sm text-warning">{validationError}</p>
-        )}
-        {error && (
-          <div className="p-3 bg-negative/10 border border-negative/25 text-negative rounded-md text-sm">{error}</div>
-        )}
-
-        <Button type="submit" variant="primary" accentColor={accentColor} disabled={!canSubmit}>
-          <KeyRound size={16} />
-          {isSubmitting ? 'Saving…' : 'Update credentials'}
-        </Button>
-      </form>
-    </div>
+      <section className="preference-section">
+        <div><h4>Confirm changes</h4><p>Saving signs out every other session.</p></div>
+        <div className="preference-fields account-confirmation">
+          <label className="preference-field">Current password
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              disabled={!account || isSubmitting}
+            />
+          </label>
+          {pending && validationError && <p className="text-warning" role="alert">{validationError}</p>}
+          {error && <p className="account-error" role="alert">{error}</p>}
+          <Button type="submit" variant="primary" accentColor={accentColor} disabled={!canSubmit}>
+            <KeyRound size={16} />
+            {isSubmitting ? 'Saving…' : 'Update credentials'}
+          </Button>
+        </div>
+      </section>
+    </form>
   );
 };
 

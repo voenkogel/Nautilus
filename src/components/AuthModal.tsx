@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Lock, User, X } from 'lucide-react';
+import { KeyRound, Lock, User, X } from 'lucide-react';
 import type { AppConfig } from '../types/config';
 import { Modal } from './ui/Modal';
 import { Button } from './ui/Button';
 
+// Mirrors the server-side rule in server/services/credentials.js.
+const PASSWORD_MIN = 12;
+
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (username: string, password: string) => void;
+  /** 'login' asks for credentials; 'setup' creates the first account. */
+  mode?: 'login' | 'setup';
+  onSubmit: (username: string, password: string) => void | Promise<void>;
   error?: string | null;
   appConfig?: AppConfig;
 }
@@ -15,12 +20,15 @@ interface AuthModalProps {
 const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,
   onClose,
+  mode = 'login',
   onSubmit,
   error = null,
   appConfig
 }) => {
-  const [username, setUsername] = useState('');
+  const isSetup = mode === 'setup';
+  const [username, setUsername] = useState(isSetup ? 'admin' : '');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const usernameInputRef = useRef<HTMLInputElement>(null);
 
@@ -43,6 +51,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
     if (!username.trim() || !password) {
       return; // Don't submit if fields are empty
     }
+    if (isSetup && (password.length < PASSWORD_MIN || password !== confirmPassword)) return;
 
     setIsSubmitting(true);
 
@@ -67,12 +76,18 @@ const AuthModal: React.FC<AuthModalProps> = ({
             className="w-10 h-10 rounded-full flex items-center justify-center mr-3"
             style={{ backgroundColor: `${accentColor}15` }}
           >
-            <Lock style={{ color: accentColor }} size={20} />
+            {isSetup
+              ? <KeyRound style={{ color: accentColor }} size={20} />
+              : <Lock style={{ color: accentColor }} size={20} />}
           </div>
           <div>
-            <h3 id="auth-modal-title" className="text-lg font-medium text-ink">Administrator Login</h3>
+            <h3 id="auth-modal-title" className="text-lg font-medium text-ink">
+              {isSetup ? 'Create administrator account' : 'Administrator Login'}
+            </h3>
             <p className="text-sm text-muted">
-              Authentication required to access {appTitle} settings
+              {isSetup
+                ? `Choose the login you'll use to manage ${appTitle}`
+                : `Authentication required to access ${appTitle} settings`}
             </p>
           </div>
         </div>
@@ -140,7 +155,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                 id="password"
                 name="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete={isSetup ? 'new-password' : 'current-password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full pl-10 pr-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2"
@@ -150,12 +165,38 @@ const AuthModal: React.FC<AuthModalProps> = ({
                   "--tw-ring-opacity": "1",
                   "borderColor": password ? accentColor : undefined
                 } as React.CSSProperties}
-                placeholder="Enter password"
+                placeholder={isSetup ? `At least ${PASSWORD_MIN} characters` : 'Enter password'}
                 disabled={isSubmitting}
                 required
               />
             </div>
           </div>
+
+          {isSetup && (
+            <div>
+              <label htmlFor="confirm-password" className="block text-sm font-medium text-ink mb-1">
+                Confirm password
+              </label>
+              <input
+                id="confirm-password"
+                name="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2"
+                style={{ "--tw-ring-color": `${accentColor}40` } as React.CSSProperties}
+                disabled={isSubmitting}
+                required
+              />
+              {password !== '' && password.length < PASSWORD_MIN && (
+                <p className="text-xs text-warning mt-1">At least {PASSWORD_MIN} characters.</p>
+              )}
+              {confirmPassword !== '' && password !== confirmPassword && (
+                <p className="text-xs text-warning mt-1">Passwords do not match.</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer with buttons */}
@@ -163,17 +204,22 @@ const AuthModal: React.FC<AuthModalProps> = ({
           <Button type="button" variant="secondary" onClick={onClose} disabled={isSubmitting}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" accentColor={accentColor} disabled={isSubmitting}>
+          <Button
+            type="submit"
+            variant="primary"
+            accentColor={accentColor}
+            disabled={isSubmitting || (isSetup && (password.length < PASSWORD_MIN || password !== confirmPassword))}
+          >
             {isSubmitting ? (
               <div className="flex items-center space-x-2">
                 <svg className="animate-spin h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <span>Authenticating...</span>
+                <span>{isSetup ? 'Creating...' : 'Authenticating...'}</span>
               </div>
             ) : (
-              'Login'
+              isSetup ? 'Create account' : 'Login'
             )}
           </Button>
         </div>

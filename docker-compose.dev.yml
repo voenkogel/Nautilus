@@ -1,5 +1,20 @@
-# Run with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+# Dev stack with hot reload:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build --watch
+# (or `npm run docker:dev`). Open http://localhost:3071.
+# - frontend: Vite dev server with HMR on the bind-mounted sources (polling,
+#   since file events don't cross Docker Desktop bind mounts on Windows).
+# - nautilus: Compose watch syncs ./server into the container and restarts it
+#   on every change; a package.json change rebuilds the image.
 services:
+  nautilus:
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./server
+          target: /app/server
+        - action: rebuild
+          path: package.json
+
   frontend:
     build:
       context: .

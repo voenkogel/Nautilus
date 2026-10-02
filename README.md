@@ -144,11 +144,11 @@ Create `.env` from `.env.example`:
 NAUTILUS_SERVER_PORT=3069
 NAUTILUS_CLIENT_PORT=3070  
 NAUTILUS_HOST=localhost
-
-# Security (CHANGE FOR PRODUCTION!)
-NAUTILUS_ADMIN_USERNAME=admin
-NAUTILUS_ADMIN_PASSWORD=your_secure_password_here
 ```
+
+### First Sign-in
+
+There is no default login. On a fresh install, opening settings (or anything else that needs admin access) asks you to **create the administrator account**: pick a username and a password (12+ characters). Change it any time in **Settings → Account**. See [SECURITY.md](SECURITY.md) if you forget it.
 
 ### Node Configuration
 
@@ -245,7 +245,6 @@ services:
     volumes:
       - ./data:/data
     environment:
-      - NAUTILUS_ADMIN_PASSWORD=your_secure_password
       - NODE_ENV=production
 ```
 
@@ -260,7 +259,6 @@ docker run -d \
   --name nautilus \
   -p 3069:3069 \
   -v $(pwd)/data:/data \
-  -e NAUTILUS_ADMIN_PASSWORD=your_password \
   nautilus
 ```
 

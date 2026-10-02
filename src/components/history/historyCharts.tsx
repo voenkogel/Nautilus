@@ -1,29 +1,87 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react';
-import { Clock } from 'lucide-react';
-import type { HistoryRecord, HistoryPeriod } from '../../hooks/useStatusHistory';
-import { formatTimestamp, PERIODS, BUCKETS } from './historyUtils';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { CalendarRange, Clock } from 'lucide-react';
+import { isCustomRange, type HistoryRecord, type HistoryRange, type TimelineBucket } from '../../hooks/useStatusHistory';
+import { formatTimestamp, PERIODS, PERIOD_MS, HISTORY_RETENTION_MS, BUCKETS } from './historyUtils';
 import { statusColors, statusLabels } from '../../utils/colors';
 
 // --- Period selector ---
 
-export const PeriodPicker: React.FC<{ active: HistoryPeriod; onChange: (p: HistoryPeriod) => void }> = ({ active, onChange }) => (
-  <div className="period-picker animated-segments" style={{ '--segment-count': PERIODS.length, '--segment-index': PERIODS.findIndex(period => period.value === active) } as React.CSSProperties}>
-    {PERIODS.map(({ value, label }) => (
-      <button
-        key={value}
-        aria-pressed={value === active}
-        onClick={() => onChange(value)}
-        className={`px-3 py-1.5 text-xs rounded-md transition-all font-medium ${
-          value === active
-            ? 'bg-surface shadow-sm text-ink'
-            : 'text-muted hover:text-ink'
-        }`}
+// <input type="datetime-local"> works in local wall-clock time without a zone.
+const toLocalInput = (ms: number) => {
+  const d = new Date(ms);
+  return new Date(ms - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
+};
+const fromLocalInput = (value: string) => new Date(value).getTime();
+
+export const PeriodPicker: React.FC<{ active: HistoryRange; onChange: (range: HistoryRange) => void }> = ({ active, onChange }) => {
+  const custom = isCustomRange(active);
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (e: PointerEvent) => { if (!root.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('pointerdown', onPointer);
+    return () => document.removeEventListener('pointerdown', onPointer);
+  }, [open]);
+
+  const openCustom = () => {
+    if (open) { setOpen(false); return; }
+    // Seed with the window currently shown so tweaking it is one edit.
+    const now = Date.now();
+    const start = custom ? active.from : now - PERIOD_MS[active];
+    const end = custom ? active.to : now;
+    setFrom(toLocalInput(start));
+    setTo(toLocalInput(end));
+    setOpen(true);
+  };
+
+  const now = Date.now();
+  const fromMs = from ? fromLocalInput(from) : NaN;
+  const toMs = to ? fromLocalInput(to) : NaN;
+  const invalid = !Number.isFinite(fromMs) || !Number.isFinite(toMs)
+    ? 'Pick a start and end'
+    : fromMs >= toMs ? 'End must be after start'
+    : toMs < now - HISTORY_RETENTION_MS ? 'History is kept for 30 days'
+    : '';
+
+  const segment = (selected: boolean) => `px-3 py-1.5 text-xs rounded-md transition-all font-medium ${selected ? 'bg-surface shadow-sm text-ink' : 'text-muted hover:text-ink'}`;
+
+  return (
+    <div className="period-picker-wrap" ref={root} onKeyDown={e => { if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); } }}>
+      <div
+        className="period-picker animated-segments"
+        style={{ '--segment-count': PERIODS.length + 1, '--segment-index': custom ? PERIODS.length : PERIODS.findIndex(period => period.value === active) } as React.CSSProperties}
       >
-        {label}
-      </button>
-    ))}
-  </div>
-);
+        {PERIODS.map(({ value, label }) => (
+          <button key={value} aria-pressed={value === active} onClick={() => { setOpen(false); onChange(value); }} className={segment(value === active)}>
+            {label}
+          </button>
+        ))}
+        <button aria-pressed={custom} aria-expanded={open} aria-haspopup="dialog" aria-label="Custom range" title="Custom range" onClick={openCustom} className={segment(custom)}>
+          <CalendarRange size={14} />
+        </button>
+      </div>
+      {open && (
+        <form
+          className="range-popover"
+          role="dialog"
+          aria-label="Custom range"
+          onSubmit={e => { e.preventDefault(); if (!invalid) { onChange({ from: fromMs, to: Math.min(toMs, Date.now()) }); setOpen(false); } }}
+        >
+          <label>From<input type="datetime-local" value={from} min={toLocalInput(now - HISTORY_RETENTION_MS)} max={to || toLocalInput(now)} onChange={e => setFrom(e.target.value)} autoFocus /></label>
+          <label>To<input type="datetime-local" value={to} min={from || undefined} max={toLocalInput(now)} onChange={e => setTo(e.target.value)} /></label>
+          <div className="range-popover-footer">
+            <span role={invalid ? 'alert' : undefined}>{invalid || 'Up to the last 30 days'}</span>
+            <button type="submit" className="primary-action" disabled={!!invalid}>Apply</button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+};
 
 // --- Uptime timeline bar ---
 
@@ -38,25 +96,30 @@ const colorMap: Record<string, string> = {
   empty:    '#263e4b',
 };
 
+/**
+ * Timeline bars, either from raw `records` (single-node report) or from
+ * `buckets` the server already reduced (overview — see historySummary.js).
+ */
 export const UptimeTimeline: React.FC<{
-  records: HistoryRecord[];
+  records?: HistoryRecord[];
+  buckets?: TimelineBucket[];
   sinceMs: number;
   nowMs: number;
-}> = ({ records, sinceMs, nowMs }) => {
+}> = ({ records, buckets: precomputed, sinceMs, nowMs }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [tooltip, setTooltip] = useState<{ index: number; clientX: number; clientY: number } | null>(null);
-  const bucketMs = (nowMs - sinceMs) / BUCKETS;
+  const bucketCount = precomputed?.length || BUCKETS;
+  const bucketMs = (nowMs - sinceMs) / bucketCount;
 
-  const buckets = useMemo((): ('online' | 'offline' | 'checking' | 'backup' | 'empty')[] => {
-    // Single O(records) pass into fixed buckets instead of O(BUCKETS × records)
-    // — the old Array.from(160) re-filtered the whole records array per bucket,
-    // and GlobalHistoryView renders one timeline per node.
-    const result: ('online' | 'offline' | 'checking' | 'backup' | 'empty')[] = new Array(BUCKETS).fill('empty');
+  const buckets = useMemo((): TimelineBucket[] => {
+    if (precomputed) return precomputed;
+    // Single O(records) pass into fixed buckets instead of O(BUCKETS × records).
+    const result: TimelineBucket[] = new Array(BUCKETS).fill('empty');
     const sawOffline  = new Uint8Array(BUCKETS);
     const sawOnline   = new Uint8Array(BUCKETS);
     const sawChecking = new Uint8Array(BUCKETS);
     const sawBackup   = new Uint8Array(BUCKETS);
-    for (const r of records) {
+    for (const r of records ?? []) {
       if (r.timestamp < sinceMs || r.timestamp >= nowMs) continue;
       const idx = Math.min(BUCKETS - 1, Math.floor((r.timestamp - sinceMs) / bucketMs));
       if (idx < 0) continue;
@@ -74,7 +137,7 @@ export const UptimeTimeline: React.FC<{
       else if (sawChecking[i]) result[i] = 'checking';
     }
     return result;
-  }, [records, sinceMs, nowMs, bucketMs]);
+  }, [precomputed, records, sinceMs, nowMs, bucketMs]);
 
   const hovered = tooltip !== null ? buckets[tooltip.index] : null;
 

@@ -25,10 +25,8 @@ test('settings fit a phone screen on every tab', async ({ page }, testInfo) => {
   const actions = await dialog.locator('.settings-actions button').evaluateAll(buttons => buttons.map(b => b.getBoundingClientRect()).map(r => ({ top: Math.round(r.top), height: Math.round(r.height) })));
   expect(new Set(actions.map(a => a.top)).size).toBe(1);
   actions.forEach(a => expect(a.height).toBeLessThan(48));
-  for (const tab of ['General', 'Nodes', 'Notifications', 'Account']) {
+  for (const tab of ['General', 'Notifications', 'Account']) {
     await dialog.getByRole('button', { name: tab, exact: true }).click();
-    if (tab === 'Nodes') await page.screenshot({ path: testInfo.outputPath('settings-nodes-top.png') });
-    if (tab === 'Nodes') for (const toggle of await dialog.getByRole('button', { name: 'Expand node details' }).all().then(all => all.slice(0, 3))) await toggle.click();
     // Nothing inside the dialog may be wider than the phone.
     const overflow = await dialog.evaluate(root => [...root.querySelectorAll<HTMLElement>('*')].filter(el => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > window.innerWidth + .5 || r.left < -.5) && !el.closest('.settings-navigation'); }).map(el => `${el.tagName}.${el.className}`.slice(0, 80)));
     expect(overflow, `${tab} overflows`).toEqual([]);

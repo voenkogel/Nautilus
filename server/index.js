@@ -8,7 +8,8 @@ import { execSync } from 'child_process';
 import dotenv from 'dotenv';
 
 import { queryJavaServer, queryBedrockServer } from './utils/minecraft.js';
-import { initHistoryDb, getNodeHistory, getAllNodesHistory, pruneOldHistory, getAllBackupSchedules } from './utils/historyDb.js';
+import { initHistoryDb, getNodeHistory, forEachHistoryRow, pruneOldHistory, getAllBackupSchedules } from './utils/historyDb.js';
+import { createNodeAccumulator, accumulate, finalizeNode, combineStats } from './utils/historySummary.js';
 import { isValidHost, validateScanSubnet } from './utils/validation.js';
 import { isNodeMonitored, getNodeIdentifier } from './utils/nodeMonitoring.js';
 import { setAutoWindows, getAutoWindow } from './utils/backupWindow.js';
@@ -36,7 +37,8 @@ import {
   validateUsername,
   validateNewPassword,
   getUsername,
-  getCredentialSource,
+  isSetupRequired,
+  createInitialCredentials,
 } from './services/credentials.js';
 import { publicReadLimiter } from './middleware/rateLimit.js';
 import { sanitizeConfig, restoreSensitiveFields, stripMonitoredFlag, stripAutoBackupWindows } from './services/configSanitize.js';
@@ -70,8 +72,8 @@ if (process.env.NAUTILUS_TRUST_PROXY) {
 
 // --- Security Configuration ---
 
-// Admin credentials: stored scrypt hash (set from Settings → Account) or, on
-// first boot, NAUTILUS_ADMIN_USERNAME / NAUTILUS_ADMIN_PASSWORD from the env.
+// Admin credentials: scrypt hash in credentials.json, created from the UI on
+// first visit (no default login).
 // See server/services/credentials.js.
 function resolveConfigPath() {
   if (process.env.NODE_ENV === 'production') {
@@ -84,7 +86,7 @@ function resolveConfigPath() {
 // (handy for a dev box or a trusted LAN). See middleware/auth.js.
 const AUTH_DISABLED = process.env.NAUTILUS_AUTH_DISABLED === 'true';
 setAuthDisabled(AUTH_DISABLED);
-const credentialsReady = await initCredentials(resolveConfigPath());
+await initCredentials(resolveConfigPath());
 
 if (AUTH_DISABLED) {
   logger.warn('');
@@ -95,36 +97,6 @@ if (AUTH_DISABLED) {
   logger.warn('⚠️  instance through a reverse proxy or port forward.');
   logger.warn('⚠️  ════════════════════════════════════════════════════════════════════');
   logger.warn('');
-} else if (!credentialsReady) {
-  logger.info('');
-  logger.info('╔═══════════════════════════════════════════════════════════════════════════════╗');
-  logger.info('║                                                                               ║');
-  logger.info('║                    ❌ CRITICAL: SECURITY CONFIGURATION ERROR ❌                ║');
-  logger.info('║                                                                               ║');
-  logger.info('╠═══════════════════════════════════════════════════════════════════════════════╣');
-  logger.info('║                                                                               ║');
-  logger.info('║  No admin credentials are stored yet, and NAUTILUS_ADMIN_PASSWORD is NOT SET ║');
-  logger.info('║  or uses an insecure default value.                                           ║');
-  logger.info('║                                                                               ║');
-  logger.info('║  🛑 THE SERVER CANNOT START WITHOUT A SECURE PASSWORD 🛑                      ║');
-  logger.info('║                                                                               ║');
-  logger.info('╠═══════════════════════════════════════════════════════════════════════════════╣');
-  logger.info('║                                                                               ║');
-  logger.info('║  📋 HOW TO FIX:                                                               ║');
-  logger.info('║                                                                               ║');
-  logger.info('║  1. Create or edit the .env file in your project root                        ║');
-  logger.info('║                                                                               ║');
-  logger.info('║  2. Add the following line with a STRONG password:                           ║');
-  logger.info('║     NAUTILUS_ADMIN_PASSWORD=your_secure_password_here                        ║');
-  logger.info('║                                                                               ║');
-  logger.info('║  3. Restart the Nautilus server                                              ║');
-  logger.info('║                                                                               ║');
-  logger.info('║  💡 After logging in you can change the username and password from           ║');
-  logger.info('║     Settings → Account; the env password is then no longer used.             ║');
-  logger.info('║                                                                               ║');
-  logger.info('╚═══════════════════════════════════════════════════════════════════════════════╝');
-  logger.info('');
-  process.exit(1);
 }
 
 // Get current directory (ES module equivalent of __dirname)
@@ -313,6 +285,30 @@ function parsePeriodMs(period) {
   return HISTORY_PERIODS[period] || HISTORY_PERIODS['7d'];
 }
 
+// History is pruned after 30 days (pruneOldHistory above), so a custom range
+// can never reach further back than that.
+const HISTORY_RETENTION_MS = HISTORY_PERIODS['30d'];
+
+/**
+ * Resolve the requested window. `from`/`to` (epoch ms) select a custom range,
+ * clamped to retained history and to now; otherwise `period` is a preset
+ * ending now. `nowMs` is the window's end in both cases.
+ */
+function parseHistoryRange(query) {
+  const now = Date.now();
+  if (query.from !== undefined || query.to !== undefined) {
+    const from = Number(query.from);
+    const to   = Number(query.to);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return { error: 'from and to must be epoch milliseconds' };
+    const sinceMs = Math.max(from, now - HISTORY_RETENTION_MS);
+    const nowMs   = Math.min(to, now);
+    if (sinceMs >= nowMs) return { error: 'Range is empty or outside the retained 30 days' };
+    return { period: 'custom', sinceMs, nowMs };
+  }
+  const period = HISTORY_PERIODS[query.period] ? query.period : '7d';
+  return { period, sinceMs: now - parsePeriodMs(period), nowMs: now };
+}
+
 function mapHistoryRow(r) {
   return {
     status:       r.status,
@@ -364,26 +360,34 @@ refreshNodeIdMaps();
 
 // All nodes history
 app.get('/api/history', publicReadLimiter, (req, res) => {
-  const period  = req.query.period || '7d';
-  const nowMs   = Date.now();
-  const sinceMs = nowMs - parsePeriodMs(period);
+  const range = parseHistoryRange(req.query);
+  if (range.error) return res.status(400).json({ error: range.error });
+  const { period, sinceMs, nowMs } = range;
 
-  const rows = getAllNodesHistory(sinceMs);
+  // Reduce on the server: shipping every raw check (≈20k per node per week at
+  // the default 30s interval) made the overview take seconds to load, only
+  // for the client to collapse it into 160 bars and three numbers.
+  const accByIdentifier = new Map();
+  forEachHistoryRow(sinceMs, nowMs, (identifier, status, timestamp, responseTime) => {
+    if (!identifierToNodeIds.has(identifier)) return; // orphaned history
+    let acc = accByIdentifier.get(identifier);
+    if (!acc) accByIdentifier.set(identifier, acc = createNodeAccumulator());
+    accumulate(acc, status, timestamp, responseTime, sinceMs, nowMs);
+  });
 
   // History rows are stored keyed by health-check identifier (address); expose
   // them keyed by node id. A single address may back more than one node.
-  const grouped = {};
-  rows.forEach(r => {
-    const ids = identifierToNodeIds.get(r.node_id);
-    if (!ids) return; // orphaned history (node removed or address changed)
-    const mapped = mapHistoryRow(r);
-    for (const id of ids) {
-      if (!grouped[id]) grouped[id] = [];
-      grouped[id].push(mapped);
+  const nodes = {};
+  const perNode = [];
+  for (const [identifier, acc] of accByIdentifier) {
+    const summary = finalizeNode(acc);
+    for (const id of identifierToNodeIds.get(identifier)) {
+      nodes[id] = summary;
+      perNode.push(acc);
     }
-  });
+  }
 
-  res.json({ records: grouped, period, sinceMs, nowMs });
+  res.json({ nodes, summary: combineStats(perNode), period, sinceMs, nowMs });
 });
 
 // Single node history
@@ -394,13 +398,13 @@ app.get('/api/history/:nodeId', publicReadLimiter, (req, res) => {
   } catch {
     return res.status(400).json({ error: 'Invalid nodeId encoding' });
   }
-  const period  = req.query.period || '7d';
-  const nowMs   = Date.now();
-  const sinceMs = nowMs - parsePeriodMs(period);
+  const range = parseHistoryRange(req.query);
+  if (range.error) return res.status(400).json({ error: range.error });
+  const { period, sinceMs, nowMs } = range;
 
   // nodeId is the node's id; translate to its stored health-check identifier.
   const identifier = nodeIdToIdentifier.get(nodeId);
-  const rows = identifier ? getNodeHistory(identifier, sinceMs) : [];
+  const rows = identifier ? getNodeHistory(identifier, sinceMs, nowMs) : [];
 
   res.json({
     nodeId,
@@ -442,9 +446,42 @@ const tooManyAttempts = (res, retryAfter) => {
   });
 };
 
-// Public: lets the UI know whether it needs to show a login prompt at all.
+// Public: lets the UI know whether to show a login prompt, the first-run
+// account setup form, or nothing at all.
 app.get('/api/auth/status', (req, res) => {
-  res.json({ authDisabled: isAuthDisabled() });
+  res.json({ authDisabled: isAuthDisabled(), setupRequired: !isAuthDisabled() && isSetupRequired() });
+});
+
+// Public, one-time: create the administrator account on a fresh install and
+// sign the caller in. Refused once an account exists.
+app.post('/api/auth/setup', async (req, res) => {
+  if (isAuthDisabled()) {
+    return res.status(400).json({ error: 'Bad Request', message: 'Authentication is disabled on this server' });
+  }
+  if (!isSetupRequired()) {
+    return res.status(409).json({ error: 'Conflict', message: 'An administrator account already exists. Log in instead.' });
+  }
+  const { username, password } = req.body || {};
+  const userErr = validateUsername(username);
+  if (userErr) return res.status(400).json({ error: 'Bad Request', message: userErr });
+  const passErr = validateNewPassword(password, username);
+  if (passErr) return res.status(400).json({ error: 'Bad Request', message: passErr });
+
+  let created = false;
+  try {
+    created = await createInitialCredentials({ username, password });
+  } catch (err) {
+    logger.error(`❌ [AUTH] Failed to persist credentials: ${err.message}`);
+    return res.status(500).json({ error: 'Internal Server Error', message: 'Could not save the new account' });
+  }
+  if (!created) {
+    return res.status(409).json({ error: 'Conflict', message: 'An administrator account already exists. Log in instead.' });
+  }
+
+  const token = generateSessionToken();
+  registerSession(token);
+  logger.info(`🔒 [AUTH] Administrator account created from ${clientIp(req)}`);
+  res.json({ success: true, token, username: getUsername() });
 });
 
 // API endpoint for authentication
@@ -504,13 +541,8 @@ app.get('/api/auth/validate', authenticateRequest, (req, res) => {
 
 // Current account info (admin only) — used by Settings → Account.
 app.get('/api/auth/account', authenticateRequest, (req, res) => {
-  if (isAuthDisabled()) return res.json({ authDisabled: true, username: null, source: null });
-  res.json({
-    authDisabled: false,
-    username: getUsername(),
-    // 'env' = still running on the .env password; 'file' = changed from the UI.
-    source: getCredentialSource(),
-  });
+  if (isAuthDisabled()) return res.json({ authDisabled: true, username: null });
+  res.json({ authDisabled: false, username: getUsername() });
 });
 
 // Change the admin username and/or password. Requires the current password even

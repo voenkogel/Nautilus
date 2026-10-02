@@ -25,13 +25,21 @@ export function unregisterAuthModalOpener(opener: () => Promise<boolean>): void 
 // Authless mode (server started with NAUTILUS_AUTH_DISABLED=true). Resolved once
 // by initAuthMode() before the app renders, so the sync checks below can use it.
 let authDisabled = false;
+// Fresh install with no administrator account yet: the login prompt shows the
+// one-time account setup form instead.
+let setupRequired = false;
 
 export const isAuthDisabled = (): boolean => authDisabled;
+export const isSetupRequired = (): boolean => setupRequired;
 
 export async function initAuthMode(): Promise<void> {
   try {
     const response = await fetch('api/auth/status', { signal: AbortSignal.timeout(3000) });
-    if (response.ok) authDisabled = !!(await response.json()).authDisabled;
+    if (response.ok) {
+      const data = await response.json();
+      authDisabled = !!data.authDisabled;
+      setupRequired = !!data.setupRequired;
+    }
   } catch {
     // Server unreachable or older build — assume auth is required.
   }
@@ -115,10 +123,31 @@ export async function performLogin(username: string, password: string): Promise<
   }
 }
 
+/** Create the first administrator account (fresh install) and sign in. */
+export async function performSetup(username: string, password: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch('api/auth/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password })
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.success && data.token) {
+      storeToken(data.token);
+      setupRequired = false;
+      return { success: true };
+    }
+    // Someone else finished setup first: fall back to the normal login.
+    if (response.status === 409) setupRequired = false;
+    return { success: false, error: data.message || `Request failed (HTTP ${response.status})` };
+  } catch (error) {
+    console.error('Account setup error:', error);
+    return { success: false, error: 'Network error. Please try again.' };
+  }
+}
+
 export interface AccountInfo {
   username: string;
-  /** 'env' = still using the .env password; 'file' = changed from the UI. */
-  source: 'env' | 'file';
 }
 
 export async function fetchAccount(): Promise<AccountInfo | null> {

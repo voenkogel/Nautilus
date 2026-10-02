@@ -1,15 +1,24 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AuthModal from './AuthModal';
-import { registerAuthModalOpener, unregisterAuthModalOpener, performLogin } from '../utils/auth';
+import {
+  registerAuthModalOpener,
+  unregisterAuthModalOpener,
+  performLogin,
+  performSetup,
+  initAuthMode,
+  isSetupRequired,
+} from '../utils/auth';
 import type { AppConfig } from '../types/config';
 
 /**
  * Renders AuthModal inside the React tree (ARCH-5). On mount it registers an opener
  * with auth.ts, so the standalone authenticate() can trigger the modal without an
  * imperative createRoot. Each open resolves true (logged in) or false (cancelled).
+ * On a fresh install it shows the one-time account setup form instead of the login.
  */
 export const AuthModalHost: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [mode, setMode] = useState<'login' | 'setup'>('login');
   const [error, setError] = useState<string | null>(null);
   const [appConfig, setAppConfig] = useState<AppConfig | undefined>(undefined);
   // Queue of pending authenticate() resolvers. Multiple auth-guarded actions can
@@ -21,6 +30,9 @@ export const AuthModalHost: React.FC = () => {
   useEffect(() => {
     const opener = async () => {
       setError(null);
+      // Re-check: the account may have been created since the page loaded.
+      await initAuthMode();
+      setMode(isSetupRequired() ? 'setup' : 'login');
       // Best-effort: fetch the latest config so the modal uses the current accent color.
       try {
         const res = await fetch('api/config');
@@ -54,19 +66,24 @@ export const AuthModalHost: React.FC = () => {
   }, []);
 
   const handleSubmit = useCallback(async (username: string, password: string) => {
-    const { success, error: err } = await performLogin(username, password);
+    const { success, error: err } = mode === 'setup'
+      ? await performSetup(username, password)
+      : await performLogin(username, password);
     if (success) {
       finish(true);
     } else {
       setError(err || 'Authentication failed.');
+      if (mode === 'setup' && !isSetupRequired()) setMode('login');
     }
-  }, [finish]);
+  }, [finish, mode]);
 
   if (!isOpen) return null;
 
   return (
     <AuthModal
+      key={mode}
       isOpen={isOpen}
+      mode={mode}
       onClose={() => finish(false)}
       onSubmit={handleSubmit}
       error={error}
