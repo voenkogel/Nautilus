@@ -125,7 +125,7 @@ export default function RadialDashboard(props: Props) {
   const { isMobile } = useDeviceDetection();
   const editMode = props.editMode && !isMobile;
   const [view, setView] = useState<'map' | 'list' | null>(null);
-  const isList = view ? view === 'list' : isMobile;
+  const isList = view === 'list';
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editorNode, setEditorNode] = useState<TreeNode | null>(null);
   const [openingEditor, setOpeningEditor] = useState(false);

@@ -115,6 +115,8 @@ test('mobile list and map share inspection and support narrow screens', async ({
   flatten(config.tree.nodes).forEach(node => { node.healthCheckType = 'http'; });
   await mockNetwork(page, config);
   await page.goto('/');
+  await expect(page.locator('.radial-world')).toBeVisible(); // the map is the default on mobile too
+  await page.getByRole('button', { name: 'List', exact: true }).click();
   await expect(page.locator('.network-list')).toBeVisible();
   expect((await page.locator('.network-header').boundingBox())!.height).toBeLessThanOrEqual(65);
   await page.getByRole('button', { name: 'Network health', exact: true }).click();
