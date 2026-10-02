@@ -924,12 +924,14 @@ app.post('/api/network-scan/cancel', authenticateRequest, (req, res) => {
 // API endpoint to test connection for a specific node configuration (Protected)
 app.post('/api/test-connection', authenticateRequest, async (req, res) => {
   try {
-    const nodeConfig = req.body;
-    
     // Check if node config is valid
-    if (!nodeConfig || typeof nodeConfig !== 'object') {
+    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
        return res.status(400).json({ error: 'Invalid node configuration' });
     }
+
+    // The editor only ever holds masked secrets (plexToken/jellyfinApiKey come
+    // back as '********'), so re-inject the stored values for an existing node.
+    const nodeConfig = restoreSensitiveFields({ tree: { nodes: [req.body] } }, appConfig).tree.nodes[0];
     
     logger.info(`🧪 [TEST-CONNECTION] Testing configuration for "${nodeConfig.title || 'Unknown'}"`);
     

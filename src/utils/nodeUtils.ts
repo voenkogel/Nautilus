@@ -16,6 +16,10 @@ export const isNodeMonitored = (node: TreeNode): boolean => {
   return hasAddr && !node.disableHealthCheck && node.healthCheckType !== 'disabled';
 };
 
+/** Media servers whose health check reports live stream counts (`status.streams`). */
+export const isStreamSource = (node: TreeNode): boolean =>
+  node.healthCheckType === 'plex' || node.healthCheckType === 'jellyfin';
+
 /**
  * Extracts the node ids of all monitored nodes (those with a health-check
  * address and not disabled). Status and history are keyed by node id.

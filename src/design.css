@@ -463,10 +463,6 @@ button, a, input, select, textarea { outline-offset: 4px; }
   .network-results { top: 12px; }
 }
 
-.monitor-metrics .activity-total { border: 1px solid #345d68; border-radius: 16px; padding: 6px 11px; background: #14313d; color: #b5e4eb; margin-left: 10px; }
-.activity-chip-label { font-size: 11px; margin-right: 4px; }
-.monitor-metrics .activity-total.active { background: #245261; border-color: var(--accent-color); }
-@media (max-width: 767px) { .activity-chip-label { display: none; } .monitor-metrics .activity-total { padding: 5px 9px; margin-left: 5px; } }
 
 /* The Open CTA floats over the inspector content; everything else lives in the scrolling page. */
 .inspector-bottom-actions { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; padding: 28px 16px max(16px, env(safe-area-inset-bottom)); background: linear-gradient(to top, #102330 45%, #10233000); pointer-events: none; }
@@ -660,7 +656,6 @@ button, a, input, select, textarea { outline-offset: 4px; }
   .network-list .network-health-trigger { gap: 10px; }
   .network-list .network-health-trigger > span { font-size: 12px; }
   .network-list .health-breakdown { max-width: calc(100vw - 32px); }
-  .monitor-metrics .activity-total { margin-left: 0; }
 }
 .health-breakdown button:hover { background: #193443; }
 @media (prefers-reduced-motion: reduce) { .orb-current, .constellation-cluster, .constellation-signal, .constellation-star { animation: none; } .branch-toggle, .branch-collapse, .branch-count, .branch-glyph, .branch-toggle .health-ring { transition: none; } }
@@ -759,9 +754,6 @@ button.disclosure-trigger { width: 100%; min-height: 48px; justify-content: flex
 .network-brand img { object-fit: contain; }
 .brand-mark { border: 1px solid #477481; border-radius: 50%; display: grid; place-items: center; color: var(--accent-color); }
 .monitor-strip { display: contents; }
-.monitor-strip .monitor-metrics { grid-column: 1 / -1; grid-row: 2; padding-top: 6px; }
-.monitor-strip .monitor-metrics:empty { display: none; }
-.network-header .activity-total { margin: 0; }
 .network-search { grid-column: 2; grid-row: 1; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 10px; color: var(--muted); background: var(--abyss); border: 1px solid var(--line); border-radius: 7px; }
 .network-search input { width: 100%; min-width: 0; height: 36px; background: transparent; color: var(--text); outline: none; font-size: 12px; }
 .network-search:focus-within { border-color: var(--accent-color); }
@@ -776,7 +768,6 @@ button.disclosure-trigger { width: 100%; min-height: 48px; justify-content: flex
 /* Desktop: the card floats over the canvas instead of claiming a band above it; panels that share the top-right start below it. */
 @media (min-width: 768px) {
   .nautilus-shell { position: relative; --header-clear: 94px; }
-  .nautilus-shell:has(.monitor-metrics:not(:empty)) { --header-clear: 132px; }
   .network-header { position: absolute; top: 16px; right: 16px; margin: 0; }
   .node-inspector { top: var(--header-clear); }
   .list-stage .network-list, .list-stage:has(.branch-navigation) .network-list { top: var(--header-clear); }
@@ -868,3 +859,35 @@ button.disclosure-trigger { width: 100%; min-height: 48px; justify-content: flex
 .range-popover-footer button:not(:disabled):hover { background: #8ae3ef; }
 .range-popover-footer button:disabled { opacity: .45; cursor: not-allowed; }
 @media (max-width: 767px) { .range-popover { left: 0; right: 0; width: auto; } }
+
+/* Live activity: a chip floating beside the navigation card that morphs into the list of active nodes. */
+.activity-drill { position: absolute; z-index: 12; top: 31px; right: calc(16px + min(600px, 100% - 32px) + 12px); display: flex; flex-direction: column; width: max-content; max-width: calc(100% - 24px); max-height: calc(100% - 120px); overflow: hidden; border: 1px solid #345d68; border-radius: 18px; background: #14313d; color: #b5e4eb; box-shadow: 0 6px 24px #0003; transition: border-radius .3s cubic-bezier(.3, 0, .2, 1), background .2s, border-color .2s; }
+.activity-drill.open { width: 300px; border-radius: 12px; border-color: var(--line); background: #102330f5; box-shadow: 0 12px 40px #0004; }
+.activity-drill-toggle { flex-shrink: 0; display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px; white-space: nowrap; font-size: 12px; color: inherit; }
+.activity-drill-toggle > svg:first-child { color: var(--accent-color); }
+.activity-drill-toggle strong { min-width: 18px; padding: 1px 6px; border-radius: 9px; background: #245261; color: var(--text); font-size: 11px; font-weight: 600; text-align: center; }
+.activity-drill:not(.open):hover { background: #1b3c4a; border-color: var(--accent-color); }
+.activity-drill.open .activity-drill-toggle { height: 44px; border-bottom: 1px solid var(--line); }
+.activity-drill-close { margin-left: auto; color: var(--muted); }
+.activity-drill-list { overflow-y: auto; overscroll-behavior: contain; animation: activity-drill-in .26s .08s ease-out both; }
+.activity-drill-list > button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 11px 14px; text-align: left; border-bottom: 1px solid #213844; }
+.activity-drill-list > button:last-child { border-bottom: 0; }
+.activity-drill-list > button:hover { background: var(--raised); }
+.activity-drill-list i { width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; }
+.activity-drill-list span { flex: 1; min-width: 0; color: var(--text); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-drill-list small { display: block; margin-top: 3px; color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; }
+.activity-drill-list em { display: flex; align-items: center; gap: 5px; flex-shrink: 0; font-style: normal; color: var(--muted); font-size: 11px; }
+.activity-drill-list em svg { color: var(--accent-color); }
+.activity-drill-list em strong { color: var(--text); font-size: 14px; font-weight: 500; }
+.activity-drill-list p { padding: 16px; color: var(--muted); font-size: 12px; }
+@keyframes activity-drill-in { from { opacity: 0; transform: translateY(-4px); } }
+/* Too narrow beside the card: tuck it into the free top-left corner instead. */
+@media (min-width: 768px) and (max-width: 1100px) { .activity-drill { top: 16px; left: 16px; right: auto; } }
+/* Mobile: just below the menu bar, growing to the full width when opened. */
+@media (max-width: 767px) {
+  .activity-drill { top: 12px; right: 12px; }
+  .activity-drill.open { width: calc(100% - 24px); max-height: calc(100% - 96px); }
+  .network-stage:has(.activity-drill) .network-results { top: 58px; }
+  .network-stage:has(.activity-drill) .branch-navigation { max-width: calc(100% - 154px); }
+}
+@media (prefers-reduced-motion: reduce) { .activity-drill, .activity-drill-list { transition: none; animation: none; } }

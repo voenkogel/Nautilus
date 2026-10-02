@@ -1,11 +1,11 @@
 import type { TreeNode, NodeStatus } from '../types/config';
-import { getAllNodes, isNodeMonitored, getNodeAddressDisplay } from './nodeUtils.ts';
+import { getAllNodes, isNodeMonitored, getNodeAddressDisplay, isStreamSource } from './nodeUtils.ts';
 
 export type NetworkFilter = 'online' | 'offline' | 'checking' | 'backup' | 'unknown' | 'activity' | null;
 export function activity(node: TreeNode, status?: NodeStatus) {
   if (!isNodeMonitored(node) || status?.status !== 'online') return { streams: 0, players: 0 };
   return {
-    streams: node.healthCheckType === 'plex' ? status.streams ?? 0 : 0,
+    streams: isStreamSource(node) ? status.streams ?? 0 : 0,
     players: node.healthCheckType === 'minecraft' ? status.players?.online ?? 0 : 0,
   };
 }

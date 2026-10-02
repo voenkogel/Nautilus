@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Settings as SettingsIcon, ChevronDown, ChevronRight, Clock } from 'lucide-react';
 import type { AppConfig, NodeStatus } from '../types/config';
-import { extractMonitoredNodeIds, getAllNodes, isNodeMonitored } from '../utils/nodeUtils';
+import { extractMonitoredNodeIds, getAllNodes, isNodeMonitored, isStreamSource } from '../utils/nodeUtils';
 
 type NodeFilter = 'online' | 'offline' | 'activity';
 
@@ -66,20 +66,20 @@ const StatusCard: React.FC<StatusCardProps> = ({
     return status && status.status === 'backup';
   }).length;
 
-  // Activity tracking — Plex streams & Minecraft players
+  // Activity tracking — media server streams & Minecraft players
   const allNodes = getAllNodes(appConfig.tree.nodes);
 
   const hasActivityNodes = allNodes.some(n =>
-    (n.healthCheckType === 'plex' || n.healthCheckType === 'minecraft') &&
+    (isStreamSource(n) || n.healthCheckType === 'minecraft') &&
     isNodeMonitored(n)
   );
 
-  // Nodes currently reporting live activity (a Plex stream or a Minecraft player)
+  // Nodes currently reporting live activity (a media stream or a Minecraft player)
   const activeNodes = hasActivityNodes ? allNodes.filter(node => {
     if (node.disableHealthCheck) return false;
     const status = statuses[node.id];
     if (!status || status.status !== 'online') return false;
-    return (node.healthCheckType === 'plex' && (status.streams ?? 0) > 0) ||
+    return (isStreamSource(node) && (status.streams ?? 0) > 0) ||
            (node.healthCheckType === 'minecraft' && (status.players?.online ?? 0) > 0);
   }) : [];
 
@@ -87,7 +87,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
 
   // Aggregate what's happening into a pronounced, human-readable summary
   const totalStreams = activeNodes.reduce(
-    (sum, n) => (n.healthCheckType === 'plex' ? sum + (statuses[n.id]?.streams ?? 0) : sum),
+    (sum, n) => (isStreamSource(n) ? sum + (statuses[n.id]?.streams ?? 0) : sum),
     0
   );
   const totalPlayers = activeNodes.reduce(
@@ -366,7 +366,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
             </button>
           </div>
 
-          {/* Live activity — a pronounced pill, shown ONLY when a Plex stream or Minecraft player is active */}
+          {/* Live activity — a pronounced pill, shown ONLY when a media stream or Minecraft player is active */}
           {hasActivityNodes && isActive && (
             <div className="mt-3 pt-3 border-t border-line">
               <button

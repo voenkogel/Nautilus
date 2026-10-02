@@ -61,6 +61,15 @@ test('health summaries include hidden descendants and never count unmonitored no
   assert.equal(matchesNode(children[2], statuses, 'offline', ''), false);
   assert.equal(matchesNode({ ...leaf('masked'), internalAddress: '********' }, {}, null, '********'), false);
 });
+test('Jellyfin streams count as activity alongside Plex', () => {
+  const nodes = [{ ...leaf('plex'), healthCheckType: 'plex' as const }, { ...leaf('jellyfin'), healthCheckType: 'jellyfin' as const }, leaf('web')];
+  const statuses: Record<string, NodeStatus> = {
+    plex: { status: 'online', lastChecked: '', streams: 1 }, jellyfin: { status: 'online', lastChecked: '', streams: 2 }, web: { status: 'online', lastChecked: '', streams: 9 },
+  };
+  assert.equal(summarize(nodes, statuses).streams, 3);
+  assert.equal(matchesNode(nodes[1], statuses, 'activity', ''), true);
+  assert.equal(matchesNode(nodes[2], statuses, 'activity', ''), false);
+});
 
 
 test('siblings form compact fans with larger gaps between families', () => {

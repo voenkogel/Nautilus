@@ -116,7 +116,7 @@ test('mobile list and map share inspection and support narrow screens', async ({
   flatten(config.tree.nodes).forEach(node => { node.healthCheckType = 'http'; });
   await mockNetwork(page, config);
   await page.goto('/');
-  await expect(page.locator('.radial-world')).toBeVisible(); // the map is the default on mobile too
+  await expect(page.locator('.root-node .node-body')).toBeVisible(); // the map is the default on mobile too
   await page.getByRole('button', { name: 'List', exact: true }).click();
   await expect(page.locator('.network-list')).toBeVisible();
   expect((await page.locator('.network-header').boundingBox())!.height).toBeLessThanOrEqual(65);
@@ -276,8 +276,8 @@ test('canvas drag avoids text selection and preserves inspector text selection',
   await page.goto('/');
   await expect(page.locator('.radial-world')).toHaveAttribute('data-layout-settled', 'true');
   const before = await page.locator('.radial-world').getAttribute('style');
-  const label = await page.locator('.root-node .node-label').boundingBox();
-  if (!label) throw new Error('Missing root label');
+  const label = await page.locator('.radial-node:has([data-select-node="home"]) .node-label').boundingBox();
+  if (!label) throw new Error('Missing home label');
   await page.mouse.move(label.x + 10, label.y + 8);
   await page.mouse.down();
   await page.mouse.move(label.x + 180, label.y + 110, { steps: 12 });
@@ -310,6 +310,7 @@ test('inventory, compact controls, settings sections and populated history', asy
   await expect(page.locator('.inspector-status')).toHaveText('Unmonitored');
   await page.screenshot({ animations: 'disabled', path: 'test-results/unmonitored-inspector.png' });
   await page.getByRole('button', { name: 'Close inspector' }).click();
+  await expect(page.locator('.node-inspector')).toHaveCount(0); // closing animates out first
   await page.getByRole('button', { name: 'History', exact: true }).click();
   await expect(page.locator('.ledger-row')).toHaveCount(26);
   await page.screenshot({ animations: 'disabled', path: 'test-results/history-report.png' });
@@ -405,21 +406,23 @@ test('activity chip only shows active counts and clears an expired activity filt
     minecraft: { status: 'online', players: { online: players, max: 20 }, lastChecked: new Date().toISOString() },
   } } }));
   await page.goto('/');
-  await expect(page.locator('.activity-total')).toHaveCount(0);
+  const chip = page.locator('.activity-drill-toggle');
+  await expect(chip).toHaveCount(0);
   streams = 2;
   await nextPoll(page);
-  await expect(page.locator('.activity-total')).toContainText('2streams');
-  await expect(page.locator('.activity-total')).not.toContainText('players');
-  await page.locator('.activity-total').click();
-  await expect(page.getByRole('complementary', { name: 'Search results' })).toContainText('Plex');
+  await expect(chip).toHaveText('Activity2');
+  await chip.click();
+  const drill = page.getByRole('complementary', { name: 'Live activity' });
+  await expect(drill).toContainText('Plex');
+  await expect(drill).toContainText('2streams');
+  await expect(page.getByRole('complementary', { name: 'Search results' })).toHaveCount(0);
   streams = 0; players = 1;
   await nextPoll(page);
-  await expect(page.locator('.activity-total')).toContainText('1player');
-  await expect(page.locator('.activity-total')).not.toContainText('streams');
+  await expect(drill).toContainText('1player');
+  await expect(drill).not.toContainText('stream');
   players = 0;
   await nextPoll(page);
-  await expect(page.locator('.activity-total')).toHaveCount(0);
-  await expect(page.getByRole('complementary', { name: 'Search results' })).toHaveCount(0);
+  await expect(drill).toHaveCount(0);
 });
 
 

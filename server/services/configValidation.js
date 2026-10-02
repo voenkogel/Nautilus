@@ -79,7 +79,7 @@ export function validateConfig(config) {
     // Length and range caps to reject oversized/abusive payloads.
     const MAX_STR = 2048;
     const stringFields = ['id', 'title', 'subtitle', 'icon', 'type', 'ip', 'url',
-      'internalAddress', 'externalAddress', 'healthCheckType', 'plexToken', 'apiKeys'];
+      'internalAddress', 'externalAddress', 'healthCheckType', 'plexToken', 'jellyfinApiKey', 'apiKeys'];
     for (const f of stringFields) {
       if (typeof node[f] === 'string' && node[f].length > MAX_STR) {
         return { valid: false, error: `Node at ${path || 'root'} ${f} exceeds ${MAX_STR} characters` };

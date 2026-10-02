@@ -1,7 +1,7 @@
 import React from 'react';
 import type { TreeNode } from '../types/config';
 import type { NodeStatus } from '../hooks/useNodeStatus';
-import { isNodeMonitored } from '../utils/nodeUtils';
+import { isNodeMonitored, isStreamSource } from '../utils/nodeUtils';
 import { getStatusColor } from '../utils/colors';
 
 interface NodeStatusDetailsProps {
@@ -38,8 +38,8 @@ const NodeStatusDetails: React.FC<NodeStatusDetailsProps> = ({ node, status }) =
     );
   }
 
-  // Plex Stream Count
-  if (node.healthCheckType === 'plex' && typeof status?.streams === 'number') {
+  // Media server (Plex / Jellyfin) stream count
+  if (isStreamSource(node) && typeof status?.streams === 'number') {
     return (
       <div 
         className="flex flex-col items-center justify-center ml-2 px-3 py-2 rounded-md h-full min-w-max"

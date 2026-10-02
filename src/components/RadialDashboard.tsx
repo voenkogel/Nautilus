@@ -1,13 +1,13 @@
 import { HomeConstellation } from './HomeConstellation';
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react';
-import { ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, Binoculars, CircleDot, Crosshair, Edit3, Film, Gamepad2, History, List, Minus, Network, Plus, Search, Settings, X } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowUpRight, Check, ChevronDown, ChevronRight, Binoculars, CircleDot, Crosshair, Edit3, Film, Gamepad2, History, List, Minus, Network, Plus, Search, Settings, X } from 'lucide-react';
 import type { AppConfig, NodeStatus, TreeNode } from '../types/config';
 import { activity, matchesNode, summarize, healthDescription, healthStates } from '../utils/networkSummary';
 import type { NetworkFilter } from '../utils/networkSummary';
 import { radialLayout, radialPath, overviewFolds, HUB_ID } from '../utils/radialLayout';
 import type { RadialLayout } from '../utils/radialLayout';
-import { getAllNodes, getNodeTargetUrl, isNodeMonitored, getNodeSiblingPosition } from '../utils/nodeUtils';
+import { getAllNodes, getNodeTargetUrl, isNodeMonitored, getNodeSiblingPosition, isStreamSource } from '../utils/nodeUtils';
 import { iconRegistry } from '../utils/iconUtils';
 import { getStatusColor, statusLabels } from '../utils/colors';
 import { NodeHistoryView } from './history/NodeHistoryView';
@@ -72,6 +72,28 @@ function HomeOrb({ summary, connected, filter, onFilter }: { summary: ReturnType
 }
 
 /** One interpolation clock keeps nodes and curved connections together, including exits. */
+/** Live activity: a compact chip that morphs into a drilldown listing the active nodes. */
+function ActivityDrill({ total, nodes, statuses, open, onToggle, onSelect }: { total: number; nodes: TreeNode[]; statuses: Record<string, NodeStatus>; open: boolean; onToggle: () => void; onSelect: (node: TreeNode) => void }) {
+  const box = useRef<HTMLElement>(null);
+  const from = useRef<DOMRect | null>(null);
+  const toggle = () => { from.current = box.current?.getBoundingClientRect() ?? null; onToggle(); };
+  // Size is content driven in both states, so the morph animates between the measured boxes (FLIP on width/height).
+  useLayoutEffect(() => {
+    const el = box.current, start = from.current;
+    from.current = null;
+    if (!el || !start || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const end = el.getBoundingClientRect();
+    el.animate([{ width: `${start.width}px`, height: `${start.height}px` }, { width: `${end.width}px`, height: `${end.height}px` }], { duration: 300, easing: 'cubic-bezier(.3, 0, .2, 1)' });
+  }, [open]);
+  return <aside ref={box} className={`activity-drill ${open ? 'open' : ''}`} aria-label="Live activity">
+    <button className="activity-drill-toggle" aria-expanded={open} title={open ? 'Close activity' : 'Show active nodes'} onClick={toggle}><Activity size={15} /><span>Activity</span><strong>{total}</strong>{open && <X size={14} className="activity-drill-close" />}</button>
+    {open && <div className="activity-drill-list">{nodes.length ? nodes.map(node => {
+      const s = statuses[node.id], { streams, players } = activity(node, s);
+      return <button key={node.id} onClick={() => onSelect(node)}><i style={{ background: getStatusColor(s, true) }} /><span>{node.title}{node.subtitle && <small>{node.subtitle}</small>}</span><em>{streams ? <Film size={13} /> : <Gamepad2 size={13} />}<strong>{streams || players}</strong>{streams ? (streams === 1 ? 'stream' : 'streams') : (players === 1 ? 'player' : 'players')}</em></button>;
+    }) : <p>No active nodes match the search.</p>}</div>}
+  </aside>;
+}
+
 function useAnimatedLayout(layout: RadialLayout) {
   const [frame, setFrame] = useState(layout);
   const current = useRef(layout);
@@ -466,9 +488,6 @@ export default function RadialDashboard(props: Props) {
       </a>
     <section className="monitor-strip" aria-label="Network monitoring">
       <div className="sr-only">{props.loading ? 'Connecting' : props.connected ? 'Live network' : 'Monitoring unavailable'}</div>
-      <div className="monitor-metrics">
-        {summary.streams + summary.players > 0 && <button aria-pressed={filter === 'activity'} title="Filter nodes with active streams or players" className={`activity-total ${filter === 'activity' ? 'active' : ''}`} onClick={() => setFilter(filter === 'activity' ? null : 'activity')}><span className="activity-chip-label">Activity</span>{summary.streams > 0 && <><Film size={14} /><strong>{summary.streams}</strong><span>{summary.streams === 1 ? 'stream' : 'streams'}</span></>}{summary.players > 0 && <><Gamepad2 size={15} /><strong>{summary.players}</strong><span>{summary.players === 1 ? 'player' : 'players'}</span></>}</button>}
-      </div>
     </section>
       <button className="mobile-search-toggle" aria-label="Search network" aria-expanded={searchOpen} aria-controls="network-search-field" onClick={() => setSearchOpen(v => !v)}><Search size={18} /></button><div id="network-search-field" className="network-search"><Search size={17} /><input ref={searchInput} aria-label="Search network" placeholder="Find a node…" value={query} onChange={e => setQuery(e.target.value)} />{(query || searchOpen) && <button aria-label="Clear search" onClick={() => { setQuery(''); setSearchOpen(false); }}><X size={15} /></button>}</div>
       <nav aria-label="Application"><button aria-label="History" title="History" onClick={props.onHistory}><History size={17} /><span>History</span></button><button aria-label="Settings" title="Settings" onClick={props.onSettings}><Settings size={17} /><span>Settings</span></button></nav>
@@ -524,7 +543,8 @@ export default function RadialDashboard(props: Props) {
           return <><div className="node-preview-head"><i style={{ background: getStatusColor(s, monitored) }} /><strong>{hovered.title}</strong><span>{statusText(hovered, s)}</span></div>{hovered.subtitle && <p>{hovered.subtitle}</p>}{meta.length > 0 && <small>{meta.join(' · ')}</small>}</>;
         })()}</div>}
       </>}
-      {hasFilter && <aside className="network-results" aria-label="Search results"><div><strong>{matches.length} {matches.length === 1 ? 'match' : 'matches'}{filter && ` · ${filter === 'backup' ? 'backing up' : filter}`}</strong><button aria-label="Clear filters" onClick={() => { setQuery(''); setFilter(null); }}><X size={14} /></button></div>{matches.length ? matches.map(n => <button key={n.id} onClick={() => select(n, true)}><i style={{ background: getStatusColor(statuses[n.id], isNodeMonitored(n)) }} /><span>{n.title}<small>{statusText(n, statuses[n.id])}</small></span><ArrowUpRight size={13} /></button>) : <p>No nodes match. <button onClick={() => { setQuery(''); setFilter(null); }}>Reset filters</button></p>}</aside>}
+      {summary.streams + summary.players > 0 && <ActivityDrill total={summary.streams + summary.players} nodes={matches} statuses={statuses} open={filter === 'activity'} onToggle={() => setFilter(filter === 'activity' ? null : 'activity')} onSelect={node => select(node, true)} />}
+      {hasFilter && filter !== 'activity' && <aside className="network-results" aria-label="Search results"><div><strong>{matches.length} {matches.length === 1 ? 'match' : 'matches'}{filter && ` · ${filter === 'backup' ? 'backing up' : filter}`}</strong><button aria-label="Clear filters" onClick={() => { setQuery(''); setFilter(null); }}><X size={14} /></button></div>{matches.length ? matches.map(n => <button key={n.id} onClick={() => select(n, true)}><i style={{ background: getStatusColor(statuses[n.id], isNodeMonitored(n)) }} /><span>{n.title}<small>{statusText(n, statuses[n.id])}</small></span><ArrowUpRight size={13} /></button>) : <p>No nodes match. <button onClick={() => { setQuery(''); setFilter(null); }}>Reset filters</button></p>}</aside>}
       <footer className="map-toolbar">
         <div className="view-switch animated-segments" style={{ '--segment-index': isList ? 1 : 0 } as CSSProperties} aria-label="Network view"><button aria-label="Map" title="Map" aria-pressed={!isList} onClick={() => { setView('map'); initialized.current = false; }}><CircleDot size={18} /></button><button aria-label="List" title="List" aria-pressed={isList} onClick={() => setView('list')}><List size={18} /></button></div>
         <div className="viewport-controls">{!isList && <><button aria-label="Zoom out" onClick={() => zoom(.8)}><Minus size={16} /></button><span>{Math.round(camera.scale * 100)}%</span><button aria-label="Zoom in" onClick={() => zoom(1.25)}><Plus size={16} /></button><button aria-label="Fit network" title="Fit network" onClick={() => fit()}><Crosshair size={16} /></button></>}{automaticFolds.size > 0 && !showAll && !editMode && <button onClick={() => { setShowAll(true); fit(radialLayout(roots, new Set([...collapsed].filter(id => explicitFolds.get(id) !== false)))); }}><Plus size={14} />Show all</button>}</div>
@@ -558,12 +578,12 @@ export default function RadialDashboard(props: Props) {
               selected.internalAddress && selected.internalAddress !== '********' && ['Monitoring address', selected.internalAddress],
               backup && ['Backup window', `${backup.frequency === 'weekly' ? ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'][backup.dayOfWeek ?? 0] : 'Daily'} ${pad(Math.floor(backup.startMinute / 60))}:${pad(backup.startMinute % 60)} · ${backup.durationMinutes} min${backup.source === 'auto' ? ' · detected' : ''}`],
             ].filter(Boolean) as [string, string][];
-            const activityType = selected.healthCheckType === 'plex' || selected.healthCheckType === 'minecraft' ? selected.healthCheckType : null;
+            const activityType = isStreamSource(selected) ? 'streams' : selected.healthCheckType === 'minecraft' ? 'players' : null;
             const branch = selected.children?.length ? branchStats.get(selected.id) : undefined;
             return <div className="inspector-overview">
               {readings.length > 0 && <dl className="monitoring-readings">{readings.map(([label, value]) => <div key={label} className={label === 'Response time' ? 'is-primary' : undefined}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
               {selectedStatus?.error && <p className="inspector-error">{selectedStatus.error}</p>}
-              {activityType && selectedStatus?.status === 'online' && <div className="inspector-activity">{activityType === 'plex' ? <Film size={20} /> : <Gamepad2 size={20} />}<strong>{activityType === 'plex' ? selectedStatus.streams ?? 0 : `${selectedStatus.players?.online ?? 0} / ${selectedStatus.players?.max ?? '?'}`}</strong><span>{activityType === 'plex' ? 'live streams' : 'players online'}</span></div>}
+              {activityType && selectedStatus?.status === 'online' && <div className="inspector-activity">{activityType === 'streams' ? <Film size={20} /> : <Gamepad2 size={20} />}<strong>{activityType === 'streams' ? selectedStatus.streams ?? 0 : `${selectedStatus.players?.online ?? 0} / ${selectedStatus.players?.max ?? '?'}`}</strong><span>{activityType === 'streams' ? 'live streams' : 'players online'}</span></div>}
               {details.length > 0 && <dl className="connection-readings">{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
               {branch && <div className="branch-summary"><strong>{branch.total}<small>descendants</small></strong><strong>{branch.online}<small>online</small></strong><strong className={branch.offline ? 'has-outage' : ''}>{branch.offline}<small>offline</small></strong></div>}
             </div>;

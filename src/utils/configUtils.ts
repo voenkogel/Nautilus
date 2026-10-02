@@ -4,7 +4,7 @@ import type { AppConfig, TreeNode } from '../types/config';
 export function networkBranches(nodes: TreeNode[]): TreeNode[] {
   return nodes.flatMap(node => {
     const home = /^(home\s*lab|network root)$/i.test(node.title.trim());
-    const service = node.monitored || node.internalAddress || node.externalAddress || (node.ip && node.healthCheckPort) || node.url || node.plexToken || node.backupWindow;
+    const service = node.monitored || node.internalAddress || node.externalAddress || (node.ip && node.healthCheckPort) || node.url || node.plexToken || node.jellyfinApiKey || node.backupWindow;
     return home && !service ? networkBranches(node.children ?? []) : [node];
   });
 }

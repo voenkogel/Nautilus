@@ -13,7 +13,7 @@ export interface TreeNode {
   url?: string;         
   
   disableHealthCheck?: boolean; // Explicitly disable health checking even if port is provided
-  healthCheckType?: 'http' | 'ping' | 'minecraft' | 'plex' | 'disabled'; // Type of health check to perform
+  healthCheckType?: 'http' | 'ping' | 'minecraft' | 'plex' | 'jellyfin' | 'disabled'; // Type of health check to perform
   healthCheckInterval?: number; // Per-node check interval in ms — overrides the global setting
   isInteractable?: boolean; // Whether the node can be clicked to open a URL
   
@@ -30,6 +30,7 @@ export interface TreeNode {
   monitored?: boolean; // Server-derived: present only in sanitized API responses; never persisted
   
   plexToken?: string; // Optional Plex Media Server token (only stored on server, never sent to client)
+  jellyfinApiKey?: string; // Jellyfin API key for stream counts (only stored on server, never sent to client)
 
   // Backup window: during this recurring window the node is reported as 'backup'
   // (violet) instead of offline and status notifications are suppressed. A manual

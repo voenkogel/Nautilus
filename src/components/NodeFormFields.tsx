@@ -22,7 +22,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange }
   const MIN_CHECK_INTERVAL = 5000;
   const intervalInvalid = typeof node.healthCheckInterval === 'number' && node.healthCheckInterval < MIN_CHECK_INTERVAL;
   const [showIconPicker, setShowIconPicker] = useState(false);
-  const [showPlexToken, setShowPlexToken] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionTestStatus>('idle');
   const [connectionDetails, setConnectionDetails] = useState<string>('');
   const testTimeoutRef = useRef<number | null>(null);
@@ -86,6 +86,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange }
       healthCheckPort: node.healthCheckPort,
       healthCheckType: node.healthCheckType,
       plexToken: node.plexToken,
+      jellyfinApiKey: node.jellyfinApiKey,
       disableHealthCheck: node.disableHealthCheck,
       healthCheckInterval: node.healthCheckInterval,
     });
@@ -119,6 +120,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange }
     node.healthCheckPort, 
     node.healthCheckType, 
     node.plexToken,
+    node.jellyfinApiKey,
     node.disableHealthCheck
   ]);
   
@@ -226,7 +228,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange }
               id={`${node.id}-healthCheckType`}
               value={node.healthCheckType || (node.disableHealthCheck ? 'disabled' : 'http')}
               onChange={(e) => {
-                const type = e.target.value as 'http' | 'minecraft' | 'plex' | 'disabled';
+                const type = e.target.value as NonNullable<TreeNode['healthCheckType']>;
                 onChange({ healthCheckType: type, disableHealthCheck: type === 'disabled' }); // Keep legacy field in sync
               }}
               className={selectClass}
@@ -236,6 +238,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange }
               <option value="ping">Ping</option>
               <option value="minecraft">Minecraft</option>
               <option value="plex">Plex</option>
+              <option value="jellyfin">Jellyfin</option>
               <option value="disabled">Off</option>
             </select>
           </div>
@@ -265,30 +268,35 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange }
           )}
         </div>
         {intervalInvalid && <p id={`${node.id}-checkInterval-help`} className="node-form-hint is-error">Use at least 5 seconds.</p>}
-        {node.healthCheckType === 'plex' && (
+        {(node.healthCheckType === 'plex' || node.healthCheckType === 'jellyfin') && (() => {
+          const secret = node.healthCheckType === 'plex'
+            ? { field: 'plexToken' as const, label: 'Plex token', placeholder: 'X-Plex-Token, for stream counts' }
+            : { field: 'jellyfinApiKey' as const, label: 'Jellyfin API key', placeholder: 'Dashboard → API Keys, for stream counts' };
+          return (
           <div className="node-form-field">
-            <label htmlFor={`${node.id}-plexToken`}>Plex token</label>
+            <label htmlFor={`${node.id}-${secret.field}`}>{secret.label}</label>
             <div className="relative">
               <FormInput
-                id={`${node.id}-plexToken`}
+                id={`${node.id}-${secret.field}`}
                 accentColor={accentColor}
                 className="pr-10"
-                type={showPlexToken ? 'text' : 'password'}
-                value={node.plexToken || ''}
-                onChange={(e) => onChange({ plexToken: e.target.value })}
-                placeholder="X-Plex-Token, for stream counts"
+                type={showSecret ? 'text' : 'password'}
+                value={node[secret.field] || ''}
+                onChange={(e) => onChange({ [secret.field]: e.target.value })}
+                placeholder={secret.placeholder}
               />
               <button
                 type="button"
-                aria-label={showPlexToken ? 'Hide token' : 'Show token'}
-                onClick={() => setShowPlexToken(!showPlexToken)}
+                aria-label={showSecret ? 'Hide token' : 'Show token'}
+                onClick={() => setShowSecret(!showSecret)}
                 className="absolute inset-y-0 right-0 flex items-center px-3 text-muted focus:outline-none"
               >
-                {showPlexToken ? <LucideIcons.EyeOff size={16} /> : <LucideIcons.Eye size={16} />}
+                {showSecret ? <LucideIcons.EyeOff size={16} /> : <LucideIcons.Eye size={16} />}
               </button>
             </div>
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* Interaction: whether clicking opens the service, and where. */}

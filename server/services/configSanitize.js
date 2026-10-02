@@ -16,7 +16,7 @@ const SENSITIVE_MASK = '********';
 // field names were hardcoded independently in each function and could drift.
 // (The internal monitoring address is handled separately below: it is masked
 // with a sentinel and the whole address group is restored together.)
-const SECRET_NODE_FIELDS = ['plexToken', 'apiKeys'];
+const SECRET_NODE_FIELDS = ['plexToken', 'jellyfinApiKey', 'apiKeys'];
 
 export function sanitizeConfig(config, isAdmin = false) {
   if (!config) return config;

@@ -8,6 +8,7 @@ import { promisify } from 'util';
 import { sendStatusWebhook } from '../utils/webhooks.js';
 import { queryJavaServer, queryBedrockServer } from '../utils/minecraft.js';
 import { queryPlexServer } from '../utils/plex.js';
+import { queryJellyfinServer } from '../utils/jellyfin.js';
 import { recordStatusHistory } from '../utils/historyDb.js';
 import { isValidHost } from '../utils/validation.js';
 import { isNodeMonitored, getNodeIdentifier } from '../utils/nodeMonitoring.js';
@@ -304,12 +305,12 @@ export async function performNodeCheck(nodeData) {
         error: err.message
       };
     }
-  } else if (nodeData.healthCheckType === 'plex') {
+  } else if (nodeData.healthCheckType === 'plex' || nodeData.healthCheckType === 'jellyfin') {
     try {
       const startTime = Date.now();
-      const plexPort = port || 32400;
-      
-      const result = await queryPlexServer(host, plexPort, nodeData.plexToken, protocol);
+      const result = nodeData.healthCheckType === 'plex'
+        ? await queryPlexServer(host, port || 32400, nodeData.plexToken, protocol)
+        : await queryJellyfinServer(host, port || 8096, nodeData.jellyfinApiKey, protocol);
       
       finalResult = {
         status: 'online',
