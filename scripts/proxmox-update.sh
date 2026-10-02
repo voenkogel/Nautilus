@@ -167,6 +167,7 @@ if ! command -v pct >/dev/null 2>&1; then
 fi
 
 # Get container ID
+AUTO_SELECTED=false
 if [[ $# -eq 1 ]]; then
   CT_ID=$1
 else
@@ -174,22 +175,30 @@ else
   
   # Find containers with Nautilus
   found_containers=()
+  running_containers=()
   for ct in $(pct list | awk 'NR>1 {print $1}'); do
     if pct exec $ct -- test -d /opt/nautilus 2>/dev/null; then
       hostname=$(pct exec $ct -- hostname 2>/dev/null || echo "unknown")
       status=$(pct status $ct | cut -d' ' -f2)
       echo -e " ${BL}$ct${CL} - $hostname ($status)"
       found_containers+=($ct)
+      [[ "$status" == "running" ]] && running_containers+=($ct)
     fi
   done
-  
+
   if [[ ${#found_containers[@]} -eq 0 ]]; then
     msg_error "No Nautilus installations found"
     exit 1
   fi
-  
+
   echo
-  read -p "Enter the container ID to update: " CT_ID
+  if [[ ${#running_containers[@]} -eq 1 ]]; then
+    CT_ID=${running_containers[0]}
+    AUTO_SELECTED=true
+    msg_info "Only one running Nautilus container found, using $CT_ID"
+  else
+    read -p "Enter the container ID to update: " CT_ID
+  fi
 fi
 
 # Validate container
@@ -208,11 +217,25 @@ echo -e " Hostname: $hostname"
 echo -e " Current Version: $current_version"
 echo
 
-read -p "Continue with update? [y/N]: " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-  echo "Update cancelled"
-  exit 0
+# An automatically chosen container skips the confirmation, unless something about it looks off.
+anomalies=()
+[[ "$hostname" == "unknown" ]] && anomalies+=("hostname could not be read")
+[[ "$current_version" == "unknown" ]] && anomalies+=("current version could not be read")
+pct exec $CT_ID -- test -f /data/config.json 2>/dev/null || anomalies+=("no configuration at /data/config.json")
+pct exec $CT_ID -- systemctl is-active --quiet nautilus 2>/dev/null || anomalies+=("nautilus service is not active")
+
+if [[ "$AUTO_SELECTED" == "true" && ${#anomalies[@]} -eq 0 ]]; then
+  msg_info "No issues found, continuing automatically"
+else
+  for anomaly in "${anomalies[@]}"; do
+    echo -e "${YW}[WARN]${CL} $anomaly"
+  done
+  read -p "Continue with update? [y/N]: " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Update cancelled"
+    exit 0
+  fi
 fi
 
 echo
