@@ -123,17 +123,17 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
         closeOnBackdrop={false}
         closeOnEscape={false}
         ariaLabelledBy="node-editor-title"
-        containerClassName="bg-white rounded-lg shadow-xl w-96 max-h-[80vh] overflow-y-auto animate-slide-up"
+        containerClassName="editor-workspace bg-surface rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[86vh] overflow-y-auto animate-slide-up"
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b">
-          <h2 id="node-editor-title" className="text-lg font-semibold text-gray-900">Edit Node</h2>
+          <h2 id="node-editor-title" className="text-lg font-semibold text-ink">Edit node</h2>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="p-1 hover:bg-gray-100 rounded"
+            className="p-1 hover:bg-raised rounded"
           >
-            <X size={20} className="text-gray-500" />
+            <X size={20} className="text-muted" />
           </button>
         </div>
 
@@ -147,11 +147,11 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
 
           {/* Children Nodes */}
           <div>
-            <h3 className="text-md font-semibold text-gray-800 mt-6 mb-2">Child Nodes</h3>
+            <h3 className="text-md font-semibold text-ink mt-6 mb-2">Child Nodes</h3>
             {editedNode.children && editedNode.children.length > 0 ? (
               <div className="space-y-2">
                 {editedNode.children.map((child, index) => (
-                  <div key={child.id} className="flex items-center space-x-2 p-2 bg-gray-50 rounded">
+                  <div key={child.id} className="flex items-center space-x-2 p-2 bg-abyss rounded">
                     <span className="flex-1 text-sm">{child.title}</span>
                     <div className="flex items-center space-x-1">
                       {onEditChild && (
@@ -171,7 +171,7 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
                               }
                             }
                           }}
-                          className="p-1 hover:bg-gray-200 rounded text-gray-600 hover:text-blue-600 transition-colors cursor-pointer"
+                          className="p-1 hover:bg-raised rounded text-muted hover:text-accent transition-colors cursor-pointer"
                           title="Edit child node"
                         >
                           <WrenchIcon size={14} fill="currentColor" />
@@ -179,7 +179,7 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
                       )}
                       <button
                         onClick={() => handleDeleteChild(index)}
-                        className="p-1 hover:bg-gray-200 rounded text-red-500 transition-colors"
+                        className="p-1 hover:bg-raised rounded text-negative transition-colors"
                         title="Delete child node"
                       >
                         <Trash size={14} fill="currentColor" />
@@ -189,30 +189,30 @@ export const NodeEditor: React.FC<NodeEditorProps> = ({ node, onSave, onClose, o
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-gray-500 italic">No child nodes added yet.</p>
+              <p className="text-sm text-muted italic">No child nodes added yet.</p>
             )}
           </div>
 
           {/* Add Child Button */}
           <button
             onClick={handleAddChild}
-            className="w-full flex items-center justify-center space-x-2 p-2 border-2 border-dashed border-gray-300 rounded-lg hover:border-gray-400 transition-colors"
+            className="w-full flex items-center justify-center space-x-2 p-2 border-2 border-dashed border-line rounded-lg hover:border-muted transition-colors"
           >
-            <Plus size={16} className="text-gray-500" />
-            <span className="text-sm text-gray-500">Add Child Node</span>
+            <Plus size={16} className="text-muted" />
+            <span className="text-sm text-muted">Add Child Node</span>
           </button>
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between p-4 border-t bg-gray-50">
-          <Button variant="ghost" className="text-red-600 hover:bg-red-50" onClick={onDelete}>
+        <div className="flex items-center justify-between p-4 border-t bg-abyss">
+          <Button variant="ghost" className="text-negative hover:bg-negative/10" onClick={onDelete}>
             Delete Node
           </Button>
           <div className="flex space-x-2">
             <Button variant="ghost" onClick={onClose} disabled={isSaving}>
               Cancel
             </Button>
-            <Button variant="primary" accentColor={safeAppearance.accentColor} onClick={handleSave} disabled={isSaving}>
+            <Button variant="primary" accentColor="#65d7e8" onClick={handleSave} disabled={isSaving}>
               {isSaving ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>

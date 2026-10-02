@@ -150,7 +150,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
             fill="none"
             strokeDasharray={circumference}
             strokeDashoffset={isQuerying ? circumference * 0.75 : strokeDashoffset}
-            className={`transition-all duration-300 ease-in-out ${isQuerying ? "text-blue-500" : "text-green-500"}`}
+            className={`transition-all duration-300 ease-in-out ${isQuerying ? "text-accent" : "text-green-500"}`}
             strokeLinecap="round"
           />
         </svg>
@@ -158,7 +158,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
         {/* Timer text - only show when not querying */}
         {!isQuerying && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-xs font-medium text-gray-600 font-roboto">
+            <span className="text-xs font-medium text-muted font-roboto">
               {nextCheckCountdown > 0 ? Math.ceil(nextCheckCountdown) : '⏱️'}
             </span>
           </div>
@@ -170,12 +170,12 @@ const StatusCard: React.FC<StatusCardProps> = ({
   if (isLoading && totalNodes > 0) {
     return (
       <div className={`${isMobile 
-        ? 'bg-white/95 backdrop-blur-sm border-b border-gray-200 px-4 py-4' 
-        : 'bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200 p-4 min-w-[200px]'
+        ? 'bg-surface/95 backdrop-blur-sm border-b border-line px-4 py-4'
+        : 'bg-surface/95 backdrop-blur-sm rounded-lg shadow-lg border border-line p-4 min-w-[200px]'
       }`}>
         <div className="flex items-center space-x-3">
-          <div className="w-4 h-4 bg-gray-300 rounded-full animate-pulse"></div>
-          <span className="text-sm font-medium text-gray-600 font-roboto">Loading status...</span>
+          <div className="w-4 h-4 bg-line rounded-full animate-pulse"></div>
+          <span className="text-sm font-medium text-muted font-roboto">Loading status...</span>
         </div>
       </div>
     );
@@ -184,24 +184,24 @@ const StatusCard: React.FC<StatusCardProps> = ({
   if (error) {
     return (
       <div className={`${isMobile 
-        ? 'bg-white/95 backdrop-blur-sm border-b border-red-200 px-4 py-4' 
-        : 'bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-red-200 p-4 min-w-[200px]'
+        ? 'bg-surface/95 backdrop-blur-sm border-b border-negative/25 px-4 py-4'
+        : 'bg-surface/95 backdrop-blur-sm rounded-lg shadow-lg border border-negative/25 p-4 min-w-[200px]'
       }`}>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center space-x-2">
             <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-            <span className="text-sm font-medium text-red-600 font-roboto">Monitoring Offline</span>
+            <span className="text-sm font-medium text-negative font-roboto">Monitoring Offline</span>
           </div>
         </div>
-        <div className="text-xs text-red-500 font-roboto">Status server unreachable</div>
+        <div className="text-xs text-negative font-roboto">Status server unreachable</div>
       </div>
     );
   }
 
   return (
     <div className={`${isMobile 
-      ? 'bg-white/95 backdrop-blur-sm border-b border-gray-200' 
-      : 'bg-white/95 backdrop-blur-sm rounded-lg shadow-lg border border-gray-200 min-w-[200px]'
+      ? 'bg-surface/95 backdrop-blur-sm border-b border-line'
+      : 'bg-surface/95 backdrop-blur-sm rounded-lg shadow-lg border border-line min-w-[200px]'
     }`}>
       {/* Always visible header with collapse/expand, system health title, and settings buttons */}
       <div className="flex items-center justify-between p-2">
@@ -209,7 +209,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
           {/* Collapse/Expand button */}
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 hover:scale-110 rounded-md transition-all duration-200"
+            className="p-2 text-muted hover:text-ink hover:bg-raised hover:scale-110 rounded-md transition-all duration-200"
             aria-label={isCollapsed ? "Expand status card" : "Collapse status card"}
             aria-expanded={!isCollapsed}
             title={isCollapsed ? "Expand status card" : "Collapse status card"}
@@ -218,7 +218,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
           </button>
           
           {/* System Health title - now always visible */}
-          <span className="text-base font-medium text-gray-800 font-roboto">System Health</span>
+          <span className="text-base font-medium text-ink font-roboto">System Health</span>
         </div>
 
         {/* Action buttons */}
@@ -227,7 +227,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
           {onOpenHistory && (
             <button
               onClick={onOpenHistory}
-              className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 hover:scale-110 rounded-md transition-all duration-200"
+              className="p-2 text-muted hover:text-ink hover:bg-raised hover:scale-110 rounded-md transition-all duration-200"
               aria-label="View history"
               title="View history"
             >
@@ -237,7 +237,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
           {/* Settings button */}
           <button
             onClick={onOpenSettings}
-            className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 hover:scale-110 rounded-md transition-all duration-200"
+            className="p-2 text-muted hover:text-ink hover:bg-raised hover:scale-110 rounded-md transition-all duration-200"
             aria-label="Open settings"
             title="Open settings"
           >
@@ -252,10 +252,10 @@ const StatusCard: React.FC<StatusCardProps> = ({
           {/* Health count and timing indicator row */}
           <div className="flex items-center justify-between mb-3">
             <div aria-live="polite">
-              <span className="text-lg font-semibold text-gray-800 font-roboto">
+              <span className="text-lg font-semibold text-ink font-roboto">
                 {healthyNodes}/{totalNodes}
               </span>
-              <span className="text-sm text-gray-600 font-roboto ml-1">healthy</span>
+              <span className="text-sm text-muted font-roboto ml-1">healthy</span>
             </div>
             
             {/* Timing indicator moved to right side */}
@@ -266,7 +266,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
             {!isConnected && (
               <div className="flex items-center space-x-2">
                 <div className="w-2 h-2 rounded-full bg-red-400"></div>
-                <span className="text-xs font-roboto text-red-600">Disconnected</span>
+                <span className="text-xs font-roboto text-negative">Disconnected</span>
               </div>
             )}
           </div>
@@ -275,7 +275,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
           {/* Decorative — the same counts are available as text in the breakdown below (A11Y-4/6) */}
           <div className="relative" aria-hidden="true">
             {/* Background for the full bar */}
-            <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+            <div className="w-full h-3 bg-raised rounded-full overflow-hidden">
               {/* Red portion (offline nodes) - positioned from the right */}
               {offlinePercentage > 0 && (
                 <div 
@@ -287,7 +287,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
               {/* Gray portion (checking nodes) - positioned after green */}
               {checkingPercentage > 0 && (
                 <div
-                  className="absolute top-0 h-full bg-gray-300 transition-all duration-500 ease-out"
+                  className="absolute top-0 h-full bg-line transition-all duration-500 ease-out"
                   style={{
                     left: `${healthPercentage}%`,
                     width: `${checkingPercentage}%`
@@ -321,13 +321,13 @@ const StatusCard: React.FC<StatusCardProps> = ({
           </div>
 
           {/* Status breakdown — each item is a filter trigger */}
-          <div className="flex items-center gap-1 text-[11px] text-gray-600 font-roboto mt-2 select-none flex-wrap">
+          <div className="flex items-center gap-1 text-[11px] text-muted font-roboto mt-2 select-none flex-wrap">
             <button
               onClick={() => onFilterChange?.(activeFilter === 'online' ? null : 'online')}
               className={`flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all duration-150 ${
                 activeFilter === 'online'
-                  ? 'bg-green-50 text-green-700 ring-1 ring-green-200'
-                  : 'hover:bg-gray-50 hover:text-gray-800'
+                  ? 'bg-positive/10 text-positive ring-1 ring-green-200'
+                  : 'hover:bg-abyss hover:text-ink'
               }`}
               title="Filter to online nodes"
             >
@@ -336,8 +336,8 @@ const StatusCard: React.FC<StatusCardProps> = ({
             </button>
 
             {checkingNodes > 0 && (
-              <span className="flex items-center gap-1.5 px-2 py-1 text-gray-400">
-                <span className="w-2 h-2 rounded-full bg-gray-300 animate-pulse flex-shrink-0" />
+              <span className="flex items-center gap-1.5 px-2 py-1 text-muted">
+                <span className="w-2 h-2 rounded-full bg-line animate-pulse flex-shrink-0" />
                 <span>{checkingNodes}</span>
               </span>
             )}
@@ -356,19 +356,19 @@ const StatusCard: React.FC<StatusCardProps> = ({
               onClick={() => onFilterChange?.(activeFilter === 'offline' ? null : 'offline')}
               className={`flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all duration-150 ${
                 activeFilter === 'offline'
-                  ? 'bg-red-50 text-red-700 ring-1 ring-red-200'
-                  : 'hover:bg-gray-50 hover:text-gray-800'
+                  ? 'bg-negative/10 text-negative ring-1 ring-red-200'
+                  : 'hover:bg-abyss hover:text-ink'
               }`}
               title="Filter to offline nodes"
             >
-              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${offlineNodes > 0 ? 'bg-red-500' : 'bg-red-200'}`} />
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${offlineNodes > 0 ? 'bg-red-500' : 'bg-negative/20'}`} />
               <span>{offlineNodes} offline</span>
             </button>
           </div>
 
           {/* Live activity — a pronounced pill, shown ONLY when a Plex stream or Minecraft player is active */}
           {hasActivityNodes && isActive && (
-            <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="mt-3 pt-3 border-t border-line">
               <button
                 onClick={() => onFilterChange?.(activeFilter === 'activity' ? null : 'activity')}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 hover:brightness-[1.03]"
@@ -401,7 +401,7 @@ const StatusCard: React.FC<StatusCardProps> = ({
                   >
                     Live Activity
                   </span>
-                  <span className="text-xs font-medium text-gray-700 font-roboto truncate">
+                  <span className="text-xs font-medium text-ink font-roboto truncate">
                     {activitySummary || 'In use'}
                   </span>
                 </span>

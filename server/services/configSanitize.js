@@ -73,13 +73,15 @@ export function restoreSensitiveFields(newConfig, originalConfig) {
   // Deep clone to avoid modifying the passed config
   const restored = JSON.parse(JSON.stringify(newConfig));
 
-  // Recursive function to restore sensitive fields in nodes
-  function restoreInNodes(newNodes, originalNodes) {
-    if (!Array.isArray(newNodes) || !Array.isArray(originalNodes)) return;
+  // Node identity survives reparenting and removal of a legacy home-lab wrapper.
+  const originals = new Map();
+  forEachNode(originalConfig, node => originals.set(node.id, node));
+  function restoreInNodes(newNodes) {
+    if (!Array.isArray(newNodes)) return;
 
     newNodes.forEach(newNode => {
       // Find the corresponding original node by ID
-      const originalNode = originalNodes.find(n => n.id === newNode.id);
+      const originalNode = originals.get(newNode.id);
 
       if (originalNode) {
         // Restore any masked secret field from the original config.
@@ -102,17 +104,14 @@ export function restoreSensitiveFields(newConfig, originalConfig) {
           if (originalNode.healthCheckPort) newNode.healthCheckPort = originalNode.healthCheckPort;
         }
 
-        // Recursively restore in children
-        if (newNode.children && originalNode.children) {
-          restoreInNodes(newNode.children, originalNode.children);
-        }
       }
+      restoreInNodes(newNode.children);
     });
   }
 
   // Restore sensitive fields in the tree nodes
   if (restored.tree && restored.tree.nodes && originalConfig.tree && originalConfig.tree.nodes) {
-    restoreInNodes(restored.tree.nodes, originalConfig.tree.nodes);
+    restoreInNodes(restored.tree.nodes);
   }
 
   return restored;

@@ -25,7 +25,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
   const usernameInputRef = useRef<HTMLInputElement>(null);
 
   // Get accent color from config or use default
-  const accentColor = appConfig?.appearance?.accentColor || '#3b82f6';
+  const accentColor = '#65d7e8';
   const appTitle = appConfig?.general?.title || 'Nautilus';
 
   // Focus username input when modal opens (Modal traps focus; this picks the field)
@@ -61,7 +61,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
       ariaLabelledBy="auth-modal-title"
     >
       {/* Header */}
-      <div className="relative p-5 border-b border-gray-200">
+      <div className="relative p-5 border-b border-line">
         <div className="flex items-center">
           <div
             className="w-10 h-10 rounded-full flex items-center justify-center mr-3"
@@ -70,8 +70,8 @@ const AuthModal: React.FC<AuthModalProps> = ({
             <Lock style={{ color: accentColor }} size={20} />
           </div>
           <div>
-            <h3 id="auth-modal-title" className="text-lg font-medium text-gray-900">Administrator Login</h3>
-            <p className="text-sm text-gray-500">
+            <h3 id="auth-modal-title" className="text-lg font-medium text-ink">Administrator Login</h3>
+            <p className="text-sm text-muted">
               Authentication required to access {appTitle} settings
             </p>
           </div>
@@ -79,7 +79,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-5 right-5 text-gray-400 hover:text-gray-500 p-1 rounded-full hover:bg-gray-100"
+          className="absolute top-5 right-5 text-muted hover:text-muted p-1 rounded-full hover:bg-raised"
         >
           <X size={20} />
         </button>
@@ -88,7 +88,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
       {/* Body */}
       <form onSubmit={handleSubmit} className="p-5">
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm">
+          <div className="mb-4 p-3 bg-negative/10 border border-negative/25 text-negative rounded-md text-sm">
             {error}
           </div>
         )}
@@ -96,7 +96,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
         <div className="space-y-4">
           {/* Username field */}
           <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="username" className="block text-sm font-medium text-ink mb-1">
               Username
             </label>
             <div className="relative">
@@ -113,7 +113,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                 spellCheck={false}
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
+                className="w-full pl-10 pr-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2"
                 style={{
                   boxShadow: username ? `0 0 0 2px ${accentColor}20` : 'none',
                   "--tw-ring-color": `${accentColor}40`,
@@ -129,7 +129,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
           {/* Password field */}
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="password" className="block text-sm font-medium text-ink mb-1">
               Password
             </label>
             <div className="relative">
@@ -143,7 +143,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
+                className="w-full pl-10 pr-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2"
                 style={{
                   boxShadow: password ? `0 0 0 2px ${accentColor}20` : 'none',
                   "--tw-ring-color": `${accentColor}40`,

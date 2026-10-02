@@ -3,11 +3,11 @@ import type { NodeStatus } from '../types/config';
 // Semantic status color tokens — single source of truth for the status hex
 // values that were previously duplicated inline across components.
 export const statusColors = {
-  online: '#10b981',
-  offline: '#ef4444',
-  checking: '#3b82f6',
-  backup: '#8b5cf6',
-  neutral: '#6b7280',
+  online: '#68d6a5',
+  offline: '#ff8d87',
+  checking: '#ebc47f',
+  backup: '#b5a0f4',
+  neutral: '#8b9fab',
 } as const;
 
 // Human-readable status labels — single source for the display strings so the

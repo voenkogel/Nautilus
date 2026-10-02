@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { TreeNode, AppConfig } from '../types/config';
 import { getAuthHeaders, hasAuthToken, authenticate } from '../utils/auth';
 import ReactDOM from 'react-dom';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 import { Stepper } from './network-scan/Stepper';
 import { CancelConfirmDialog } from './network-scan/CancelConfirmDialog';
 
@@ -13,14 +14,16 @@ const generateUniqueId = () => {
 // ...existing state/utility declarations...
 // Polling logic for scan progress
 interface NetworkScanWindowProps {
-  appConfig?: any;
+  appConfig?: AppConfig;
   scanActive?: boolean;
   setScanActive?: (active: boolean) => void;
   initialProgress?: number;
   initialLogs?: string[];
 }
 
-const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanActive, setScanActive, initialProgress = 0, initialLogs = [] }) => {
+const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ scanActive, setScanActive, initialProgress = 0, initialLogs = [] }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef);
   // --- State and handlers ---
   const [isScanning, setIsScanning] = useState(scanActive ?? false);
   const [logs, setLogs] = useState<string[]>(initialLogs);
@@ -131,7 +134,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
   });
   const [ipError, setIpError] = useState<string | null>(null);
   const [cidrError, setCidrError] = useState<string | null>(null);
-  const accentColor = appConfig?.appearance?.accentColor || '#3b82f6';
+  const accentColor = '#65d7e8';
   const validateIp = (value: string): boolean => {
     return /^((25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)$/.test(value.trim());
   };
@@ -959,8 +962,9 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
         height: '100vh',
       }}
     >
-      <div className="w-full max-w-2xl bg-white rounded-lg shadow-2xl p-8 relative" style={{ zIndex: 1001 }}>
-        <p>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Network discovery" className="scan-workspace w-full max-w-2xl bg-surface rounded-lg shadow-2xl p-8 relative" style={{ zIndex: 1001 }}>
+        <h2 className="text-2xl font-medium text-ink mb-3">Discover your network</h2>
+        <p className="text-muted text-sm leading-relaxed mb-6">
           Scan your local network to discover devices and populate nodes. This process uses nmap and may take a few minutes depending on network size.
         </p>
         <div className="mb-6">
@@ -970,21 +974,21 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
               id="ip-input"
               type="text"
               className={`border rounded px-3 py-2 text-sm flex-1 ${
-                ipError ? 'border-red-400' : 'border-gray-300'
-              } ${isScanning ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
+                ipError ? 'border-red-400' : 'border-line'
+              } ${isScanning ? 'bg-raised text-muted cursor-not-allowed' : ''}`}
               value={ip}
               onChange={handleIpChange}
               disabled={isScanning}
               placeholder="IPv4 address (e.g. 10.20.148.0)"
               style={{ '--accent-color': accentColor } as React.CSSProperties}
             />
-            <span className="text-gray-500">/</span>
+            <span className="text-muted">/</span>
             <input
               id="cidr-input"
               type="text"
               className={`border rounded px-3 py-2 text-sm w-20 text-center ${
-                cidrError ? 'border-red-400' : 'border-gray-300'
-              } ${isScanning ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
+                cidrError ? 'border-red-400' : 'border-line'
+              } ${isScanning ? 'bg-raised text-muted cursor-not-allowed' : ''}`}
               value={cidr}
               onChange={handleCidrChange}
               disabled={isScanning}
@@ -993,10 +997,10 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             />
           </div>
           <div className="flex gap-2 mt-1">
-            {ipError && <div className="text-xs text-red-600">{ipError}</div>}
-            {cidrError && <div className="text-xs text-red-600">{cidrError}</div>}
+            {ipError && <div className="text-xs text-negative">{ipError}</div>}
+            {cidrError && <div className="text-xs text-negative">{cidrError}</div>}
           </div>
-          <div className="text-xs text-gray-500 mt-1">
+          <div className="text-xs text-muted mt-1">
             Enter a valid IPv4 address and CIDR size (e.g. 192.168.0.0 / 16). This determines the range of IP addresses to scan.
           </div>
         </div>
@@ -1010,27 +1014,27 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
         {isScanning && (
           <div className="mb-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-semibold text-gray-700">Progress</span>
+              <span className="text-sm font-semibold text-ink">Progress</span>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">{progress}%</span>
+                <span className="text-sm text-muted">{progress}%</span>
                 {totalExpectedHosts > 0 && (
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-muted">
                     ({totalHostsScanned.toLocaleString()}/{totalExpectedHosts.toLocaleString()} hosts)
                   </span>
                 )}
                 {totalChunks > 1 && (
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-muted">
                     • Chunk {currentChunk}/{totalChunks}
                   </span>
                 )}
               </div>
             </div>
-            <div className="w-full h-5 rounded bg-gray-200 overflow-hidden relative shadow-sm">
+            <div className="w-full h-5 rounded bg-raised overflow-hidden relative shadow-sm">
               <div
                 className="h-full transition-all duration-500 rounded"
                 style={{
                   width: `${progress}%`,
-                  backgroundColor: accentColor,
+                  backgroundColor: accentColor, color: '#07141e',
                 }}
               />
               {totalChunks > 1 && (
@@ -1046,7 +1050,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
               )}
             </div>
             {totalExpectedHosts > 4096 && (
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-muted mt-1">
                 Large subnet detected - progress shows overall completion across all chunks
               </div>
             )}
@@ -1057,10 +1061,10 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
         {showLogs && (
           <div className="mb-4">
             <button
-              className="flex items-center justify-between w-full p-3 bg-gray-100 rounded-t border border-gray-200 hover:bg-gray-200 transition-colors duration-200"
+              className="flex items-center justify-between w-full p-3 bg-raised rounded-t border border-line hover:bg-raised transition-colors duration-200"
               onClick={() => setLogsCollapsed(!logsCollapsed)}
             >
-              <span className="text-sm font-semibold text-gray-700">Details</span>
+              <span className="text-sm font-semibold text-ink">Details</span>
               <svg
                 className={`w-4 h-4 transition-transform duration-200 ${logsCollapsed ? '-rotate-90' : ''}`}
                 fill="none"
@@ -1072,14 +1076,14 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             </button>
             {!logsCollapsed && (
               <div
-                className="bg-gray-100 rounded-b p-3 h-48 overflow-y-auto text-xs font-mono border-l border-r border-b border-gray-200"
+                className="bg-raised rounded-b p-3 h-48 overflow-y-auto text-xs font-mono border-l border-r border-b border-line"
                 ref={logRef}
               >
                 {logs.length === 0 && (
-                  <span className="text-gray-400">No logs yet...</span>
+                  <span className="text-muted">No logs yet...</span>
                 )}
                 {logs.map((log, idx) => (
-                  <div key={idx} className="text-gray-600 leading-relaxed">
+                  <div key={idx} className="text-muted leading-relaxed">
                     {log}
                   </div>
                 ))}
@@ -1092,26 +1096,26 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
         {scanCompleted && (
           <div className="mb-4">
             {/* Selection Summary */}
-            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="text-sm font-semibold text-blue-800 mb-1">
+            <div className="mb-4 p-3 bg-accent/10 border border-accent/30 rounded-lg">
+              <div className="text-sm font-semibold text-accent mb-1">
                 Scan Results Summary
               </div>
-              <div className="text-xs text-blue-700">
+              <div className="text-xs text-accent">
                 Found: {activeHosts.length} device(s), {Object.values(openPorts).reduce((total, ports) => total + ports.length, 0)} open port(s), {Object.values(webGuis).reduce((total, guis) => total + guis.length, 0)} web service(s)
               </div>
-              <div className="text-xs text-blue-700 mt-1">
+              <div className="text-xs text-accent mt-1">
                 Selected: <span className="font-semibold" style={{ color: accentColor }}>{selectedItems.size} item(s)</span> ready to import
               </div>
             </div>
 
             {/* Filter Dropdown */}
             <div className="mb-4">
-              <div className="text-sm font-semibold text-gray-700 mb-2">Select items to import:</div>
+              <div className="text-sm font-semibold text-ink mb-2">Select items to import:</div>
               <div className="relative">
                 <select
                   value={filterMode}
                   onChange={(e) => handleFilterSelect(e.target.value as 'web-devices' | 'web' | 'devices' | 'all')}
-                  className="w-full px-4 py-2 text-sm border border-gray-300 rounded-lg bg-white hover:border-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none transition-all duration-200 appearance-none cursor-pointer"
+                  className="w-full px-4 py-2 text-sm border border-line rounded-lg bg-surface hover:border-muted focus:border-blue-500 focus:ring-2 focus:ring-blue-200 focus:outline-none transition-all duration-200 appearance-none cursor-pointer"
                   style={{ 
                     backgroundImage: "url('data:image/svg+xml,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 fill=%27none%27 viewBox=%270 0 20 20%27%3e%3cpath stroke=%27%236b7280%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27 stroke-width=%271.5%27 d=%27M6 8l4 4 4-4%27/%3e%3c/svg%3e')",
                     backgroundPosition: 'right 0.5rem center',
@@ -1126,7 +1130,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
                   <option value="all">📋 All Open Ports</option>
                 </select>
               </div>
-              <div className="text-xs text-gray-500 mt-1">
+              <div className="text-xs text-muted mt-1">
                 {filterMode === 'web-devices' && 'Shows devices and web services. Devices with single web interfaces will have them embedded.'}
                 {filterMode === 'web' && 'Shows only discovered web interfaces and services.'}
                 {filterMode === 'devices' && 'Shows only device IP addresses.'}
@@ -1135,11 +1139,11 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
             </div>
 
             {/* Results List */}
-            <div className="border border-gray-200 rounded max-h-64 overflow-y-auto">
+            <div className="border border-line rounded max-h-64 overflow-y-auto">
               {getFilteredItems().map((item) => (
                 <div
                   key={item.id}
-                  className="flex items-center p-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50 cursor-pointer"
+                  className="flex items-center p-3 border-b border-line last:border-b-0 hover:bg-abyss cursor-pointer"
                   onClick={() => toggleItemSelection(item.id)}
                 >
                   <div className="flex items-center">
@@ -1148,7 +1152,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
                       className={`w-4 h-4 border-2 rounded mr-3 flex items-center justify-center transition-colors ${
                         selectedItems.has(item.id)
                           ? 'border-transparent text-white'
-                          : 'border-gray-300'
+                          : 'border-line'
                       }`}
                       style={{ backgroundColor: selectedItems.has(item.id) ? accentColor : 'transparent' }}
                     >
@@ -1160,20 +1164,20 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
                     </div>
 
                     {/* Item Label */}
-                    <span className="text-sm text-gray-700">{item.label}</span>
+                    <span className="text-sm text-ink">{item.label}</span>
                     
                     {/* Item Type Badge */}
                     <span className={`ml-2 px-2 py-1 text-xs rounded ${
-                      item.type === 'web' ? 'bg-green-100 text-green-700' :
-                      item.type === 'port' ? 'bg-blue-100 text-blue-700' :
-                      'bg-gray-100 text-gray-600'
+                      item.type === 'web' ? 'bg-positive/15 text-positive' :
+                      item.type === 'port' ? 'bg-accent/15 text-accent' :
+                      'bg-raised text-muted'
                     }`}>
                       {item.type === 'web' ? 'Web' : item.type === 'port' ? 'Port' : 'Device'}
                     </span>
                     
                     {/* Additional Web Badge for devices with embedded GUI */}
                     {item.type === 'device' && item.hasEmbeddedGui && (
-                      <span className="ml-1 px-2 py-1 text-xs rounded bg-green-100 text-green-700">
+                      <span className="ml-1 px-2 py-1 text-xs rounded bg-positive/15 text-positive">
                         Web
                       </span>
                     )}
@@ -1181,7 +1185,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
                 </div>
               ))}
               {getFilteredItems().length === 0 && (
-                <div className="p-4 text-center text-gray-500 text-sm">
+                <div className="p-4 text-center text-muted text-sm">
                   No items match the current filter
                 </div>
               )}
@@ -1189,13 +1193,13 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
           </div>
         )}
 
-        {error && <div className="mb-4 text-red-600 bg-red-50 border border-red-200 rounded p-3">{error}</div>}
+        {error && <div className="mb-4 text-negative bg-negative/10 border border-negative/25 rounded p-3">{error}</div>}
 
         {/* Time Estimation - properly positioned above buttons */}
         {!isScanning && !scanCompleted && scanEstimate && (
           <div className="mb-2 flex justify-end">
-            <div className="text-xs text-gray-500">
-              <span className="font-medium text-gray-700">Est. time:</span>{' '}
+            <div className="text-xs text-muted">
+              <span className="font-medium text-ink">Est. time:</span>{' '}
               <span style={{ color: accentColor }}>{scanEstimate}</span>
             </div>
           </div>
@@ -1225,7 +1229,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
           {!isScanning && scanCompleted && (
             <>
               <button
-                className="px-6 py-2 rounded font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 shadow transition-all duration-200 focus:outline-none mr-2"
+                className="px-6 py-2 rounded font-semibold text-ink bg-raised hover:bg-line shadow transition-all duration-200 focus:outline-none mr-2"
                 onClick={handleCancelWithConfirm}
               >
                 Cancel
@@ -1246,7 +1250,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
           {!isScanning && !scanCompleted && (
             <>
               <button
-                className="px-6 py-2 rounded font-semibold text-gray-700 bg-gray-200 hover:bg-gray-300 shadow transition-all duration-200 focus:outline-none mr-2"
+                className="px-6 py-2 rounded font-semibold text-ink bg-raised hover:bg-line shadow transition-all duration-200 focus:outline-none mr-2"
                 onClick={() => {
                   setShowLogs(false);
                   setLogs([]);
@@ -1264,7 +1268,7 @@ const NetworkScanWindow: React.FC<NetworkScanWindowProps> = ({ appConfig, scanAc
               </button>
               <button
                 className={`px-6 py-2 rounded font-semibold text-white shadow transition-all duration-200 focus:outline-none ${
-                  ipError || cidrError ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'
+                  ipError || cidrError ? 'bg-gray-400 cursor-not-allowed' : 'bg-action hover:bg-action'
                 }`}
                 style={{ backgroundColor: ipError || cidrError ? undefined : accentColor }}
                 onClick={handleStartScan}

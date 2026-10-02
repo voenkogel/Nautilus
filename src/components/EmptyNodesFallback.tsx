@@ -15,7 +15,7 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
   appConfig,
   onRestoreConfig
 }) => {
-  const accentColor = appConfig.appearance?.accentColor || '#3b82f6';
+  const accentColor = '#65d7e8';
   const [showScanWindow, setShowScanWindow] = React.useState(false);
   const [scanActive, setScanActive] = React.useState(false);
   const [initialProgress, setInitialProgress] = React.useState<number>(0);
@@ -84,7 +84,7 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
   
   return (
     <div className="flex items-center justify-center min-h-[400px] w-full">
-      <div className="bg-white/95 backdrop-blur-sm rounded-2xl shadow-lg p-8 max-w-md mx-auto text-center border border-gray-200">
+      <div className="bg-surface/95 backdrop-blur-sm rounded-2xl shadow-lg p-8 max-w-md mx-auto text-center border border-line">
         {/* Icon - Logo or Fallback */}
         <div className="flex items-center justify-center mx-auto mb-6 h-16">
           {(appConfig?.appearance?.logo || appConfig?.appearance?.favicon) ? (
@@ -123,12 +123,12 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
         </div>
 
         {/* Title */}
-        <h2 className="text-2xl font-semibold text-gray-900 mb-4">
+        <h2 className="text-2xl font-semibold text-ink mb-4">
           Welcome to {appConfig.general?.title || 'Nautilus'}
         </h2>
 
         {/* Description */}
-        <p className="text-gray-600 mb-6 leading-relaxed">
+        <p className="text-muted mb-6 leading-relaxed">
           Your infrastructure dashboard is ready, but no nodes have been configured yet. 
           Get started by creating your first node to monitor your services and applications.
         </p>
@@ -147,7 +147,7 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
               setShowScanWindow(true);
             }}
             className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105"
-            style={{ backgroundColor: accentColor }}
+            style={{ backgroundColor: accentColor, color: '#07141e' }}
             disabled={scanActive}
           >
             {/* SVG network icon */}
@@ -159,14 +159,14 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
           </button>
 
           <div className="w-full flex items-center justify-center">
-            <span className="text-gray-500 font-medium text-sm">or</span>
+            <span className="text-muted font-medium text-sm">or</span>
           </div>
 
           {/* Create Node Manually Button */}
           <button
             onClick={onCreateStartingNode}
             className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg font-medium text-white transition-all duration-200 hover:shadow-lg hover:scale-105"
-            style={{ backgroundColor: accentColor }}
+            style={{ backgroundColor: accentColor, color: '#07141e' }}
           >
             {/* SVG plus icon */}
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'white' }}>
@@ -179,7 +179,7 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
           {onRestoreConfig && (
             <>
               <div className="w-full flex items-center justify-center">
-                <span className="text-gray-500 font-medium text-sm">or</span>
+                <span className="text-muted font-medium text-sm">or</span>
               </div>
 
               {/* Restore Backup Button */}
@@ -225,17 +225,17 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
 
         {/* Error message */}
         {loadError && (
-          <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="mt-4 bg-negative/10 border border-negative/25 rounded-lg p-4">
             <div className="flex items-start gap-3">
-              <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+              <svg className="w-5 h-5 text-negative mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
                 <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2" />
                 <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2" />
               </svg>
               <div className="flex-1 min-w-0">
-                <h4 className="text-sm font-medium text-red-800 mb-1">Backup Restore Failed</h4>
-                <div className="text-sm text-red-600 whitespace-pre-line">{loadError}</div>
-                <div className="mt-2 text-xs text-red-500">
+                <h4 className="text-sm font-medium text-negative mb-1">Backup Restore Failed</h4>
+                <div className="text-sm text-negative whitespace-pre-line">{loadError}</div>
+                <div className="mt-2 text-xs text-negative">
                   Make sure you're uploading a valid Nautilus configuration file (.json)
                 </div>
               </div>
@@ -244,7 +244,7 @@ const EmptyNodesFallback: React.FC<EmptyNodesFallbackProps> = ({
         )}
 
         {/* Helpful hint */}
-        <p className="text-sm text-gray-500 mt-4">
+        <p className="text-sm text-muted mt-4">
           You can add nodes for servers, applications, services, or any infrastructure you want to monitor.
         </p>
       </div>

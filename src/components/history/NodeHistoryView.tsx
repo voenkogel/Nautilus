@@ -20,18 +20,18 @@ export const NodeHistoryView: React.FC<{
   const { data, loading, error } = useNodeHistory(nodeId, period);
 
   if (loading) return <Spinner />;
-  if (error)   return <div className="text-center text-red-500 text-sm py-12">Error: {error}</div>;
+  if (error)   return <div className="text-center text-negative text-sm py-12">Error: {error}</div>;
   if (!data || data.records.length === 0) return <EmptyHistory />;
 
   const stats       = computeStats(data.records);
   const transitions = getTransitions(data.records);
 
   return (
-    <div className="space-y-6">
+    <div className="node-history-report">
       {/* Stats */}
-      <div className="flex items-stretch gap-3">
+      <div className="node-history-summary">
         {/* Uptime ring — prominent visual */}
-        <div className="bg-gray-50 rounded-xl p-3 flex-shrink-0 flex items-center justify-center">
+        <div className="bg-abyss rounded-xl p-3 flex-shrink-0 flex items-center justify-center">
           <UptimeRing pct={stats.uptimePercent} />
         </div>
         {/* Secondary stats */}
@@ -39,25 +39,25 @@ export const NodeHistoryView: React.FC<{
           <StatCard
             label="Outages"
             value={String(stats.outageCount)}
-            colorClass={stats.outageCount > 0 ? 'text-red-600' : 'text-green-600'}
+            colorClass={stats.outageCount > 0 ? 'text-negative' : 'text-positive'}
             icon={<AlertCircle className="w-3 h-3" />}
           />
           <StatCard
             label="Avg Response"
             value={stats.avgResponseTime !== null ? `${stats.avgResponseTime}ms` : '—'}
-            colorClass="text-gray-700"
+            colorClass="text-ink"
             icon={<TrendingUp className="w-3 h-3" />}
           />
         </div>
       </div>
 
       {/* Timeline */}
-      <div>
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 font-roboto">
+      <div className="history-chart-panel availability-panel">
+        <h4 className="text-sm font-medium text-ink mb-2 font-roboto">
           Availability
         </h4>
         <UptimeTimeline records={data.records} sinceMs={data.sinceMs} nowMs={data.nowMs} />
-        <div className="flex justify-between text-[10px] text-gray-400 mt-1.5 font-roboto">
+        <div className="flex justify-between text-[10px] text-muted mt-1.5 font-roboto">
           <span>{formatShortDate(data.sinceMs)}</span>
           <span>Now</span>
         </div>
@@ -67,9 +67,9 @@ export const NodeHistoryView: React.FC<{
             { color: statusColors.online, label: 'Online' },
             { color: statusColors.offline, label: 'Offline' },
             { color: statusColors.backup, label: 'Backup' },
-            { color: '#e5e7eb', label: 'No data' },
+            { color: '#263e4b', label: 'No data' },
           ].map(({ color, label }) => (
-            <div key={label} className="flex items-center gap-1.5 text-[10px] text-gray-500 font-roboto">
+            <div key={label} className="flex items-center gap-1.5 text-[10px] text-muted font-roboto">
               <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
               {label}
             </div>
@@ -78,20 +78,20 @@ export const NodeHistoryView: React.FC<{
       </div>
 
       {/* Response time sparkline */}
-      <div>
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 font-roboto">
+      <div className="history-chart-panel response-panel">
+        <h4 className="text-sm font-medium text-ink mb-2 font-roboto">
           Response Time
         </h4>
         <ResponseSparkline records={data.records} accentColor={accentColor} />
       </div>
 
       {/* Events log */}
-      <div>
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3 font-roboto">
+      <div className="history-events">
+        <h4 className="text-sm font-medium text-ink mb-3 font-roboto">
           Events
         </h4>
         {transitions.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-4 font-roboto">
+          <p className="text-sm text-muted text-center py-4 font-roboto">
             No status changes in this period
           </p>
         ) : (
@@ -99,7 +99,7 @@ export const NodeHistoryView: React.FC<{
             {transitions.map((t, i) => (
               <div
                 key={i}
-                className="flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex items-start gap-3 py-2 px-3 rounded-lg hover:bg-abyss transition-colors"
               >
                 <div
                   className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
@@ -110,17 +110,17 @@ export const NodeHistoryView: React.FC<{
                   <div className="flex items-baseline gap-2 flex-wrap">
                     <span
                       className={`text-sm font-semibold capitalize font-roboto ${
-                        t.status === 'online' ? 'text-green-700' : t.status === 'backup' ? 'text-violet-700' : 'text-red-700'
+                        t.status === 'online' ? 'text-positive' : t.status === 'backup' ? 'text-violet-700' : 'text-negative'
                       }`}
                     >
                       {t.status === 'backup' ? 'Entered backup' : `Went ${t.status}`}
                     </span>
-                    <span className="text-xs text-gray-400 font-roboto">
+                    <span className="text-xs text-muted font-roboto">
                       {formatTimestamp(t.timestamp)}
                     </span>
                   </div>
                   {t.error && (
-                    <div className="text-xs text-red-500 mt-0.5 truncate font-roboto">{t.error}</div>
+                    <div className="text-xs text-negative mt-0.5 truncate font-roboto">{t.error}</div>
                   )}
                 </div>
               </div>

@@ -20,7 +20,7 @@ const DragGhost: React.FC<DragGhostProps> = ({ dragState, nodes, config }) => {
   }
 
   const dropTarget = dragState.dropTarget;
-  const accentColor = config.appearance?.accentColor || '#3b82f6';
+  const accentColor = '#65d7e8';
   const draggedNode = dragState.draggedNode;
   
   // Find the parent node for the drop target
@@ -132,12 +132,12 @@ const DragGhost: React.FC<DragGhostProps> = ({ dragState, nodes, config }) => {
           {/* Ghost content preview */}
           <div className="p-3 h-full flex flex-col justify-center opacity-60">
             <div className="flex items-center gap-2">
-              <span className="text-lg font-semibold text-gray-600 truncate">
+              <span className="text-lg font-semibold text-muted truncate">
                 {draggedNode.title}
               </span>
             </div>
             {draggedNode.subtitle && (
-              <div className="text-sm text-gray-400 truncate">
+              <div className="text-sm text-muted truncate">
                 {draggedNode.subtitle}
               </div>
             )}

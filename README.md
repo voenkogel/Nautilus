@@ -1,6 +1,6 @@
 # Nautilus - Network Node Status Monitor
 
-A real-time network monitoring dashboard built with React, TypeScript, and Node.js that displays the status of network nodes in an interactive tree structure.
+A real-time network monitoring dashboard built with React, TypeScript, and Node.js that displays the status of network nodes in an interactive radial map.
 
 ![Nautilus Dashboard](https://img.shields.io/badge/Status-Active-green) ![Node.js](https://img.shields.io/badge/Node.js-18%2B-green) ![React](https://img.shields.io/badge/React-TypeScript-blue) ![Docker](https://img.shields.io/badge/Docker-Ready-blue)
 
@@ -16,6 +16,23 @@ A real-time network monitoring dashboard built with React, TypeScript, and Node.
 - 🔔 **Webhook notifications** (Home Assistant integration)
 - 🐳 **Docker ready** with volume persistence
 - 🖥️ **One-line Proxmox install** for LXC deployment
+
+## Radial workspace
+
+Nautilus uses a dark network observatory. A single root is centered; multiple roots surround a presentation-only Network hub. Children extend outward, with curved connections showing their ancestry.
+
+- Click a node to inspect its health, activity, addresses, and history. Use **Open service** to launch it with the configured overlay or new-tab preference.
+- Expand branches with their count controls. Hidden descendants still contribute to health and activity totals. Large or deep networks initially fold locally to remain readable; **Show all** removes these automatic folds.
+- Search and status filters highlight matches without rearranging the map. Selecting a result temporarily reveals its ancestors. **Focus branch** opens a subtree; **Network** restores the previous view.
+- Phones start in a hierarchy list; **Map / List** switches views. The map supports pan, pointer-centered zoom, and touch pinch. Reduced-motion preferences are respected.
+- **Edit network** enables drag reparenting. The inspector also provides a parent selector and sibling ordering controls for keyboard and touch use.
+- Existing branding and service settings remain supported. Legacy accent, background, and card-shape fields survive configuration round-trips, but the new interface uses a fixed dark palette and circular nodes. Fonts are served locally.
+
+### Redesign verification
+
+`npm run build` checks TypeScript and builds the application. `npm run test:radial` runs geometry and aggregation checks (Node 22.18+ or Node 24). `npm run test:browser` exercises the UI with simulated API responses, including failed saves and the large sample network; it never writes live configuration or runs a real network scan.
+
+Browser tests use installed Microsoft Edge on Windows and Playwright Chromium elsewhere. Set `PLAYWRIGHT_CHANNEL` to select another installed browser, or install Chromium with `npx playwright install chromium`. Screenshots and failure traces are written to the ignored `test-results/` directory. The optional local-topology check uses `config.json` only as a read-only fixture.
 
 ## TODO
 - Non-recursive node removal: removing nodes within the tree without destroying its children. should be en optional button in the removal confirmation modal.
@@ -342,3 +359,26 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **Made with ❤️ for infrastructure monitoring. Star ⭐ if this project helps you!**
+
+
+### Live UI development in Docker
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+Open http://localhost:3071 for the hot-reloading frontend. It proxies API requests to the normal Nautilus backend on port 3069, using the existing configuration volume. Source, public assets, and frontend configuration are mounted read-only; Docker keeps its Linux dependencies separate from local dependencies. Polling supports Docker Desktop file changes on Windows.
+
+UI edits update automatically. Rebuild the frontend image after changing dependencies. Backend changes still require rebuilding the normal Nautilus service.
+
+To start only the live frontend when the backend is already running:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build --no-deps frontend
+```
+
+To stop live preview while leaving Nautilus running:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.dev.yml stop frontend
+```

@@ -198,7 +198,8 @@ export const loadConfigFromFile = (file: File): Promise<AppConfig> => {
             accentColor: cleanConfig.appearance?.accentColor || '#34a00d',
             favicon: cleanConfig.appearance?.favicon || '',
             backgroundImage: cleanConfig.appearance?.backgroundImage || '',
-            logo: cleanConfig.appearance?.logo || ''
+            logo: cleanConfig.appearance?.logo || '',
+            disableBackground: cleanConfig.appearance?.disableBackground ?? false
           },
           tree: {
             nodes: cleanConfig.tree?.nodes || []

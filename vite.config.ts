@@ -1,12 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Helper to get env vars for both dev and build
+// Container overrides are available while Vite evaluates its configuration.
 function getEnvVar(key: string, fallback: string | number): string {
-  if (typeof import.meta !== 'undefined' && (import.meta as any).env && (import.meta as any).env[key]) {
-    return (import.meta as any).env[key].replace(/['"]+/g, '')
-  }
-  return String(fallback)
+  return (process.env[key] ?? String(fallback)).replace(/['"]+/g, '')
 }
 
 const serverHost = getEnvVar('NAUTILUS_HOST', 'localhost')
@@ -23,13 +20,15 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: `http://${serverHost}:${serverPort}`,
+        target: process.env.NAUTILUS_API_TARGET || `http://${serverHost}:${serverPort}`,
         changeOrigin: true,
         secure: false,
         ws: true,
       }
     },
     watch: {
+      usePolling: process.env.NAUTILUS_WATCH_POLLING === 'true',
+      interval: 200,
       ignored: ['**/config.json']
     }
   },

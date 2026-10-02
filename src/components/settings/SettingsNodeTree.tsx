@@ -32,22 +32,16 @@ export const SettingsNodeTree: React.FC<SettingsNodeTreeProps> = ({
 
   return (
     <div className="relative">
-      <div
-        className="border border-gray-200 rounded-lg bg-white shadow-sm mb-2"
-        style={{
-          width: level > 0 ? `calc(100% - ${level * 24}px)` : '100%',
-          marginLeft: level > 0 ? `${level * 24}px` : '0'
-        }}
-      >
+      <div className="settings-tree-card" style={{ '--level': level } as React.CSSProperties}>
         <div className="p-3">
           <div
             className={`flex items-center justify-between cursor-pointer ${isCollapsed ? '' : 'mb-2'}`}
             onClick={() => onToggleCollapse(node.id)}
           >
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-2 min-w-0">
               {/* Always show expand/collapse button for better tree navigation */}
               <button
-                className="p-1 text-gray-600 hover:bg-gray-200 rounded transition-colors"
+                className="p-1 text-muted hover:bg-raised rounded transition-colors"
                 aria-label={isCollapsed ? "Expand node details" : "Collapse node details"}
                 aria-expanded={!isCollapsed}
                 title={isCollapsed ? "Expand node details" : "Collapse node details"}
@@ -58,16 +52,16 @@ export const SettingsNodeTree: React.FC<SettingsNodeTreeProps> = ({
               >
                 {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
               </button>
-              <h4 className="font-medium text-gray-800">
+              <h4 className="font-medium text-ink truncate">
                 {node.title}
               </h4>
             </div>
-            <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
+            <div className="flex flex-shrink-0 gap-1" onClick={(e) => e.stopPropagation()}>
               {isLoggedIn && (
                 <>
                   <button
                     onClick={() => onAddChild(node.id)}
-                    className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors"
+                    className="p-1 text-positive hover:bg-positive/15 rounded transition-colors"
                     aria-label="Add child node"
                     title="Add child node"
                   >
@@ -75,7 +69,7 @@ export const SettingsNodeTree: React.FC<SettingsNodeTreeProps> = ({
                   </button>
                   <button
                     onClick={() => onDelete(node.id)}
-                    className="p-1 text-red-600 hover:bg-red-100 rounded transition-colors"
+                    className="p-1 text-negative hover:bg-negative/15 rounded transition-colors"
                     aria-label="Delete node"
                     title="Delete node"
                   >
@@ -101,7 +95,7 @@ export const SettingsNodeTree: React.FC<SettingsNodeTreeProps> = ({
 
       {/* Render children with tighter spacing */}
       {hasChildren && (
-        <div className="space-y-1">
+        <div>
           {node.children!.map((child) => (
             <SettingsNodeTree
               key={child.id}

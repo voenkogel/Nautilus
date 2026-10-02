@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 body, html {
-  background: transparent !important;
+  background: #07141e;
 }
 
 /* Custom animations */

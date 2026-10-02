@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+test-results
+playwright-report
+.env
+.env.*
+config.json
+config.docker.backup.json
+credentials.json
+history.db*
+last_scan_results.json
+data

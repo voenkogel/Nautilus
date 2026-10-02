@@ -159,12 +159,12 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
           {/* Filter banner — sticky so the active filter stays visible while scrolling (UX-7) */}
           <div className="sticky top-0 z-20 mx-4 mt-3 mb-1">
             <div
-              className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-white/95 border shadow-sm"
+              className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-surface/95 border shadow-sm"
               style={{ borderColor: `${filterColor}45` }}
             >
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: filterColor }} />
-                <span className="text-sm font-semibold text-gray-700 font-roboto">{filterLabel} nodes</span>
+                <span className="text-sm font-semibold text-ink font-roboto">{filterLabel} nodes</span>
                 <span
                   className="text-xs font-medium text-white px-2 py-0.5 rounded-full"
                   style={{ backgroundColor: filterColor }}
@@ -174,7 +174,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
               </div>
               <button
                 onClick={() => onFilterChange?.(null)}
-                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 font-roboto px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+                className="flex items-center gap-1.5 text-xs text-muted hover:text-ink font-roboto px-2 py-1 rounded-lg hover:bg-raised transition-colors"
               >
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                   <path d="M2 2L8 8M8 2L2 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -203,7 +203,7 @@ const MobileNodeList: React.FC<MobileNodeListProps> = ({
                 );
               })
             ) : (
-              <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+              <div className="flex flex-col items-center justify-center py-16 text-muted">
                 <svg className="w-12 h-12 mb-3 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>

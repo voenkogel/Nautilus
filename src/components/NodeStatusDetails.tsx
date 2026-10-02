@@ -31,7 +31,7 @@ const NodeStatusDetails: React.FC<NodeStatusDetailsProps> = ({ node, status }) =
         >
           {status.players.online}/{status.players.max}
         </div>
-        <div className="text-xs font-medium text-gray-500 mt-1">
+        <div className="text-xs font-medium text-muted mt-1">
           players
         </div>
       </div>
@@ -51,7 +51,7 @@ const NodeStatusDetails: React.FC<NodeStatusDetailsProps> = ({ node, status }) =
         >
           {status.streams}
         </div>
-        <div className="text-xs font-medium text-gray-500 mt-1">
+        <div className="text-xs font-medium text-muted mt-1">
           {status.streams === 1 ? 'stream' : 'streams'}
         </div>
       </div>

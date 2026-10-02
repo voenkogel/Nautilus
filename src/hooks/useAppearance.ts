@@ -19,8 +19,6 @@ export const useAppearance = (appConfig: AppConfig) => {
       }
     }
     
-    if (appConfig.appearance?.accentColor) {
-      document.documentElement.style.setProperty('--accent-color', appConfig.appearance.accentColor);
-    }
+    document.documentElement.style.setProperty('--accent-color', '#65d7e8');
   }, [appConfig]);
 };

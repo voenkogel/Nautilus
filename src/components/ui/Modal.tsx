@@ -24,7 +24,7 @@ export const Modal: React.FC<ModalProps> = ({
   isOpen,
   onClose,
   children,
-  containerClassName = 'bg-white rounded-lg shadow-2xl w-full max-w-md mx-4 overflow-hidden',
+  containerClassName = 'bg-surface rounded-lg shadow-2xl w-full max-w-md mx-4 overflow-hidden',
   zIndexClassName = 'z-50',
   role = 'dialog',
   ariaLabelledBy,

@@ -103,9 +103,9 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
       case 'success':
         return <CheckCircle className="w-5 h-5 text-green-500" />;
       case 'error':
-        return <AlertCircle className="w-5 h-5 text-red-500" />;
+        return <AlertCircle className="w-5 h-5 text-negative" />;
       case 'info':
-        return <Wifi className="w-5 h-5 text-blue-500" />;
+        return <Wifi className="w-5 h-5 text-accent" />;
       case 'warning':
         return <WifiOff className="w-5 h-5 text-yellow-500" />;
       default:
@@ -116,15 +116,15 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
   const getBgColor = () => {
     switch (toast.type) {
       case 'success':
-        return 'bg-green-50 border-green-200';
+        return 'bg-positive/10 border-positive/25';
       case 'error':
-        return 'bg-red-50 border-red-200';
+        return 'bg-negative/10 border-negative/25';
       case 'info':
-        return 'bg-blue-50 border-blue-200';
+        return 'bg-accent/10 border-accent/30';
       case 'warning':
         return 'bg-yellow-50 border-yellow-200';
       default:
-        return 'bg-green-50 border-green-200';
+        return 'bg-positive/10 border-positive/25';
     }
   };
 
@@ -144,13 +144,13 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
         `}
       >
         {getIcon()}
-        <p className="flex-1 text-sm font-medium text-gray-800">
+        <p className="flex-1 text-sm font-medium text-ink">
           {toast.message}
         </p>
         <button
           onClick={handleRemove}
           aria-label="Dismiss notification"
-          className="text-gray-400 hover:text-gray-600 transition-colors"
+          className="text-muted hover:text-muted transition-colors"
         >
           <X className="w-4 h-4" />
         </button>

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, X, Plus, Trash2, Save, LogOut, Network, Download, Upload } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Settings as SettingsIcon, X, Plus, Trash2, Save, LogOut, Network, Download, Upload, SlidersHorizontal, Palette, Bell, Shield } from 'lucide-react';
 import type { AppConfig, TreeNode } from '../types/config';
-import { findNodeById, countDescendants } from '../utils/nodeUtils';
+import { findNodeById, countDescendants, getAllNodes } from '../utils/nodeUtils';
 import { clearAuthentication, isAuthenticated, isAuthDisabled } from '../utils/auth';
 import { downloadConfigBackup, createConfigFileInput } from '../utils/configBackup';
 import { assetUrl } from '../utils/assetUrl';
@@ -11,19 +11,23 @@ import { ConfirmDialog } from './ConfirmDialog';
 import { SettingsNodeTree } from './settings/SettingsNodeTree';
 import { AccountSettings } from './settings/AccountSettings';
 import Switch from './Switch';
+import { useFocusTrap } from '../hooks/useFocusTrap';
 
 interface SettingsProps {
   isOpen: boolean;
   onClose: () => void;
   initialConfig: AppConfig;
-  onSave: (config: AppConfig) => void;
+  onSave: (config: AppConfig) => Promise<void>;
+  onRestore: (config: AppConfig) => Promise<void>;
   focusNodeId?: string; // Optional node ID to focus on and expand
 }
 
-const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onSave, focusNodeId }) => {
+const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onSave, onRestore, focusNodeId }) => {
   const { addToast } = useToast();
   
   // Use initialConfig as the source of truth, reflecting merged config from env vars and config.json
+  const settingsRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(settingsRef, isOpen);
   const [config, setConfig] = useState<AppConfig>(() => ({
     general: {
       title: initialConfig.general?.title ?? 'Nautilus',
@@ -64,6 +68,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   const [showClearNodesConfirm, setShowClearNodesConfirm] = useState(false);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
   const [pendingRestoreConfig, setPendingRestoreConfig] = useState<AppConfig | null>(null);
+  const [restoreStaged, setRestoreStaged] = useState(false);
+  const editingSession = useRef(false);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [isTestingSend, setIsTestingSend] = useState(false);
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -129,11 +135,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
         setPendingRestoreConfig(restoredConfig);
         setShowRestoreConfirm(true);
         setBackupError(null);
-        addToast({
-          type: 'info',
-          message: 'Backup file loaded successfully. Please confirm to apply changes.',
-          duration: 4000
-        });
+
       },
       (error) => {
         setBackupError(error);
@@ -154,14 +156,12 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   const confirmRestore = () => {
     if (pendingRestoreConfig) {
       setConfig(pendingRestoreConfig);
+      setRestoreStaged(true);
+      setCollapsedNodes(new Set());
       setPendingRestoreConfig(null);
       setShowRestoreConfirm(false);
       setBackupError(null);
-      addToast({
-        type: 'success',
-        message: `Configuration restored! Applied ${pendingRestoreConfig.tree.nodes.length} nodes. Remember to save your changes.`,
-        duration: 5000
-      });
+
     }
   };
 
@@ -173,7 +173,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   };
 
   // Get accent color from configuration
-  const accentColor = config.appearance?.accentColor ?? '#3b82f6';
+  const accentColor = '#65d7e8';
 
   // Initialize collapsed state for all nodes when opening settings
   useEffect(() => {
@@ -218,10 +218,17 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [iconDropdownOpen]);
 
-  // Update local config when initialConfig changes, ensuring a deep copy
+  // Refresh between editing sessions; live updates must not overwrite a draft.
   useEffect(() => {
-    setConfig(JSON.parse(JSON.stringify(initialConfig)));
-  }, [initialConfig]);
+    if (!isOpen || !editingSession.current) {
+      setConfig(structuredClone(initialConfig));
+      setRestoreStaged(false);
+      setPendingRestoreConfig(null);
+      setShowRestoreConfirm(false);
+      setSaveError(null);
+    }
+    editingSession.current = isOpen;
+  }, [initialConfig, isOpen]);
 
   // Ensure config updates always reflect the merged config structure
   const updateServerConfig = (field: keyof AppConfig['server'], value: number) => {
@@ -333,8 +340,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
     setSaveError(null);
     
     try {
-      await onSave(config);
-      addToast({ type: 'success', message: 'Settings saved', duration: 2000 });
+      await (restoreStaged ? onRestore(config) : onSave(config));
+      addToast({ type: 'success', message: restoreStaged ? 'Backup restored and saved' : 'Settings saved', duration: 2000 });
       onClose();
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -573,205 +580,12 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
   // Node tree extracted to <SettingsNodeTree /> (ARCH-2c)
 
   const renderAppearanceTab = () => (
-    <div className="space-y-6">
-      {/* Removed title from appearance tab, now in general tab */}
-      <div>
-        <label htmlFor="accentColor" className="block text-sm font-medium text-gray-700">
-          Accent Color
-        </label>
-        <input
-          type="color"
-          id="accentColor"
-          value={config.appearance.accentColor}
-          onChange={(e) => updateAppearanceConfig('accentColor', e.target.value)}
-          className="mt-1 block w-full h-10 px-1 py-1 border border-gray-300 rounded-md"
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Favicon
-        </label>
-        <div className="flex items-start space-x-4">
-          <div className="flex-shrink-0">
-            {config.appearance.favicon ? (
-              <img 
-                src={assetUrl(config.appearance.favicon)} 
-                alt="Favicon Preview" 
-                className="w-16 h-16 rounded-lg object-contain border-2 border-gray-200 bg-white p-2"
-              />
-            ) : (
-              <div className="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center bg-gray-50">
-                <span className="text-xs text-gray-400">No Favicon</span>
-              </div>
-            )}
-          </div>
-          <div className="flex-1">
-            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors">
-              <div className="space-y-1 text-center">
-                <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                  <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <div className="flex text-sm text-gray-600">
-                  <label htmlFor="favicon-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                    <span>Upload a favicon</span>
-                    <input 
-                      id="favicon-upload" 
-                      name="favicon-upload" 
-                      type="file" 
-                      className="sr-only"
-                      accept="image/png, image/jpeg, image/svg+xml, image/x-icon"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFileUpload(file, 'favicon');
-                      }}
-                    />
-                  </label>
-                  <p className="pl-1">or drag and drop</p>
-                </div>
-                <p className="text-xs text-gray-500">PNG, JPG, SVG, ICO up to 10MB (recommended: 32x32px)</p>
-              </div>
-            </div>
-            {config.appearance.favicon && (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => updateAppearanceConfig('favicon', '')}
-                  className="text-sm text-red-600 hover:text-red-500"
-                >
-                  Remove favicon
-                </button>
-              </div>
-            )}
-            {fileErrors.favicon && (
-              <p className="mt-2 text-sm text-red-600">{fileErrors.favicon}</p>
-            )}
-          </div>
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Logo
-        </label>
-        <div className="flex items-start space-x-4">
-          <div className="flex-shrink-0">
-            {config.appearance.logo ? (
-              <img 
-                src={assetUrl(config.appearance.logo)} 
-                alt="Logo Preview" 
-                className="w-24 h-16 rounded-lg object-contain border-2 border-gray-200 bg-white p-2"
-              />
-            ) : (
-              <div className="w-24 h-16 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center bg-gray-50">
-                <span className="text-xs text-gray-400">No Logo</span>
-              </div>
-            )}
-          </div>
-          <div className="flex-1">
-            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors">
-              <div className="space-y-1 text-center">
-                <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                  <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <div className="flex text-sm text-gray-600">
-                  <label htmlFor="logo-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                    <span>Upload a logo</span>
-                    <input 
-                      id="logo-upload" 
-                      name="logo-upload" 
-                      type="file" 
-                      className="sr-only"
-                      accept="image/png, image/jpeg, image/svg+xml"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFileUpload(file, 'logo');
-                      }}
-                    />
-                  </label>
-                  <p className="pl-1">or drag and drop</p>
-                </div>
-                <p className="text-xs text-gray-500">PNG, JPG, SVG up to 10MB (any size or aspect ratio)</p>
-              </div>
-            </div>
-            {config.appearance.logo && (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => updateAppearanceConfig('logo', '')}
-                  className="text-sm text-red-600 hover:text-red-500"
-                >
-                  Remove logo
-                </button>
-              </div>
-            )}
-            {fileErrors.logo && (
-              <p className="mt-2 text-sm text-red-600">{fileErrors.logo}</p>
-            )}
-          </div>
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Background Image</label>
-        
-        <div className="flex items-start space-x-4">
-          <div className="flex-shrink-0">
-            {config.appearance?.backgroundImage ? (
-              <img
-                src={assetUrl(config.appearance.backgroundImage)}
-                alt="Current background"
-                className="w-32 h-20 rounded-lg object-cover border-2 border-gray-200"
-              />
-            ) : (
-              <div className="w-32 h-20 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center bg-gray-50">
-                <span className="text-xs text-gray-400">No Background</span>
-              </div>
-            )}
-          </div>
-          
-          <div className="flex-1">
-            <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-gray-400 transition-colors">
-              <div className="space-y-1 text-center">
-                <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                  <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-                <div className="flex text-sm text-gray-600">
-                  <label htmlFor="background-upload" className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500">
-                    <span>Upload a background</span>
-                    <input 
-                      id="background-upload" 
-                      name="background-upload" 
-                      type="file" 
-                      className="sr-only"
-                      accept="image/png, image/jpeg, image/svg+xml"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFileUpload(file, 'backgroundImage');
-                      }}
-                    />
-                  </label>
-                  <p className="pl-1">or drag and drop</p>
-                </div>
-                <p className="text-xs text-gray-500">PNG, JPG, SVG up to 10MB (will be used as canvas background)</p>
-              </div>
-            </div>
-            
-            {config.appearance?.backgroundImage && (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => updateAppearanceConfig('backgroundImage', '')}
-                  className="text-sm text-red-600 hover:text-red-500"
-                >
-                  Remove background image
-                </button>
-              </div>
-            )}
-            
-            {fileErrors.backgroundImage && (
-              <p className="mt-2 text-sm text-red-600">{fileErrors.backgroundImage}</p>
-            )}
-          </div>
-        </div>
-      </div>
+    <div className="identity-settings">
+      <div className="theme-preview"><span className="theme-preview-orbit" /><div><strong>Deep sea</strong><p>Designed for a clear view of your network, day or night.</p></div></div>
+      {(['logo', 'favicon'] as const).map(kind => <section className="identity-upload" key={kind}>
+        <div className="identity-artwork">{config.appearance[kind] ? <img src={assetUrl(config.appearance[kind]!)} alt={`${kind} preview`} /> : <Palette size={28} />}</div>
+        <div><h4>{kind === 'logo' ? 'Workspace logo' : 'Browser icon'}</h4><p>{kind === 'logo' ? 'Your identity in the navigation bar.' : 'Find your network among your browser tabs.'}</p><small>PNG, JPG, SVG{kind === 'favicon' ? ', ICO' : ''} · Up to 10 MB</small><div className="identity-upload-actions"><label className="upload-button">Upload {kind}<input type="file" className="sr-only" accept={kind === 'favicon' ? 'image/png,image/jpeg,image/svg+xml,image/x-icon' : 'image/png,image/jpeg,image/svg+xml'} onChange={e => { const file = e.target.files?.[0]; if (file) handleFileUpload(file, kind); }} /></label>{config.appearance[kind] && <button onClick={() => updateAppearanceConfig(kind, '')}>Remove</button>}</div>{fileErrors[kind] && <p role="alert" className="text-negative">{fileErrors[kind]}</p>}</div>
+      </section>)}
     </div>
   );
 
@@ -779,264 +593,66 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4 animate-fade-in">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl h-[80vh] overflow-hidden flex flex-col animate-slide-up">
+      <div ref={settingsRef} onKeyDown={event => { if (event.key === "Escape" && !document.querySelector('[role="alertdialog"]')) { event.stopPropagation(); onClose(); } }} className="settings-workspace" role="dialog" aria-modal="true" aria-label="Settings">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 flex-shrink-0">
+        <div className="settings-heading flex items-center justify-between border-b border-line flex-shrink-0">
           <div className="flex items-center space-x-2">
-            <SettingsIcon size={20} className="text-gray-600" />
-            <h2 className="text-xl font-semibold text-gray-800">Settings</h2>
+            <SettingsIcon size={20} className="text-muted" />
+            <h2 className="text-xl font-semibold text-ink">Settings</h2>
           </div>
           <button
             onClick={onClose}
             aria-label="Close settings"
-            className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+            className="p-2 text-muted hover:text-muted hover:bg-raised rounded-full transition-colors"
           >
             <X size={20} />
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-gray-200 flex-shrink-0 overflow-x-auto">
-          <button
-            onClick={() => setActiveTab('general')}
-            className={`px-6 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
-              activeTab === 'general'
-                ? 'border-b-2 text-gray-800'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            style={{
-              borderColor: activeTab === 'general' ? accentColor : 'transparent',
-              color: activeTab === 'general' ? accentColor : undefined
-            }}
-          >
-            General
-          </button>
-          <button
-            onClick={() => setActiveTab('nodes')}
-            className={`px-6 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
-              activeTab === 'nodes'
-                ? 'border-b-2 text-gray-800'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            style={{
-              borderColor: activeTab === 'nodes' ? accentColor : 'transparent',
-              color: activeTab === 'nodes' ? accentColor : undefined
-            }}
-          >
-            Nodes
-          </button>
-          <button
-            onClick={() => setActiveTab('appearance')}
-            className={`px-6 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
-              activeTab === 'appearance'
-                ? 'border-b-2 text-gray-800'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            style={{
-              borderColor: activeTab === 'appearance' ? accentColor : 'transparent',
-              color: activeTab === 'appearance' ? accentColor : undefined
-            }}
-          >
-            Appearance
-          </button>
-          <button
-            onClick={() => setActiveTab('notifications')}
-            className={`px-6 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
-              activeTab === 'notifications'
-                ? 'border-b-2 text-gray-800'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            style={{
-              borderColor: activeTab === 'notifications' ? accentColor : 'transparent',
-              color: activeTab === 'notifications' ? accentColor : undefined
-            }}
-          >
-            Notifications
-          </button>
-          <button
-            onClick={() => setActiveTab('account')}
-            className={`px-6 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
-              activeTab === 'account'
-                ? 'border-b-2 text-gray-800'
-                : 'text-gray-500 hover:text-gray-700'
-            }`}
-            style={{
-              borderColor: activeTab === 'account' ? accentColor : 'transparent',
-              color: activeTab === 'account' ? accentColor : undefined
-            }}
-          >
-            Account
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="p-6 overflow-y-auto flex-1 min-h-0">
-          {activeTab === 'general' && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-800 mb-4">General Settings</h3>
-                <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Health Check Interval (ms)</label>
-          <input
-            type="number"
-            min={2000}
-            value={config.server.healthCheckInterval}
-            onChange={(e) => updateServerConfig('healthCheckInterval', Math.max(2000, parseInt(e.target.value)))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
-            style={{ 
-              "--tw-ring-color": `${accentColor}40`,
-              borderColor: `${accentColor}` 
-            } as React.CSSProperties}
-          />
-          <p className="text-xs text-gray-500 mt-1">How often to check node status (minimum 2000 ms)</p>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">App Title</label>
-                <input
-                  type="text"
-                  value={config.general.title}
-                  onChange={(e) => updateGeneralConfig('title', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
-                  style={{ 
-                    "--tw-ring-color": `${accentColor}40`,
-                    borderColor: `${accentColor}` 
-                  } as React.CSSProperties}
-                />
-                <p className="text-xs text-gray-500 mt-1">Displayed in the app header and browser tab</p>
-              </div>
-              <div className="flex items-center mt-4">
-                <Switch
-                  id="open-nodes-overlay"
-                  checked={config.general.openNodesAsOverlay}
-                  onChange={(checked) => updateGeneralConfig('openNodesAsOverlay', checked)}
-                  accentColor={accentColor}
-                />
-                <label htmlFor="open-nodes-overlay" className="ml-2 block text-sm text-gray-700">
-                  Open nodes as overlay (recommended)
-                </label>
-              </div>
-                </div>
-              </div>
-
-              {/* Backup Management Section */}
-              <div>
-                <h3 className="text-lg font-medium text-gray-800 mb-6">Backup Management</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6 shadow-sm">
-                    <div className="flex flex-col space-y-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="flex-shrink-0 w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center">
-                          <Download size={20} className="text-white" />
-                        </div>
-                        <div>
-                          <h4 className="font-semibold text-gray-800">Make Backup</h4>
-                          <p className="text-sm text-gray-600">Create and download a backup of your current configuration</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={handleMakeBackup}
-                        className="flex items-center justify-center space-x-2 px-4 py-3 text-white rounded-lg font-medium hover:opacity-90 transition-all transform hover:scale-105"
-                        style={{ backgroundColor: accentColor }}
-                      >
-                        <Download size={16} />
-                        <span>Create Backup</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 shadow-sm">
-                    <div className="flex flex-col space-y-4">
-                      <div className="flex items-center space-x-3">
-                        <div className="flex-shrink-0 w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
-                          <Upload size={20} className="text-white" />
-                        </div>
-                        <div>
-                          <h4 className="font-semibold text-gray-800">Restore Backup</h4>
-                          <p className="text-sm text-gray-600">Restore your configuration from a backup file</p>
-                        </div>
-                      </div>
-                      <button
-                        onClick={handleRestoreBackup}
-                        className="flex items-center justify-center space-x-2 px-4 py-3 text-white rounded-lg font-medium hover:opacity-90 transition-all transform hover:scale-105 bg-blue-600 hover:bg-blue-700"
-                      >
-                        <Upload size={16} />
-                        <span>Choose File</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Warning message moved outside cards for better visibility */}
-                <div className="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start space-x-2">
-                  <div className="flex-shrink-0 w-5 h-5 text-amber-500 mt-0.5">⚠️</div>
-                  <div>
-                    <strong>Important:</strong> Restoring a backup will replace your entire current configuration. Make sure to create a backup first if you want to preserve your current settings.
-                  </div>
-                </div>
-
-                {backupError && (
-                  <div className="mt-4 bg-red-50 border border-red-200 rounded-lg p-4">
-                    <div className="flex items-start gap-3">
-                      <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
-                        <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2" />
-                        <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2" />
-                      </svg>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-medium text-red-800 mb-1">Backup Error</h4>
-                        <div className="text-sm text-red-600 whitespace-pre-line">{backupError}</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+        <nav className="settings-navigation" aria-label="Settings sections">
+          {([
+            ['general', 'General', 'Preferences & backups', SlidersHorizontal],
+            ['nodes', 'Nodes', 'Services & hierarchy', Network],
+            ['appearance', 'Appearance', 'Your network identity', Palette],
+            ['notifications', 'Notifications', 'Alerts & delivery', Bell],
+            ['account', 'Account', 'Access & security', Shield],
+          ] as const).map(([id, label, hint, Icon]) => <button key={id} aria-label={label} aria-current={activeTab === id ? 'page' : undefined} onClick={() => setActiveTab(id)}><Icon size={19} /><span>{label}<small>{hint}</small></span></button>)}
+        </nav>
+        <div className={`settings-content settings-${activeTab}`}>
+          <header className="settings-section-title"><h3>{{ general: 'Make Nautilus yours', nodes: 'Manage your network', appearance: 'A familiar identity', notifications: 'Stay ahead of outages', account: 'Control your access' }[activeTab]}</h3><p>{{ general: 'Choose how your network is monitored and how you explore it.', nodes: 'Organize services, edit connections, and keep your topology up to date.', appearance: 'Your name and artwork, across the observatory.', notifications: 'Decide when and where changes in your network reach you.', account: 'Manage the credentials that protect your network.' }[activeTab]}</p></header>
+          {activeTab === 'general' && <div className="preference-sections">
+            <section className="preference-section"><div><h4>Workspace</h4><p>How you recognize and navigate your network.</p></div><div className="preference-fields">
+              <label className="preference-field">App title<input value={config.general.title} onChange={e => updateGeneralConfig('title', e.target.value)} /><small>Appears in the header and browser tab.</small></label>
+              <div className="preference-toggle"><div><label htmlFor="open-nodes-overlay">Open services in Nautilus</label><p>Keep the network in reach with an embedded overlay.</p></div><Switch id="open-nodes-overlay" checked={config.general.openNodesAsOverlay} onChange={checked => updateGeneralConfig('openNodesAsOverlay', checked)} accentColor={accentColor} /></div>
+            </div></section>
+            <section className="preference-section"><div><h4>Monitoring cadence</h4><p>Balance fresh readings with traffic to your services.</p></div><div className="preference-fields"><label className="preference-field">Health check interval<div className="input-unit"><input type="number" min={2000} value={config.server.healthCheckInterval} onChange={e => updateServerConfig('healthCheckInterval', Math.max(2000, Number(e.target.value)))} /><span>ms</span></div><small>Minimum 2,000 ms. Applies to all monitored nodes.</small></label></div></section>
+            <section className="preference-section"><div><h4>Configuration backups</h4><p>Keep a copy of your nodes and preferences.</p></div><div className="backup-actions">
+              <button onClick={handleMakeBackup}><Download size={20} /><span>Create Backup<small>Download your current configuration</small></span></button>
+              <button onClick={handleRestoreBackup}><Upload size={20} /><span>Restore Backup<small>Choose a saved configuration file</small></span></button>
+              <p>Restoring replaces the current configuration.</p>{backupError && <p role="alert" className="text-negative">{backupError}</p>}
+            </div></section>
+          </div>}
 
           {activeTab === 'nodes' && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-medium text-gray-800">Node Settings</h3>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setShowClearNodesConfirm(true)}
-                    className="flex items-center space-x-2 px-4 py-2 text-white rounded-md transition-colors bg-red-600 hover:bg-red-700"
-                  >
-                    <Trash2 size={16} />
-                    <span>Clear Nodes</span>
-                  </button>
-                  <button
-                    onClick={async () => {
-                      // Require admin authentication before opening scan window
-                      const authenticated = await isAuthenticated();
-                      if (!authenticated) {
-                        alert('Admin authentication required to discover nodes.');
-                        return;
-                      }
-                      if (typeof window !== 'undefined' && window.dispatchEvent) {
-                        window.dispatchEvent(new CustomEvent('openScanWindow'));
-                      }
-                      // Close settings window if open
-                      if (typeof onClose === 'function') onClose();
-                    }}
-                    className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors"
-                    style={{ backgroundColor: config.appearance?.accentColor || '#3b82f6' }}
-                  >
-                    <Network size={16} />
-                    <span>Discover Nodes</span>
-                  </button>
-                  <button
-                    onClick={addNode}
-                    className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors"
-                    style={{ 
-                      backgroundColor: config.appearance?.accentColor || '#3b82f6',
-                    }}
-                  >
-                    <Plus size={16} />
-                    <span>Add Root Node</span>
-                  </button>
-                </div>
+              <div className="settings-node-toolbar">
+                <button className="toolbar-primary" onClick={addNode}><Plus size={16} /><span>Add node</span></button>
+                <button
+                  aria-label="Discover Nodes"
+                  onClick={async () => {
+                    // Require admin authentication before opening scan window
+                    const authenticated = await isAuthenticated();
+                    if (!authenticated) {
+                      alert('Admin authentication required to discover nodes.');
+                      return;
+                    }
+                    window.dispatchEvent(new CustomEvent('openScanWindow'));
+                    onClose();
+                  }}
+                ><Network size={16} /><span>Discover</span></button>
+                <button className="toolbar-danger" onClick={() => setShowClearNodesConfirm(true)} disabled={!config.tree.nodes.length}><Trash2 size={15} /><span>Clear all</span></button>
               </div>
-              <div className="space-y-4">
+              <div className="settings-node-tree">
                 {config.tree.nodes.map(node => (
                   <SettingsNodeTree
                     key={node.id}
@@ -1051,259 +667,40 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                   />
                 ))}
               </div>
-              {/* Confirmation Modal Overlay */}
-              {showClearNodesConfirm && (
-                <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50">
-                  <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full flex flex-col items-center">
-                    <Trash2 size={32} className="text-red-600 mb-2" />
-                    <h4 className="text-lg font-semibold text-gray-800 mb-2">Clear All Nodes?</h4>
-                    <p className="text-sm text-gray-600 mb-6 text-center">This will remove <b>all nodes</b> from the configuration. This action cannot be undone.<br />Are you sure you want to proceed?</p>
-                    <div className="flex gap-4">
-                      <button
-                        onClick={() => setShowClearNodesConfirm(false)}
-                        className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 bg-gray-100 hover:bg-gray-200"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={() => {
-                          clearNodes();
-                          setShowClearNodesConfirm(false);
-                        }}
-                        className="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700"
-                      >
-                        Yes, Clear All
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
 
-              {/* Restore Backup Confirmation Modal */}
-              {showRestoreConfirm && (
-                <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50">
-                  <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full flex flex-col items-center">
-                    <Upload size={32} className="text-amber-600 mb-2" />
-                    <h4 className="text-lg font-semibold text-gray-800 mb-2">Restore Backup?</h4>
-                    <p className="text-sm text-gray-600 mb-6 text-center">
-                      This will <b>replace your entire current configuration</b> with the backup file. 
-                      All current settings, nodes, and appearance customizations will be overwritten.
-                      <br /><br />
-                      Are you sure you want to proceed?
-                    </p>
-                    <div className="flex gap-4">
-                      <button
-                        onClick={cancelRestore}
-                        className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 bg-gray-100 hover:bg-gray-200"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={confirmRestore}
-                        className="px-4 py-2 rounded-md text-white hover:opacity-90"
-                        style={{ backgroundColor: accentColor }}
-                      >
-                        Yes, Restore
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
+
             </div>
-  // State for clear nodes confirmation modal
+
           )}
 
           {activeTab === 'appearance' && renderAppearanceTab()}
 
           {activeTab === 'account' && <AccountSettings accentColor={accentColor} />}
 
-          {activeTab === 'notifications' && (
-            <div className="space-y-6">
-              <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Status Notification Webhooks</h3>
-                <p className="text-sm text-gray-500 mb-4">
-                  Configure webhooks to receive notifications when node status changes.
-                </p>
+          {activeTab === 'notifications' && <div className="preference-sections">
+            <section className="preference-section"><div><h4>Delivery destination</h4><p>Send status changes to your automation or notification service.</p></div><div className="preference-fields"><label className="preference-field">Webhook endpoint<input type="url" placeholder="https://example.com/webhook" value={config.webhooks?.statusNotifications?.endpoint || ''} onChange={e => setConfig({ ...config, webhooks: { ...config.webhooks, statusNotifications: { notifyOffline: false, notifyOnline: false, ...config.webhooks?.statusNotifications, endpoint: e.target.value } } })} /><small>Notifications are sent as a JSON POST request.</small></label></div></section>
+            <section className="preference-section"><div><h4>When to notify</h4><p>Choose the changes that need your attention.</p></div><div className="preference-fields">
+              {(['notifyOffline', 'notifyOnline'] as const).map(key => <div className="preference-toggle" key={key}><div><label htmlFor={key}>{key === 'notifyOffline' ? 'A service goes offline' : 'A service recovers'}</label><p>{key === 'notifyOffline' ? 'Know when a health check fails.' : 'Get confirmation when it is back online.'}</p></div><Switch id={key} checked={config.webhooks?.statusNotifications?.[key] || false} onChange={checked => setConfig({ ...config, webhooks: { ...config.webhooks, statusNotifications: { endpoint: '', notifyOffline: false, notifyOnline: false, ...config.webhooks?.statusNotifications, [key]: checked } } })} accentColor={accentColor} /></div>)}
+              {config.webhooks?.statusNotifications?.notifyOffline && <label className="preference-field notification-delay">Wait before alerting<div className="input-unit"><input type="number" min={0} step={30} value={config.webhooks.statusNotifications.notifyAfterSeconds ?? 0} onChange={e => setConfig({ ...config, webhooks: { ...config.webhooks, statusNotifications: { ...config.webhooks!.statusNotifications!, notifyAfterSeconds: Math.max(0, Number(e.target.value)) } } })} /><span>seconds</span></div><small>Use a delay to avoid alerts for brief interruptions.</small></label>}
+            </div></section>
+            <section className="preference-section"><div><h4>Verify delivery</h4><p>Send a sample notification to check the connection.</p></div><div className="backup-actions"><button disabled={isTestingSend || !config.webhooks?.statusNotifications?.endpoint} onClick={handleSendTestNotification}><Bell size={20} /><span>{isTestingSend ? 'Sending…' : 'Send test notification'}<small>Uses the endpoint entered above</small></span></button></div></section>
+          </div>}
 
-                {/* Webhook Endpoint */}
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Webhook Endpoint URL
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="https://example.com/webhook"
-                    value={config.webhooks?.statusNotifications?.endpoint || ''}
-                    onChange={(e) => {
-                      setConfig({
-                        ...config,
-                        webhooks: {
-                          ...config.webhooks,
-                          statusNotifications: {
-                            ...(config.webhooks?.statusNotifications || { notifyOffline: false, notifyOnline: false }),
-                            endpoint: e.target.value
-                          }
-                        }
-                      });
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
-                    style={{ 
-                      "--tw-ring-color": `${accentColor}40`,
-                      borderColor: `${accentColor}` 
-                    } as React.CSSProperties}
-                  />
-                  <p className="mt-1 text-xs text-gray-500">
-                    The URL where status notifications will be sent via POST request with JSON payload.
-                  </p>
-                </div>
-
-                {/* Notification Options */}
-                <div className="space-y-4">
-                  <h4 className="text-md font-medium text-gray-800">Notification Triggers</h4>
-                  
-                  {/* Notify when offline */}
-                  <div className="flex items-center">
-                    <Switch
-                      id="notify-offline"
-                      checked={config.webhooks?.statusNotifications?.notifyOffline || false}
-                      onChange={(checked) => {
-                        setConfig({
-                          ...config,
-                          webhooks: {
-                            ...config.webhooks,
-                            statusNotifications: {
-                              ...(config.webhooks?.statusNotifications || { endpoint: '', notifyOnline: false }),
-                              notifyOffline: checked
-                            }
-                          }
-                        });
-                      }}
-                      accentColor={accentColor}
-                    />
-                    <label htmlFor="notify-offline" className="ml-2 block text-sm text-gray-700">
-                      Notify when a node goes offline
-                    </label>
-                  </div>
-                  
-                  {/* Notify when online */}
-                  <div className="flex items-center">
-                    <Switch
-                      id="notify-online"
-                      checked={config.webhooks?.statusNotifications?.notifyOnline || false}
-                      onChange={(checked) => {
-                        setConfig({
-                          ...config,
-                          webhooks: {
-                            ...config.webhooks,
-                            statusNotifications: {
-                              ...(config.webhooks?.statusNotifications || { endpoint: '', notifyOffline: false }),
-                              notifyOnline: checked
-                            }
-                          }
-                        });
-                      }}
-                      accentColor={accentColor}
-                    />
-                    <label htmlFor="notify-online" className="ml-2 block text-sm text-gray-700">
-                      Notify when a node comes online
-                    </label>
-                  </div>
-
-                  {/* Offline notification delay */}
-                  {config.webhooks?.statusNotifications?.notifyOffline && (
-                    <div className="pt-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Offline notification delay (seconds)
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step={30}
-                          value={config.webhooks?.statusNotifications?.notifyAfterSeconds ?? 0}
-                          onChange={(e) => {
-                            const val = Math.max(0, parseInt(e.target.value) || 0);
-                            setConfig({
-                              ...config,
-                              webhooks: {
-                                ...config.webhooks,
-                                statusNotifications: {
-                                  ...(config.webhooks?.statusNotifications || { endpoint: '', notifyOffline: false, notifyOnline: false }),
-                                  notifyAfterSeconds: val,
-                                }
-                              }
-                            });
-                          }}
-                          className="w-24 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 text-sm"
-                          style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
-                        />
-                        <span className="text-sm text-gray-500">seconds (0 = notify immediately)</span>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Wait this long before firing an offline alert. Useful to suppress transient blips.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Example Payload */}
-                <div className="mt-6 p-4 bg-gray-50 rounded-md border border-gray-200">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="text-sm font-medium text-gray-700">Example Payload</h4>
-                    <button
-                      onClick={handleSendTestNotification}
-                      disabled={isTestingSend || !config.webhooks?.statusNotifications?.endpoint}
-                      className="flex items-center space-x-2 px-3 py-1.5 text-sm font-medium text-white rounded-md hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                      style={{ backgroundColor: accentColor }}
-                    >
-                      {isTestingSend ? (
-                        <>
-                          <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></div>
-                          <span>Sending...</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                          </svg>
-                          <span>Send Test</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                  <pre className="text-xs bg-gray-100 p-3 rounded overflow-x-auto">
-{`{
-  "message": "🧪 Test notification from Nautilus",
-  "timestamp": "${new Date().toISOString()}",
-  "nodeId": "test-node",
-  "nodeName": "Test Node",
-  "status": "test",
-  "details": "This is a test notification..."
-}`}
-                  </pre>
-                  <p className="text-xs text-gray-500 mt-2">
-                    ✅ Online notifications include a green checkmark<br/>
-                    ❌ Offline notifications include a red X<br/>
-                    🧪 Test notifications help verify your webhook endpoint
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-gray-200 bg-gray-50 flex-shrink-0">
+        <div className="settings-footer border-t border-line bg-abyss flex-shrink-0">
+          {restoreStaged && <div className="restore-pending" role="status"><Upload size={18} /><span><strong>Backup ready to apply</strong><small>{getAllNodes(config.tree.nodes).length} nodes will replace your current network when you save.</small></span></div>}
           {/* Error Display */}
           {saveError && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+            <div className="mb-4 p-3 bg-negative/10 border border-negative/25 rounded-md">
               <div className="flex items-start">
                 <div className="flex-shrink-0">
                   <X className="h-5 w-5 text-red-400" />
                 </div>
                 <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800">Error saving settings</h3>
-                  <div className="mt-1 text-sm text-red-700">
+                  <h3 className="text-sm font-medium text-negative">Error saving settings</h3>
+                  <div className="mt-1 text-sm text-negative">
                     {saveError}
                   </div>
                 </div>
@@ -1312,7 +709,7 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
                     <button
                       onClick={() => setSaveError(null)}
                       aria-label="Dismiss error"
-                      className="inline-flex rounded-md bg-red-50 p-1.5 text-red-500 hover:bg-red-100"
+                      className="inline-flex rounded-md bg-negative/10 p-1.5 text-negative hover:bg-negative/15"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -1322,59 +719,20 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
             </div>
           )}
           
-          {/* Action Buttons */}
-          <div className="flex items-center justify-between w-full">
-            {/* Left side - Logout button */}
-            <div>
-              {isLoggedIn && !isAuthDisabled() && (
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center space-x-2 px-4 py-2 border border-red-300 text-red-600 rounded-md hover:bg-red-50 hover:border-red-400 transition-colors"
-                >
-                  <LogOut size={16} />
-                  <span>Logout</span>
-                </button>
-              )}
-            </div>
-
-            {/* Right side - Cancel and Save buttons */}
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={onClose}
-                disabled={isSaving}
-                className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="flex items-center space-x-2 px-4 py-2 text-white rounded-md hover:opacity-90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{
-                  backgroundColor: config.appearance?.accentColor || '#3b82f6',
-                }}
-              >
-                {isSaving ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    <span>Saving...</span>
-                  </>
-                ) : (
-                  <>
-                    <Save size={16} />
-                    <span>Save Settings</span>
-                  </>
-                )}
-              </button>
-            </div>
+          <div className="settings-actions">
+            {isLoggedIn && !isAuthDisabled() && <button className="settings-logout" onClick={handleLogout}><LogOut size={16} /><span>Log out</span></button>}
+            <button className="settings-cancel" onClick={onClose} disabled={isSaving}>Cancel</button>
+            <button className="settings-save" onClick={handleSave} disabled={isSaving}>
+              {isSaving ? <><span className="settings-spinner" aria-hidden="true" /><span>Saving…</span></> : <><Save size={16} /><span>{restoreStaged ? 'Save restored network' : 'Save'}</span></>}
+            </button>
           </div>
 
           {/* Version footer */}
           {versionInfo && (
-            <div className="w-full pt-3 border-t border-gray-100 flex items-center justify-center">
-              <span className="text-xs text-gray-400 font-mono">
+            <div className="settings-version">
+              <span>
                 {versionInfo.tag ? (
-                  <>{versionInfo.tag} <span className="text-gray-300">·</span> {versionInfo.sha}</>
+                  <>{versionInfo.tag} <span className="text-muted">·</span> {versionInfo.sha}</>
                 ) : (
                   versionInfo.sha
                 )}
@@ -1384,6 +742,8 @@ const Settings: React.FC<SettingsProps> = ({ isOpen, onClose, initialConfig, onS
         </div>
       </div>
 
+      {showClearNodesConfirm && <ConfirmDialog isOpen title="Clear all nodes?" message={`This removes all ${getAllNodes(config.tree.nodes).length} nodes from the configuration. Nothing changes until you save.`} confirmLabel="Clear all" cancelLabel="Cancel" variant="danger" onConfirm={() => { clearNodes(); setShowClearNodesConfirm(false); }} onCancel={() => setShowClearNodesConfirm(false)} />}
+      {showRestoreConfirm && <ConfirmDialog isOpen title="Restore backup?" message={`Load ${pendingRestoreConfig ? getAllNodes(pendingRestoreConfig.tree.nodes).length : 0} nodes into Settings? Your current network stays unchanged until you save the restored configuration.`} confirmLabel="Restore backup" cancelLabel="Cancel" variant="danger" onConfirm={confirmRestore} onCancel={cancelRestore} />}
       {/* Delete Confirmation Dialog */}
       {deleteConfirmation && (
         <ConfirmDialog

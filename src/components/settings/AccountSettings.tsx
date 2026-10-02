@@ -80,9 +80,9 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ accentColor })
 
   if (isAuthDisabled()) {
     return (
-      <div className="space-y-6">
-        <h3 className="text-lg font-medium text-gray-800">Account</h3>
-        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+      <div className="account-access-state">
+        <h3>Open access</h3>
+        <div className="text-sm text-warning bg-warning/10 border border-warning/25 rounded-lg p-3 flex items-start gap-2">
           <ShieldAlert size={18} className="flex-shrink-0 mt-0.5 text-amber-500" />
           <div>
             Authentication is disabled on this server (<code>NAUTILUS_AUTH_DISABLED=true</code>), so anyone on
@@ -94,16 +94,16 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ accentColor })
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-medium text-gray-800 mb-1">Account</h3>
-        <p className="text-sm text-gray-500">
+    <div className="account-security">
+      <div className="account-summary">
+        <KeyRound size={24} /><h3 className="text-lg font-medium text-ink mb-1">Administrator credentials</h3>
+        <p className="text-sm text-muted">
           Change the administrator username and password. Saving signs out every other session.
         </p>
       </div>
 
       {account?.source === 'env' && (
-        <div className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+        <div className="text-sm text-warning bg-warning/10 border border-warning/25 rounded-lg p-3 flex items-start gap-2">
           <ShieldAlert size={18} className="flex-shrink-0 mt-0.5 text-amber-500" />
           <div>
             You are signed in with the password from the <code>.env</code> file. Once you change it here,
@@ -113,9 +113,9 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ accentColor })
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4 max-w-md">
+      <form onSubmit={handleSubmit} className="account-form">
         <div>
-          <label htmlFor="account-username" className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+          <label htmlFor="account-username" className="block text-sm font-medium text-ink mb-1">Username</label>
           <FormInput
             id="account-username"
             type="text"
@@ -131,7 +131,7 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ accentColor })
         </div>
 
         <div>
-          <label htmlFor="account-new-password" className="block text-sm font-medium text-gray-700 mb-1">New password</label>
+          <label htmlFor="account-new-password" className="block text-sm font-medium text-ink mb-1">New password</label>
           <FormInput
             id="account-new-password"
             type="password"
@@ -142,12 +142,12 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ accentColor })
             accentColor={`${accentColor}40`}
             disabled={!account || isSubmitting}
           />
-          <p className="text-xs text-gray-500 mt-1">At least {PASSWORD_MIN} characters. A long passphrase works well.</p>
+          <p className="text-xs text-muted mt-1">At least {PASSWORD_MIN} characters. A long passphrase works well.</p>
         </div>
 
         {passwordChanged && (
           <div>
-            <label htmlFor="account-confirm-password" className="block text-sm font-medium text-gray-700 mb-1">Confirm new password</label>
+            <label htmlFor="account-confirm-password" className="block text-sm font-medium text-ink mb-1">Confirm new password</label>
             <FormInput
               id="account-confirm-password"
               type="password"
@@ -160,8 +160,8 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ accentColor })
           </div>
         )}
 
-        <div className="pt-2 border-t border-gray-200">
-          <label htmlFor="account-current-password" className="block text-sm font-medium text-gray-700 mb-1 mt-2">Current password</label>
+        <div className="account-confirmation">
+          <label htmlFor="account-current-password" className="block text-sm font-medium text-ink mb-1 mt-2">Current password</label>
           <FormInput
             id="account-current-password"
             type="password"
@@ -175,10 +175,10 @@ export const AccountSettings: React.FC<AccountSettingsProps> = ({ accentColor })
         </div>
 
         {(usernameChanged || passwordChanged) && validationError && (
-          <p className="text-sm text-amber-700">{validationError}</p>
+          <p className="text-sm text-warning">{validationError}</p>
         )}
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm">{error}</div>
+          <div className="p-3 bg-negative/10 border border-negative/25 text-negative rounded-md text-sm">{error}</div>
         )}
 
         <Button type="submit" variant="primary" accentColor={accentColor} disabled={!canSubmit}>

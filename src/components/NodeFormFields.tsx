@@ -1,3 +1,4 @@
+import { Disclosure } from './ui/Disclosure';
 import React, { useState, useEffect, useRef } from 'react';
 import type { TreeNode, AppearanceConfig, BackupWindow } from '../types/config';
 import * as LucideIcons from 'lucide-react';
@@ -6,7 +7,6 @@ import Switch from './Switch';
 import { getAuthHeaders } from '../utils/auth';
 import { iconRegistry } from '../utils/iconUtils';
 import { FormInput } from './ui/FormInput';
-import { statusColors } from '../utils/colors';
 import { describeBackupWindow, minutesToHHMM, hhmmToMinutes, DEFAULT_BACKUP_WINDOW, DAYS } from '../utils/backupWindow';
 
 interface NodeFormFieldsProps {
@@ -17,14 +17,13 @@ interface NodeFormFieldsProps {
 
 type ConnectionTestStatus = 'idle' | 'testing' | 'online' | 'offline';
 
-export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, appearance }) => {
-  const accentColor = appearance.accentColor || '#3b82f6';
+export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange }) => {
+  const accentColor = '#65d7e8';
   // UX-4: inline validation for the per-node check interval (must be >= 5 seconds)
   const MIN_CHECK_INTERVAL = 5000;
   const intervalInvalid = typeof node.healthCheckInterval === 'number' && node.healthCheckInterval < MIN_CHECK_INTERVAL;
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [showPlexToken, setShowPlexToken] = useState(false);
-  const [showBackup, setShowBackup] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionTestStatus>('idle');
   const [connectionDetails, setConnectionDetails] = useState<string>('');
   const testTimeoutRef = useRef<number | null>(null);
@@ -144,7 +143,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
     } catch {
       // Ignore error
     }
-    return <LucideIcons.HelpCircle size={size} className="text-gray-400" />;
+    return <LucideIcons.HelpCircle size={size} className="text-muted" />;
   };
 
   // Get connection status bar color and text
@@ -178,9 +177,10 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <h3 className="form-section-heading col-span-1 md:col-span-2">Identity</h3>
         {/* Title */}
         <div>
-          <label htmlFor={`${node.id}-title`} className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+          <label htmlFor={`${node.id}-title`} className="block text-sm font-medium text-ink mb-1">Title</label>
           <FormInput
             id={`${node.id}-title`}
             accentColor={accentColor}
@@ -192,7 +192,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
 
         {/* Subtitle */}
         <div>
-          <label htmlFor={`${node.id}-subtitle`} className="block text-sm font-medium text-gray-700 mb-1">Subtitle</label>
+          <label htmlFor={`${node.id}-subtitle`} className="block text-sm font-medium text-ink mb-1">Subtitle</label>
           <FormInput
             id={`${node.id}-subtitle`}
             accentColor={accentColor}
@@ -202,9 +202,10 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
           />
         </div>
 
+        <h3 className="form-section-heading col-span-1 md:col-span-2">Monitoring</h3>
         {/* Health Check Type */}
         <div className="col-span-1 md:col-span-2">
-          <label htmlFor={`${node.id}-healthCheckType`} className="block text-sm font-medium text-gray-700 mb-1">Health Check Type</label>
+          <label htmlFor={`${node.id}-healthCheckType`} className="block text-sm font-medium text-ink mb-1">Health Check Type</label>
           <select
             id={`${node.id}-healthCheckType`}
             value={node.healthCheckType || (node.disableHealthCheck ? 'disabled' : 'http')}
@@ -215,7 +216,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                 disableHealthCheck: type === 'disabled' // Keep legacy field in sync
               });
             }}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2"
+            className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2"
             style={{ '--tw-ring-color': accentColor } as React.CSSProperties}
           >
             <option value="http">Regular Health Check (HTTP/TCP)</option>
@@ -224,7 +225,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
             <option value="plex">Plex Media Server</option>
             <option value="disabled">Disable Health Checking</option>
           </select>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-muted mt-1">
             Select how the status of this node should be monitored.
           </p>
         </div>
@@ -232,7 +233,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
         {/* Plex Token Input */}
         {node.healthCheckType === 'plex' && (
           <div className="col-span-1 md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-ink mb-1">
               Plex Token (X-Plex-Token)
             </label>
             <div className="relative">
@@ -247,12 +248,12 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
               <button
                 type="button"
                 onClick={() => setShowPlexToken(!showPlexToken)}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-400 hover:text-gray-600 focus:outline-none"
+                className="absolute inset-y-0 right-0 flex items-center px-3 text-muted hover:text-muted focus:outline-none"
               >
                 {showPlexToken ? <LucideIcons.EyeOff size={18} /> : <LucideIcons.Eye size={18} />}
               </button>
             </div>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-muted mt-1">
               Required to fetch session count. Found in Plex XML feeds or URL.
             </p>
           </div>
@@ -261,7 +262,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
         {/* Per-node check interval */}
         {node.healthCheckType !== 'disabled' && !node.disableHealthCheck && (
           <div className="col-span-1 md:col-span-2">
-            <label htmlFor={`${node.id}-checkInterval`} className="block text-sm font-medium text-gray-700 mb-1">Check Interval (ms)</label>
+            <label htmlFor={`${node.id}-checkInterval`} className="block text-sm font-medium text-ink mb-1">Check Interval (ms)</label>
             <FormInput
               id={`${node.id}-checkInterval`}
               accentColor={intervalInvalid ? undefined : accentColor}
@@ -280,7 +281,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
             />
             <p
               id={`${node.id}-checkInterval-help`}
-              className={`text-xs mt-1 ${intervalInvalid ? 'text-red-600' : 'text-gray-500'}`}
+              className={`text-xs mt-1 ${intervalInvalid ? 'text-negative' : 'text-muted'}`}
             >
               {intervalInvalid
                 ? 'Must be at least 5000 ms (5 seconds).'
@@ -291,7 +292,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
 
         {/* Internal Address */}
         <div className="col-span-1 md:col-span-2">
-          <label htmlFor={`${node.id}-internalAddress`} className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor={`${node.id}-internalAddress`} className="block text-sm font-medium text-ink mb-1">
             Internal Address
           </label>
           <FormInput
@@ -310,7 +311,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
             }}
             placeholder="192.168.1.100:8080 or http://internal-service:3000"
           />
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-muted mt-1">
             Address used by the server to check status. Also serves as the default Access URL if not specified below.
           </p>
           
@@ -330,51 +331,23 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
           )}
         </div>
 
-        {/* Shape Selection */}
-        <div className="col-span-1 md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Shape</label>
-          <div className="grid grid-cols-3 gap-3">
-            {[
-              { value: 'square', label: 'Square', subtitle: 'Rectangle' },
-              { value: 'circular', label: 'Circular', subtitle: 'Pill shape' },
-              { value: 'angular', label: 'Angular', subtitle: 'Diamond' }
-            ].map((type) => (
-              <div 
-                key={type.value}
-                className={`flex flex-col items-center p-3 rounded-lg cursor-pointer transition-all ${
-                  (node.type === type.value || (!node.type && type.value === 'square'))
-                    ? `border-2 shadow-sm` 
-                    : 'border border-gray-300 hover:bg-gray-50'
-                }`}
-                style={{
-                  borderColor: (node.type === type.value || (!node.type && type.value === 'square')) ? accentColor : undefined,
-                  backgroundColor: (node.type === type.value || (!node.type && type.value === 'square')) ? `${accentColor}08` : undefined
-                }}
-                onClick={() => onChange({ type: type.value as TreeNode['type'] })}
-              >
-                <div className="text-sm font-medium text-gray-900">{type.label}</div>
-                <div className="text-xs text-gray-500">{type.subtitle}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
+        <h3 className="form-section-heading col-span-1 md:col-span-2">Appearance</h3>
         {/* Icon Selection */}
         <div className="col-span-1 md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Icon</label>
+          <label className="block text-sm font-medium text-ink mb-2">Icon</label>
           
-          <div className="flex items-center p-3 border border-gray-300 rounded-md bg-white">
+          <div className="flex items-center p-3 border border-line rounded-md bg-surface">
             {/* Icon Preview */}
-            <div className="flex items-center justify-center w-12 h-12 bg-gray-100 rounded-lg border border-gray-200 mr-4">
-              {node.icon ? renderIconPreview(node.icon, 24) : <LucideIcons.HelpCircle size={24} className="text-gray-400" />}
+            <div className="flex items-center justify-center w-12 h-12 bg-raised rounded-lg border border-line mr-4">
+              {node.icon ? renderIconPreview(node.icon, 24) : <LucideIcons.HelpCircle size={24} className="text-muted" />}
             </div>
             
             {/* Icon Details */}
             <div className="flex-1">
-              <div className="text-sm font-medium text-gray-900">
+              <div className="text-sm font-medium text-ink">
                 {node.icon ? kebabToPascal(node.icon) : 'No Icon Selected'}
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-xs text-muted">
                 {node.icon || 'Select an icon to display on the node'}
               </div>
             </div>
@@ -404,9 +377,9 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
         )}
 
         {/* Interaction Settings */}
-        <div className="col-span-1 md:col-span-2 space-y-4 pt-4 border-t border-gray-200">
+        <div className="col-span-1 md:col-span-2 space-y-4 pt-4 border-t border-line">
           <div className="flex items-center justify-between">
-              <label className="block text-sm font-medium text-gray-700">Interaction</label>
+              <label className="block text-sm font-medium text-ink">Interaction</label>
               <div className="flex items-center">
                 <Switch
                   id={`isInteractable-${node.id}`}
@@ -414,17 +387,17 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                   onChange={(checked) => onChange({ isInteractable: checked })}
                   accentColor={accentColor}
                 />
-                <label htmlFor={`isInteractable-${node.id}`} className="ml-2 text-sm text-gray-600 cursor-pointer">
+                <label htmlFor={`isInteractable-${node.id}`} className="ml-2 text-sm text-muted cursor-pointer">
                   Interactable
                 </label>
               </div>
             </div>
 
             {node.isInteractable !== false && (
-              <div className="space-y-4 pl-4 border-l-2 border-gray-100">
+              <div className="space-y-4 pl-4 border-l-2 border-line">
                 {/* External Address */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-ink mb-1">
                     Access URL
                   </label>
                   <FormInput
@@ -440,12 +413,12 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                       });
                     }}
                     placeholder={(() => {
-                      const internal = node.internalAddress || (node.ip ? `${node.ip}:${node.healthCheckPort}` : '');
+                      const internal = node.internalAddress || (node.ip ? (node.healthCheckPort ? `${node.ip}:${node.healthCheckPort}` : node.ip) : '');
                       if (!internal) return "https://myapp.com";
                       return internal.includes('://') ? internal : `http://${internal}`;
                     })()}
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-muted mt-1">
                     Public address for opening the service. If empty, defaults to Internal Address.
                   </p>
                 </div>
@@ -461,10 +434,10 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                     />
                   </div>
                   <div>
-                    <label htmlFor={`enableEmbedded-${node.id}`} className="font-medium text-gray-700 text-sm cursor-pointer">
+                    <label htmlFor={`enableEmbedded-${node.id}`} className="font-medium text-ink text-sm cursor-pointer">
                       Enable Embedded Viewer
                     </label>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-muted">
                       Open this node in an embedded overlay. (Requires global 'Open Nodes as Overlay' setting to be enabled)
                     </p>
                   </div>
@@ -474,29 +447,11 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
           </div>
 
         {/* Backup window (advanced, optional) — subtle, collapsed by default */}
-        <div className="col-span-1 md:col-span-2 pt-4 border-t border-gray-200">
-          <button
-            type="button"
-            onClick={() => setShowBackup(v => !v)}
-            className="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-gray-700"
-            aria-expanded={showBackup}
-          >
-            {showBackup ? <LucideIcons.ChevronDown size={14} /> : <LucideIcons.ChevronRight size={14} />}
-            Backup window
-            {bw?.enabled && (
-              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: statusColors.backup }} />
-            )}
-            {bw?.source === 'auto' && (
-              <span className="px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[10px] font-medium">
-                Auto-detected
-              </span>
-            )}
-          </button>
-
-          {showBackup && (
-            <div className="mt-3 space-y-3">
+        <div className="col-span-1 md:col-span-2">
+          <Disclosure title={<>Backup window{bw?.enabled && <small>Enabled</small>}{bw?.source === 'auto' && <small>Auto-detected</small>}</>}>
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-gray-700">
+                <label htmlFor={`backupEnabled-${node.id}`} className="text-sm font-medium text-ink">
                   Suppress status &amp; notifications during backups
                 </label>
                 <Switch
@@ -508,9 +463,9 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
               </div>
 
               {bw?.enabled && (
-                <div className="space-y-3 pl-4 border-l-2 border-gray-100">
+                <div className="space-y-3 pl-4 border-l-2 border-line">
                   {bw.source === 'auto' && (
-                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-violet-50 text-violet-700 text-xs">
+                    <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-maintenance/10 text-violet-700 text-xs">
                       <span>
                         Auto-detected{bw.detectedAt ? ` on ${new Date(bw.detectedAt).toLocaleDateString()}` : ''}. Editing switches it to manual.
                       </span>
@@ -525,11 +480,11 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                   )}
 
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Repeat</label>
+                    <label className="block text-xs font-medium text-muted mb-1">Repeat</label>
                     <select
                       value={bw.frequency}
                       onChange={(e) => updateBackup({ frequency: e.target.value as BackupWindow['frequency'] })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 text-sm"
+                      className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2 text-sm"
                       style={{ ['--tw-ring-color' as string]: accentColor } as React.CSSProperties}
                     >
                       <option value="daily">Every day</option>
@@ -539,11 +494,11 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
 
                   {bw.frequency === 'weekly' && (
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Day</label>
+                      <label className="block text-xs font-medium text-muted mb-1">Day</label>
                       <select
                         value={bw.dayOfWeek ?? 0}
                         onChange={(e) => updateBackup({ dayOfWeek: parseInt(e.target.value) })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 text-sm"
+                        className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2 text-sm"
                         style={{ ['--tw-ring-color' as string]: accentColor } as React.CSSProperties}
                       >
                         {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
@@ -553,7 +508,7 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Start</label>
+                      <label className="block text-xs font-medium text-muted mb-1">Start</label>
                       <input
                         type="time"
                         value={minutesToHHMM(bw.startMinute)}
@@ -562,12 +517,12 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                           const mins = hhmmToMinutes(e.target.value);
                           if (mins !== null) updateBackup({ startMinute: mins });
                         }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 text-sm"
+                        className="w-full px-3 py-2 border border-line rounded-md focus:outline-none focus:ring-2 text-sm"
                         style={{ ['--tw-ring-color' as string]: accentColor } as React.CSSProperties}
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Duration (min)</label>
+                      <label className="block text-xs font-medium text-muted mb-1">Duration (min)</label>
                       <FormInput
                         accentColor={accentColor}
                         type="number"
@@ -579,8 +534,8 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
                     </div>
                   </div>
 
-                  <p className="text-xs text-gray-500">{describeBackupWindow(bw)}</p>
-                  <p className="text-[11px] text-gray-400">
+                  <p className="text-xs text-muted">{describeBackupWindow(bw)}</p>
+                  <p className="text-[11px] text-muted">
                     Start time uses the server’s timezone (the container’s local time), which may
                     differ from your browser.
                   </p>
@@ -588,13 +543,13 @@ export const NodeFormFields: React.FC<NodeFormFieldsProps> = ({ node, onChange, 
               )}
 
               {!bw?.enabled && (
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-muted">
                   When a node goes down inside this window it shows as “backing up” (violet) and no
                   notifications are sent. Left off, backup windows are detected automatically.
                 </p>
               )}
             </div>
-          )}
+          </Disclosure>
         </div>
       </div>
     </div>

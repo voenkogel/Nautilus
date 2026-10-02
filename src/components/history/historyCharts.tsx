@@ -7,15 +7,16 @@ import { statusColors, statusLabels } from '../../utils/colors';
 // --- Period selector ---
 
 export const PeriodPicker: React.FC<{ active: HistoryPeriod; onChange: (p: HistoryPeriod) => void }> = ({ active, onChange }) => (
-  <div className="flex items-center bg-gray-100 rounded-lg p-0.5 flex-shrink-0">
+  <div className="period-picker animated-segments" style={{ '--segment-count': PERIODS.length, '--segment-index': PERIODS.findIndex(period => period.value === active) } as React.CSSProperties}>
     {PERIODS.map(({ value, label }) => (
       <button
         key={value}
+        aria-pressed={value === active}
         onClick={() => onChange(value)}
         className={`px-3 py-1.5 text-xs rounded-md transition-all font-medium ${
           value === active
-            ? 'bg-white shadow-sm text-gray-900'
-            : 'text-gray-500 hover:text-gray-700'
+            ? 'bg-surface shadow-sm text-ink'
+            : 'text-muted hover:text-ink'
         }`}
       >
         {label}
@@ -34,7 +35,7 @@ const colorMap: Record<string, string> = {
   offline:  statusColors.offline,
   checking: statusColors.checking,
   backup:   statusColors.backup,
-  empty:    '#e5e7eb',
+  empty:    '#263e4b',
 };
 
 export const UptimeTimeline: React.FC<{
@@ -115,7 +116,7 @@ export const UptimeTimeline: React.FC<{
             />
             {hovered === 'empty' ? 'No data' : (statusLabels[hovered as keyof typeof statusLabels] ?? hovered)}
           </div>
-          <div className="text-gray-400 mt-0.5">
+          <div className="text-muted mt-0.5">
             {formatTimestamp(sinceMs + tooltip.index * bucketMs)}
           </div>
         </div>
@@ -163,7 +164,7 @@ export const ResponseSparkline: React.FC<{
 
   if (valid.length < 3) {
     return (
-      <div className="flex items-center justify-center h-16 text-gray-400 text-xs">
+      <div className="flex items-center justify-center h-16 text-muted text-xs">
         Not enough data to plot
       </div>
     );
@@ -241,11 +242,11 @@ export const ResponseSparkline: React.FC<{
           }}
         >
           <div className="font-semibold font-roboto">{hovered.value}ms</div>
-          <div className="text-gray-400 font-roboto">{formatTimestamp(hovered.timestamp)}</div>
+          <div className="text-muted font-roboto">{formatTimestamp(hovered.timestamp)}</div>
         </div>
       )}
 
-      <div className="flex justify-between text-[10px] text-gray-400 mt-1 font-roboto">
+      <div className="flex justify-between text-[10px] text-muted mt-1 font-roboto">
         <span>min {minT}ms</span>
         <span>avg {avg}ms</span>
         <span>max {maxT}ms</span>
@@ -295,12 +296,12 @@ export const UptimeRing: React.FC<{ pct: number | null }> = ({ pct }) => {
 
 export const Spinner: React.FC = () => (
   <div className="flex items-center justify-center h-52">
-    <div className="w-7 h-7 border-2 border-gray-200 border-t-blue-500 rounded-full animate-spin" />
+    <div className="w-7 h-7 border-2 border-line border-t-blue-500 rounded-full animate-spin" />
   </div>
 );
 
 export const EmptyHistory: React.FC = () => (
-  <div className="flex flex-col items-center justify-center h-52 text-gray-400 gap-2">
+  <div className="flex flex-col items-center justify-center h-52 text-muted gap-2">
     <Clock className="w-10 h-10 text-gray-200" />
     <p className="text-sm font-medium">No history yet</p>
     <p className="text-xs">Data appears after the first health check cycle</p>
@@ -311,9 +312,9 @@ export const EmptyHistory: React.FC = () => (
 
 export const StatCard: React.FC<{ label: string; value: string; colorClass: string; icon: React.ReactNode }> =
   ({ label, value, colorClass, icon }) => (
-    <div className="bg-gray-50 rounded-xl p-4 flex flex-col items-center gap-1">
+    <div className="bg-abyss rounded-xl p-4 flex flex-col items-center gap-1">
       <div className={`text-xl font-bold font-roboto ${colorClass}`}>{value}</div>
-      <div className="flex items-center gap-1 text-[11px] text-gray-500 font-roboto">
+      <div className="flex items-center gap-1 text-[11px] text-muted font-roboto">
         {icon}
         {label}
       </div>

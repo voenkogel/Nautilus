@@ -35,15 +35,15 @@ export const GlobalHistoryView: React.FC<{
   }, [monitoredNodes, data]);
 
   if (loading) return <Spinner />;
-  if (error)   return <div className="text-center text-red-500 text-sm py-12">Error: {error}</div>;
+  if (error)   return <div className="text-center text-negative text-sm py-12">Error: {error}</div>;
   if (monitoredNodes.length === 0) {
-    return <div className="text-center text-gray-400 text-sm py-12">No monitored nodes configured.</div>;
+    return <div className="text-center text-muted text-sm py-12">No monitored nodes configured.</div>;
   }
 
   return (
-    <div className="space-y-5">
+    <div className="history-overview">
       {/* Global stats */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="history-summary">
         <StatCard
           label="Avg Uptime"
           value={globalStats.uptimePercent !== null ? `${globalStats.uptimePercent.toFixed(1)}%` : '—'}
@@ -53,27 +53,20 @@ export const GlobalHistoryView: React.FC<{
         <StatCard
           label="Total Outages"
           value={String(globalStats.outageCount)}
-          colorClass={globalStats.outageCount > 0 ? 'text-red-600' : 'text-green-600'}
+          colorClass={globalStats.outageCount > 0 ? 'text-negative' : 'text-positive'}
           icon={<AlertCircle className="w-3 h-3" />}
         />
         <StatCard
           label="Avg Response"
           value={globalStats.avgResponseTime !== null ? `${globalStats.avgResponseTime}ms` : '—'}
-          colorClass="text-gray-700"
+          colorClass="text-ink"
           icon={<TrendingUp className="w-3 h-3" />}
         />
       </div>
 
-      {/* Time axis header */}
-      {data && (
-        <div className="flex justify-between text-[10px] text-gray-400 px-32 font-roboto">
-          <span>{formatShortDate(data.sinceMs)}</span>
-          <span>Now</span>
-        </div>
-      )}
-
-      {/* Per-node timelines */}
-      <div className="space-y-2">
+      <section className="availability-ledger"><div className="ledger-heading"><h3>Service availability</h3><span>{data ? formatShortDate(data.sinceMs) : 'Period start'} — Now</span></div>
+      <div className="ledger-columns"><span>Service</span><span>Availability over time</span><span>Uptime</span></div>
+      <div>
         {monitoredNodes.map(node => {
           const nodeId = node.id;
 
@@ -83,13 +76,13 @@ export const GlobalHistoryView: React.FC<{
           return (
             <div
               key={node.id}
-              className="flex items-center gap-3 group cursor-pointer hover:bg-gray-50 rounded-xl px-3 py-2 transition-colors"
+              className="ledger-row group" role="button" tabIndex={0} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelectNode(nodeId, node.title); } }}
               onClick={() => onSelectNode(nodeId, node.title)}
               title={`View ${node.title} history`}
             >
               {/* Node name */}
-              <div className="w-28 text-sm text-gray-700 font-medium truncate flex-shrink-0 group-hover:text-blue-600 transition-colors font-roboto">
-                {node.title}
+              <div className="ledger-name">
+                {node.title}<small>{stats.outageCount ? `${stats.outageCount} ${stats.outageCount === 1 ? 'outage' : 'outages'}` : nodeRecords.length ? 'No outages recorded' : 'Awaiting readings'}</small>
               </div>
 
               {/* Timeline */}
@@ -97,7 +90,7 @@ export const GlobalHistoryView: React.FC<{
                 {nodeRecords.length > 0 && data ? (
                   <UptimeTimeline records={nodeRecords} sinceMs={data.sinceMs} nowMs={data.nowMs} />
                 ) : (
-                  <div className="h-9 bg-gray-100 rounded-lg flex items-center justify-center text-[10px] text-gray-400 font-roboto">
+                  <div className="h-9 bg-raised rounded-lg flex items-center justify-center text-[10px] text-muted font-roboto">
                     No data
                   </div>
                 )}
@@ -112,7 +105,7 @@ export const GlobalHistoryView: React.FC<{
 
               {/* Arrow hint */}
               <svg
-                className="w-4 h-4 text-gray-300 group-hover:text-blue-400 transition-colors flex-shrink-0"
+                className="w-4 h-4 text-muted group-hover:text-blue-400 transition-colors flex-shrink-0"
                 fill="none" stroke="currentColor" viewBox="0 0 24 24"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -122,20 +115,21 @@ export const GlobalHistoryView: React.FC<{
         })}
       </div>
 
+      </section>
       {/* Legend */}
       <div className="flex items-center gap-4 pt-1">
         {[
           { color: statusColors.online, label: 'Online' },
           { color: statusColors.offline, label: 'Offline' },
           { color: statusColors.backup, label: 'Backup' },
-          { color: '#e5e7eb', label: 'No data' },
+          { color: '#263e4b', label: 'No data' },
         ].map(({ color, label }) => (
-          <div key={label} className="flex items-center gap-1.5 text-[10px] text-gray-400 font-roboto">
+          <div key={label} className="flex items-center gap-1.5 text-[10px] text-muted font-roboto">
             <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: color }} />
             {label}
           </div>
         ))}
-        <span className="text-[10px] text-gray-400 font-roboto ml-auto">
+        <span className="text-[10px] text-muted font-roboto ml-auto">
           Click a row to drill in
         </span>
       </div>

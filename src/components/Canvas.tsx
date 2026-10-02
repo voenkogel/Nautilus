@@ -1,42 +1,23 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
+import { deleteTreeNode } from '../utils/deleteTreeNode';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import type { TreeNode, AppConfig } from '../types/config';
 import { useNodeStatus } from '../hooks/useNodeStatus';
-import { getVisibleTree, reorderNode, countDescendants, getAllNodes, isNodeMonitored, getNodeSiblingPosition } from '../utils/nodeUtils';
+import { reorderNode, countDescendants, getNodeSiblingPosition } from '../utils/nodeUtils';
 import { useAppearance } from '../hooks/useAppearance';
-import StatusCard from './StatusCard';
 import Settings from './Settings';
 import { NodeEditor } from './NodeEditor';
-import { useDeviceDetection } from '../hooks/useDeviceDetection';
-import MobileNodeList from './MobileNodeList';
-import EmptyNodesFallback from './EmptyNodesFallback';
-import { createStartingNode } from './EmptyNodesFallback';
+import EmptyNodesFallback, { createStartingNode } from './EmptyNodesFallback';
 import { useToast } from './Toast';
 import NetworkScanWindow from './NetworkScanWindow';
 import { authenticate, withAuthGuard, getAuthHeaders, hasAuthToken } from '../utils/auth';
-import { 
-  iconImageCache, 
-  iconSvgCache
-} from '../utils/iconUtils';
+import { iconImageCache, iconSvgCache } from '../utils/iconUtils';
 import { ConfirmDialog } from './ConfirmDialog';
-import { 
-  calculateTreeLayout,
-  type PositionedNode,
-  type Connection,
-  NODE_WIDTH,
-  SIBLING_SPACING,
-  WRAP_ROW_SPACING
-} from '../utils/layoutUtils';
 import { getNodeTargetUrl } from '../utils/nodeUtils';
 import { api, ApiError } from '../utils/apiClient';
-import { DonutChart } from './DonutChart';
 import { normalizeConfig } from '../utils/configUtils';
-import { assetUrl } from '../utils/assetUrl';
-import CanvasNode from './CanvasNode';
-import NodeCard from './NodeCard';
-import DragGhost from './DragGhost';
-import { useDragReorder } from '../hooks/useDragReorder';
 import HistoryModal from './HistoryModal';
 import { IframeOverlay } from './IframeOverlay';
+import RadialDashboard from './RadialDashboard';
 
 const initialAppConfig: AppConfig = {
   general: {
@@ -64,25 +45,9 @@ const initialAppConfig: AppConfig = {
 
 const Canvas: React.FC = () => {
   const { addToast } = useToast();
-  const containerRef = useRef<HTMLDivElement>(null);
-  // Per-node debounce timestamps for openNodeUrl (replaces a flag previously stashed on window)
   const lastOpenTimesRef = useRef<Record<string, number>>({});
-  
-  const [transform, setTransform] = useState({
-    x: 0,
-    y: 0,
-    scale: 1
-  });
-  
-  const [initialTransform, setInitialTransform] = useState({
-    x: 0,
-    y: 0,
-    scale: 1
-  });
-  
-  const [isDragging, setIsDragging] = useState(false);
-  const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
-  const [isInitialized, setIsInitialized] = useState(false);
+  const collapseSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const [networkRevision, setNetworkRevision] = useState(0);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
   // Check for recent scan results on initialization (only for authenticated users)
@@ -95,20 +60,10 @@ const Canvas: React.FC = () => {
   const [editingNode, setEditingNode] = useState<TreeNode | null>(null);
   const [currentConfig, setCurrentConfig] = useState<AppConfig>(initialAppConfig);
   const [collapsedNodeIds, setCollapsedNodeIds] = useState<Set<string>>(new Set());
-  const [activeFilter, setActiveFilter] = useState<'online' | 'offline' | 'activity' | null>(null);
+
 
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
-  
-  // State to track which parent node's connection is being hovered (for collapse button)
-  const [hoveredConnectionParentId, setHoveredConnectionParentId] = useState<string | null>(null);
-  
-  // State to track newly added node for animation
-  const [newlyAddedNodeId, setNewlyAddedNodeId] = useState<string | null>(null);
-  
-  // State to track nodes being animated (for expand/collapse and delete)
-  const [expandingNodeIds, setExpandingNodeIds] = useState<Set<string>>(new Set());
-  const [deletingNodeId, setDeletingNodeId] = useState<string | null>(null);
   
   // State for delete confirmation dialog
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -118,9 +73,6 @@ const Canvas: React.FC = () => {
     childCount: number;
     onConfirm: () => void;
   } | null>(null);
-  
-  // Use device detection
-  const { isMobile } = useDeviceDetection();
   
   // State for mobile iframe overlay
   const [iframeOverlay, setIframeOverlay] = useState<{ url: string; title: string; nodeId?: string } | null>(null);
@@ -138,9 +90,7 @@ const Canvas: React.FC = () => {
     error, 
     isConnected, 
     nextCheckCountdown, 
-    totalInterval,
     isQuerying,
-    getNodeStatus,
     forceRefresh
   } = useNodeStatus(currentConfig);
 
@@ -438,50 +388,19 @@ const Canvas: React.FC = () => {
     return null;
   }, []);
 
-  // Helper function to count all nested children and their health statuses
-  const getNestedNodeStats = useCallback((node: TreeNode): { total: number; online: number; offline: number; checking: number; backup: number } => {
-    let total = 0;
-    let online = 0;
-    let offline = 0;
-    let checking = 0;
-    let backup = 0;
-
-    const countNodes = (n: TreeNode) => {
-      if (n.children) {
-        for (const child of n.children) {
-          total++;
-          // Only monitored children have a health status. Unmonitored nodes
-          // (no health-check address, or disabled) still count toward `total`
-          // for the "N hidden nodes" label, but must NOT be folded into
-          // `checking` — that inflated the donut's gray slice with nodes that
-          // were never actually being checked.
-          if (isNodeMonitored(child)) {
-            const status = getNodeStatus(child.id);
-            if (status.status === 'online') online++;
-            else if (status.status === 'offline') offline++;
-            else if (status.status === 'backup') backup++;
-            else checking++;
-          }
-          // Recurse into grandchildren
-          countNodes(child);
-        }
-      }
-    };
-
-    countNodes(node);
-    return { total, online, offline, checking, backup };
-  }, [getNodeStatus]);
-
   const handleSaveConfig = async (newConfig: AppConfig) => {
+    newConfig = normalizeConfig(newConfig, initialAppConfig);
     // Send the config to the server to update the config.json file.
     try {
       await api.post('api/config', newConfig);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        throw new Error('Authentication required. Please log in again.');
+        throw new Error('Authentication required. Please log in again.', { cause: err });
       }
       throw err;
     }
+
+    setCurrentConfig(normalizeConfig(newConfig, initialAppConfig));
 
     // Re-fetch through the SAME path as the initial load (api.get +
     // normalizeConfig) so the stored config gets the default section-merge; a
@@ -501,30 +420,38 @@ const Canvas: React.FC = () => {
   };
 
   const handleRestoreConfig = async (newConfig: AppConfig) => {
+    await collapseSaveQueue.current;
+    newConfig = normalizeConfig(newConfig, initialAppConfig);
     // Send the config to the server with replace mode for complete restoration.
     try {
       await api.post('api/config?replace=true', newConfig);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
-        throw new Error('Authentication required. Please log in again.');
+        throw new Error('Authentication required. Please log in again.', { cause: err });
       }
       throw err;
     }
 
-    // Re-fetch through the same normalize path as the initial load so the
-    // restored config gets the default section-merge (otherwise restore state
-    // diverges from load). Best-effort: a failed re-fetch must not surface as a
-    // restore failure since the server already accepted it.
+    // A successful POST is authoritative even if the follow-up GET fails.
+    let restoredConfig = normalizeConfig(newConfig, initialAppConfig);
     try {
-      const serverConfig = await api.get<AppConfig>('api/config');
-      setCurrentConfig(normalizeConfig(serverConfig, initialAppConfig));
-
-      // Clear icon caches when config changes to force reload of icons with new colors/content
-      iconImageCache.clear();
-      iconSvgCache.clear();
+      restoredConfig = normalizeConfig(await api.get<AppConfig>('api/config'), initialAppConfig);
     } catch (err) {
       console.warn('Config restored but re-fetch failed:', err);
     }
+    setCurrentConfig(restoredConfig);
+    const restoredFolds = new Set<string>();
+    const collectFolds = (nodes: TreeNode[]) => nodes.forEach(node => {
+      if (node.collapsed) restoredFolds.add(node.id);
+      collectFolds(node.children ?? []);
+    });
+    collectFolds(restoredConfig.tree.nodes);
+    setCollapsedNodeIds(restoredFolds);
+    setFocusNodeId(undefined);
+    setIsEditMode(false);
+    setNetworkRevision(value => value + 1);
+    iconImageCache.clear();
+    iconSvgCache.clear();
   };
 
   const handleLoadConfig = async (newConfig: AppConfig) => {
@@ -574,34 +501,6 @@ const Canvas: React.FC = () => {
     }
   };
   
-  const handleEditNode = withAuthGuard(async (nodeId: string) => {
-    try {
-      const node = findNodeById(currentConfig.tree.nodes, nodeId);
-      if (node) {
-        // Create a deep copy to avoid reference issues
-        try {
-          const nodeCopy = JSON.parse(JSON.stringify(node));
-          setEditingNode(nodeCopy);
-        } catch (error) {
-          console.error("JSON serialization failed:", error);
-          // Fallback to a simpler manual copy
-          const basicCopy = {
-            ...node,
-            children: node.children ? [...node.children] : []
-          };
-          setEditingNode(basicCopy);
-        }
-      }
-    } catch (error) {
-      console.error("Error setting editing node:", error);
-      // Fallback: If JSON serialization fails, try basic copy
-      const node = findNodeById(currentConfig.tree.nodes, nodeId);
-      if (node) {
-        setEditingNode({...node, children: node.children ? [...node.children] : []});
-      }
-    }
-  });
-
   const handleEditChildNode = withAuthGuard(async (childNode: TreeNode) => {
     // Create a safe copy of the child node before setting it
     // Note: The current node should already be saved by the NodeEditor before calling this
@@ -660,11 +559,6 @@ const Canvas: React.FC = () => {
         // Trigger immediate status check for the new node
         forceRefresh();
         
-        // Track newly added node for animation
-        setNewlyAddedNodeId(newNode.id);
-        // Clear after animation completes
-        setTimeout(() => setNewlyAddedNodeId(null), 500);
-        
         addToast({
           type: 'success',
           message: 'Child node added successfully',
@@ -684,6 +578,15 @@ const Canvas: React.FC = () => {
   const handleOpenSettings = withAuthGuard(() => {
     setIsSettingsOpen(true);
   });
+
+  const beginInspectorEdit = async (nodeId: string): Promise<TreeNode | null> => {
+    if (!await authenticateWithState()) return null;
+    const latest = normalizeConfig(await api.get<AppConfig>('api/config'), initialAppConfig);
+    setCurrentConfig(latest);
+    const node = findNodeById(latest.tree.nodes, nodeId);
+    if (!node) throw new Error('This node no longer exists. Refresh the network.');
+    return structuredClone(node);
+  };
 
   const handleSaveNode = async (updatedNode: TreeNode) => {
     // Helper function to update node in the tree
@@ -732,7 +635,7 @@ const Canvas: React.FC = () => {
   };
 
   // Core delete function (does the actual deletion with animation)
-  const performDeleteNode = async (nodeId: string, skipAnimation = false) => {
+  const performDeleteNode = async (nodeId: string) => {
     // Helper function to remove node from the tree
     const removeNodeFromTree = (nodes: TreeNode[], nodeIdToRemove: string): TreeNode[] => {
       return nodes.filter(node => {
@@ -746,19 +649,11 @@ const Canvas: React.FC = () => {
       });
     };
 
-    // Animate before deletion (only for canvas quick delete, not for editor delete)
-    if (!skipAnimation) {
-      setDeletingNodeId(nodeId);
-      // Wait for animation to complete
-      await new Promise(resolve => setTimeout(resolve, 300));
-      setDeletingNodeId(null);
-    }
-
     const newConfig = {
       ...currentConfig,
       tree: {
         ...currentConfig.tree,
-        nodes: removeNodeFromTree(currentConfig.tree.nodes, nodeId)
+        nodes: removeNodeFromTree(structuredClone(currentConfig.tree.nodes), nodeId)
       }
     };
 
@@ -782,7 +677,7 @@ const Canvas: React.FC = () => {
     
     const doDelete = async () => {
       try {
-        await performDeleteNode(editingNode.id, true); // Skip animation for editor delete
+        await performDeleteNode(editingNode.id); // Skip animation for editor delete
         setDeleteConfirmation(null);
         addToast({
           type: 'success',
@@ -813,47 +708,14 @@ const Canvas: React.FC = () => {
     }
   };
 
-  // Direct delete handler for quick delete from canvas
-  const handleQuickDeleteNode = async (nodeId: string) => {
-    const node = findNodeById(currentConfig.tree.nodes, nodeId);
-    if (!node) return;
-
-    const childCount = countDescendants(node);
-
-    const doDelete = async () => {
-      try {
-        await performDeleteNode(nodeId);
-        addToast({
-          type: 'success',
-          message: `"${node.title}" deleted`,
-          duration: 3000
-        });
-      } catch (error) {
-        console.error('Error deleting node:', error);
-        addToast({
-          type: 'error',
-          message: 'Failed to delete node',
-          duration: 5000
-        });
-      }
-    };
-
-    if (childCount > 0) {
-      // Show confirmation dialog for nodes with children
-      setDeleteConfirmation({
-        isOpen: true,
-        nodeId,
-        nodeTitle: node.title,
-        childCount,
-        onConfirm: async () => {
-          await doDelete();
-          setDeleteConfirmation(null);
-        }
-      });
-    } else {
-      // Delete directly if no children
-      await doDelete();
-    }
+  // Refresh before a destructive edit so concurrent moves or new children survive.
+  const handleInspectorDelete = async (nodeId: string, keepChildren: boolean) => {
+    await collapseSaveQueue.current;
+    if (!await authenticate()) throw new Error('Sign in to delete this node.');
+    const latest = normalizeConfig(await api.get<AppConfig>('api/config'), initialAppConfig);
+    await handleSaveConfig({ ...latest, tree: { ...latest.tree, nodes: deleteTreeNode(latest.tree.nodes, nodeId, keepChildren) } });
+    forceRefresh();
+    addToast({ type: 'success', message: keepChildren ? 'Node deleted; children moved to its parent.' : 'Node deleted.', duration: 3000 });
   };
 
   // Handle creating a starting node when there are no nodes
@@ -881,17 +743,7 @@ const Canvas: React.FC = () => {
     }
   });
   
-  // Calculate positions for tree nodes in a proper vertical tree layout
-  const calculateNodePositions = useCallback((): { nodes: PositionedNode[], connections: Connection[] } => {
-    // In edit mode, ignore collapse state to show full tree
-    const effectiveCollapsedIds = isEditMode ? new Set<string>() : collapsedNodeIds;
-    const visibleTree = getVisibleTree(currentConfig.tree.nodes, effectiveCollapsedIds);
-    // Disable leaf-fan wrapping in edit mode: drop zones / DragGhost assume single-row siblings.
-    return calculateTreeLayout(visibleTree, { disableWrap: isEditMode });
-  }, [currentConfig, collapsedNodeIds, isEditMode]);
-
-  // Function to open node URL with debouncing to prevent double-opens
-  const openNodeUrl = useCallback((node: PositionedNode) => {
+  const openNodeUrl = useCallback((node: TreeNode) => {
     const targetUrl = getNodeTargetUrl(node);
     
     if (targetUrl) {
@@ -909,170 +761,6 @@ const Canvas: React.FC = () => {
     }
     // If no URL or IP with web GUI, do nothing (node is not clickable)
   }, [currentConfig, appTitle]);
-
-  const fitToContent = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    // Calculate bounding box of all nodes
-    const { nodes } = calculateNodePositions();
-    if (nodes.length === 0) return;
-
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    
-    nodes.forEach(node => {
-      minX = Math.min(minX, node.x);
-      minY = Math.min(minY, node.y);
-      maxX = Math.max(maxX, node.x + node.width);
-      maxY = Math.max(maxY, node.y + node.height);
-    });
-    
-    // Add padding
-    const padding = 50;
-    minX -= padding;
-    minY -= padding;
-    maxX += padding;
-    maxY += padding;
-    
-    const contentWidth = maxX - minX;
-    const contentHeight = maxY - minY;
-    
-    // Calculate scale to fit content
-    const scaleX = container.clientWidth / contentWidth;
-    const scaleY = container.clientHeight / contentHeight;
-    const scale = Math.min(scaleX, scaleY, 1.5); // Max scale of 1.5
-    
-    // Calculate center position
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-    
-    const x = container.clientWidth / 2 - centerX * scale;
-    const y = container.clientHeight / 2 - centerY * scale;
-    
-    const newTransform = { x, y, scale };
-    setTransform(newTransform);
-    
-    // Only set initial transform if this is the first initialization
-    if (!isInitialized) {
-      setInitialTransform(newTransform);
-      setIsInitialized(true);
-    }
-  }, [calculateNodePositions, isInitialized]);
-
-  // Check if user has moved away from initial position
-  const hasMovedFromInitial = useCallback(() => {
-    if (!isInitialized) return false;
-    
-    const threshold = 10; // pixels
-    const scaleThreshold = 0.1;
-    
-    return (
-      Math.abs(transform.x - initialTransform.x) > threshold ||
-      Math.abs(transform.y - initialTransform.y) > threshold ||
-      Math.abs(transform.scale - initialTransform.scale) > scaleThreshold
-    );
-  }, [transform, initialTransform, isInitialized]);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    // Only start dragging if clicking on the background (not on a node)
-    // Nodes stop propagation, so this should be fine
-    setIsDragging(true);
-    setLastMousePos({ x: e.clientX, y: e.clientY });
-  };
-
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    
-    const deltaX = e.clientX - lastMousePos.x;
-    const deltaY = e.clientY - lastMousePos.y;
-    
-    setTransform(prev => ({
-      ...prev,
-      x: prev.x + deltaX,
-      y: prev.y + deltaY
-    }));
-    
-    setLastMousePos({ x: e.clientX, y: e.clientY });
-  };
-
-  const handleMouseUp = () => {
-    setIsDragging(false);
-  };
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    // e.preventDefault() is not needed/possible in React synthetic events for passive listeners
-    // But we can handle the zoom logic
-    
-    const container = containerRef.current;
-    if (!container) return;
-    
-    const rect = container.getBoundingClientRect();
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    
-    const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.max(0.1, Math.min(5, transform.scale * scaleFactor));
-    
-    // Zoom towards mouse position
-    const scaleChange = newScale / transform.scale;
-    const newX = mouseX - (mouseX - transform.x) * scaleChange;
-    const newY = mouseY - (mouseY - transform.y) * scaleChange;
-    
-    setTransform({
-      x: newX,
-      y: newY,
-      scale: newScale
-    });
-  }, [transform]);
-
-  // Auto-fit content on initial load only
-  useEffect(() => {
-    if (!isInitialized && currentConfig.tree.nodes.length > 0) {
-      const timer = setTimeout(() => {
-        fitToContent();
-      }, 100);
-      
-      return () => clearTimeout(timer);
-    }
-  }, [isInitialized, fitToContent, currentConfig.tree.nodes.length]);
-
-  // Handle node click in mobile view
-  const handleMobileNodeClick = useCallback((node: TreeNode) => {
-    const targetUrl = getNodeTargetUrl(node);
-    
-    if (targetUrl) {
-      // Show iframe overlay instead of opening externally
-      if (!node.disableEmbedded) {
-        setIframeOverlay({ url: targetUrl, title: node.title || appTitle });
-      } else {
-        window.open(targetUrl, '_blank', 'noopener,noreferrer');
-      }
-    }
-  }, [appTitle]);
-
-  // Effect to test API connectivity when the component mounts
-  useEffect(() => {
-    const testApiConnectivity = async () => {
-      try {
-        await api.get('api/status');
-        // Success is silent - errors will be logged by the error handler
-      } catch (error) {
-        console.error('API connectivity test failed:', error);
-      }
-    };
-    
-    testApiConnectivity();
-  }, []);
-
-  const resetView = useCallback(() => {
-    fitToContent();
-  }, [fitToContent]);
-
-  // Calculate nodes and connections for rendering. Memoized on the layout
-  // inputs (via calculateNodePositions' identity, which only changes when
-  // currentConfig/collapsedNodeIds/isEditMode change) so pan/zoom — which only
-  // update `transform` — don't re-run the recursive tree layout every frame.
-  const { nodes, connections } = useMemo(() => calculateNodePositions(), [calculateNodePositions]);
 
   // Handle node reordering via drag and drop
   const handleNodeReorder = useCallback(async (nodeId: string, newParentId: string | null, insertIndex: number) => {
@@ -1100,6 +788,7 @@ const Canvas: React.FC = () => {
         message: 'Failed to rearrange node',
         duration: 4000
       });
+      throw error;
     }
   }, [currentConfig, addToast]);
 
@@ -1108,32 +797,14 @@ const Canvas: React.FC = () => {
     const pos = getNodeSiblingPosition(currentConfig.tree.nodes, nodeId);
     if (!pos) return;
     const { parentId, index, siblingCount } = pos;
-    if (direction === 'up' && index > 0) {
-      await handleNodeReorder(nodeId, parentId, index - 1);
-    } else if (direction === 'down' && index < siblingCount - 1) {
-      // index + 2 accounts for reorderNode removing the node first (see its index adjustment)
-      await handleNodeReorder(nodeId, parentId, index + 2);
-    }
+    try {
+      if (direction === 'up' && index > 0) {
+        await handleNodeReorder(nodeId, parentId, index - 1);
+      } else if (direction === 'down' && index < siblingCount - 1) {
+        await handleNodeReorder(nodeId, parentId, index + 2);
+      }
+    } catch { /* The reorder handler already reports the failed save. */ }
   }, [currentConfig, handleNodeReorder]);
-
-  // Drag and drop reorder hook
-  const {
-    dragState,
-    startDrag,
-    updateDrag,
-    endDrag,
-    cancelDrag,
-  } = useDragReorder({
-    nodes,
-    rootNodes: currentConfig.tree.nodes,
-    isEditMode,
-    onReorder: handleNodeReorder
-  });
-
-  // Handle drag start from node
-  const handleDragStart = useCallback((node: PositionedNode, clientX: number, clientY: number) => {
-    startDrag(node, clientX, clientY);
-  }, [startDrag]);
 
   // Handle expanding/collapsing nodes with optional persistence
   const toggleNodeCollapse = async (nodeId: string, isCollapsed: boolean) => {
@@ -1149,784 +820,69 @@ const Canvas: React.FC = () => {
     });
 
     // 2. If Admin, Persist to Config
-    // We check for auth token directly to see if user is logged in as admin
+    // A stored token only indicates intent to persist; validate it before writing.
     if (hasAuthToken()) {
-      try {
-        const updateNodes = (nodes: TreeNode[]): TreeNode[] => {
-          return nodes.map(node => {
-            if (node.id === nodeId) {
-              return { ...node, collapsed: isCollapsed };
-            }
-            if (node.children) {
-              return { ...node, children: updateNodes(node.children) };
-            }
-            return node;
-          });
-        };
+      const save = collapseSaveQueue.current.then(async () => {
+        // A previous queued toggle may have cancelled reauthentication.
+        if (!hasAuthToken()) return;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (!await authenticate()) return;
+          try {
+            // Serialize rapid toggles and apply each one to the latest stored config.
+            const latest = normalizeConfig(await api.get<AppConfig>('api/config'), initialAppConfig);
+            const updateNodes = (nodes: TreeNode[]): TreeNode[] => {
+              return nodes.map(node => {
+                if (node.id === nodeId) {
+                  return { ...node, collapsed: isCollapsed };
+                }
+                if (node.children) {
+                  return { ...node, children: updateNodes(node.children) };
+                }
+                return node;
+              });
+            };
 
-        const newConfig = {
-          ...currentConfig,
-          tree: {
-            ...currentConfig.tree,
-            nodes: updateNodes(currentConfig.tree.nodes)
+            const newConfig = {
+              ...latest,
+              tree: {
+                ...latest.tree,
+                nodes: updateNodes(latest.tree.nodes)
+              }
+            };
+        
+            await handleSaveConfig(newConfig);
+            return;
+          } catch (error) {
+            const cause = error instanceof Error ? error.cause : undefined;
+            const authFailure = error instanceof ApiError && error.status === 401 || cause instanceof ApiError && cause.status === 401;
+            if (!authFailure || attempt > 0) throw error;
+            // The backend may have restarted between validation and POST.
+            // Retry from authentication and a fresh config, never from a masked snapshot.
           }
-        };
-        
-        // Update local config state to match
-        setCurrentConfig(newConfig);
-        
-        // Save to server
-        await handleSaveConfig(newConfig);
-      } catch (error) {
+        }
+      });
+      collapseSaveQueue.current = save.catch(error => {
         console.error('Failed to save collapse state:', error);
+        addToast({ type: 'error', message: 'Collapse preference could not be saved. Your local view is preserved; toggle the branch to retry.', duration: 6000 });
         // We don't revert the UI state because the user still wants it collapsed locally
-      }
+      });
+      await collapseSaveQueue.current;
     }
   };
 
-  // Handle global mouse move for dragging
-  useEffect(() => {
-    if (!dragState.isDragging) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      updateDrag(e.clientX, e.clientY, transform);
-    };
-
-    const handleMouseUp = () => {
-      endDrag();
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        cancelDrag();
-      }
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [dragState.isDragging, updateDrag, endDrag, cancelDrag, transform]);
-
-  // Helper to get status for a node (status is keyed by stable node id)
-  const getStatusForNode = (node: PositionedNode) => {
-    return getNodeStatus(node.id);
-  };
-
-  // Filtered node list — computed whenever filter or statuses change
-  const filteredNodes = useMemo(() => {
-    if (!activeFilter) return null;
-    const all = getAllNodes(currentConfig.tree.nodes);
-    return all.filter(node => {
-      if (!isNodeMonitored(node)) return false;
-      const s = getNodeStatus(node.id);
-      if (activeFilter === 'online') return s.status === 'online';
-      if (activeFilter === 'offline') return s.status === 'offline';
-      if (activeFilter === 'activity')
-        return s.status === 'online' && ((s.streams ?? 0) > 0 || (s.players?.online ?? 0) > 0);
-      return false;
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, currentConfig.tree.nodes, statuses]);
-
-  const filterLabel = activeFilter === 'online' ? 'Online' : activeFilter === 'offline' ? 'Offline' : 'Active';
-  const filterColor = activeFilter === 'online' ? '#22c55e' : activeFilter === 'offline' ? '#ef4444' : (currentConfig.appearance?.accentColor || '#3b82f6');
-
   return (
-    <div className="w-full h-full relative font-roboto overflow-hidden isolate" ref={containerRef}>
-      {/* Background image */}
-      <div 
-        className="absolute inset-0 -z-10 bg-cover bg-center bg-no-repeat pointer-events-none" 
-        style={{ 
-          backgroundImage: `url(${assetUrl(currentConfig.appearance?.backgroundImage || 'background.png')})`,
-          opacity: 0.4 
-        }} 
+    <div className="app-surface">
+      <RadialDashboard key={networkRevision}
+        config={currentConfig} statuses={statuses} connected={isConnected} loading={isLoading}
+        querying={isQuerying} countdown={nextCheckCountdown} error={error}
+        collapsed={collapsedNodeIds} editMode={isEditMode} onCollapse={toggleNodeCollapse}
+        onEditMode={async () => { if (isEditMode) setIsEditMode(false); else if (await authenticateWithState()) setIsEditMode(true); }}
+        onSettings={handleOpenSettings} onHistory={() => setHistoryModal({ nodeId: null })}
+        onRefresh={forceRefresh} onOpen={openNodeUrl} onEdit={beginInspectorEdit} onSaveNode={handleSaveNode}
+        onAdd={handleAddChildNode} onDelete={handleInspectorDelete} onMove={handleNodeReorder}
+        onOrder={handleKeyboardReorder}
+        empty={<EmptyNodesFallback onCreateStartingNode={handleCreateStartingNode} appConfig={currentConfig} onRestoreConfig={handleLoadConfig} />}
       />
-      
-      {/* Edit Mode Border Overlay */}
-      {isEditMode && (
-        <div 
-          className="absolute inset-0 z-50 pointer-events-none"
-          style={{ 
-            boxShadow: `inset 0 0 0 3px ${currentConfig.appearance?.accentColor || '#3b82f6'}`,
-            borderRadius: '0px'
-          }} 
-        />
-      )}
-      
-      {/* Desktop view with DOM-based canvas */}
-      {!isMobile && (
-        <>
-          <div
-            className={`w-full h-full absolute inset-0 z-10 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseUp}
-            onWheel={handleWheel}
-          >
-            {/* The "World" container that gets transformed */}
-            <div
-              style={{
-                transform: `translate(${Math.round(transform.x)}px, ${Math.round(transform.y)}px) scale(${transform.scale})`,
-                transformOrigin: '0 0',
-                width: '100%',
-                height: '100%',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                // Removed will-change to prevent blurriness
-                backfaceVisibility: 'hidden',
-              }}
-            >
-              {/* Connections Layer (SVG) */}
-              <svg
-                className="absolute top-0 left-0 overflow-visible"
-                style={{ width: 1, height: 1, pointerEvents: 'none' }} // Minimal size, overflow visible handles the rest
-                shapeRendering="geometricPrecision"
-              >
-                {connections.map((connection, index) => {
-                  const { from, to, isFirstChild, isLastChild } = connection;
-                  const startX = from.x + from.width / 2;
-                  const startY = from.y + from.height;
-                  const endX = to.x + to.width / 2;
-                  const endY = to.y;
-                  const midY = startY + (endY - startY) / 2;
-                  const cornerRadius = 12; // Fixed radius, looks good at all scales
-
-                  // Construct path
-                  let d = `M ${startX} ${startY}`;
-
-                  if (connection.isWrapped) {
-                    // Wrapped leaf block: vertical trunk from parent center down to this
-                    // child's row, then a horizontal sub-bus out to the child top-center.
-                    const trunkX = connection.wrapTrunkX ?? startX;
-                    const busY = endY - WRAP_ROW_SPACING / 2;
-                    d = `M ${startX} ${startY}`;
-                    d += ` L ${trunkX} ${startY}`; // (no-op when already centered)
-                    d += ` L ${trunkX} ${busY}`; // vertical trunk down to this row's bus
-                    if (trunkX === endX) {
-                      d += ` L ${endX} ${endY}`;
-                    } else {
-                      const isMovingRight = endX > trunkX;
-                      d += ` L ${endX + (isMovingRight ? -cornerRadius : cornerRadius)} ${busY}`;
-                      d += ` Q ${endX} ${busY} ${endX} ${busY + cornerRadius}`;
-                      d += ` L ${endX} ${endY}`;
-                    }
-                  } else if (startX === endX) {
-                    d += ` L ${endX} ${endY}`;
-                  } else {
-                    const isMovingRight = endX > startX;
-
-                    if (isFirstChild || isLastChild) {
-                      d += ` L ${startX} ${midY - cornerRadius}`;
-                      d += ` Q ${startX} ${midY} ${startX + (isMovingRight ? cornerRadius : -cornerRadius)} ${midY}`;
-                      d += ` L ${endX + (isMovingRight ? -cornerRadius : cornerRadius)} ${midY}`;
-                      d += ` Q ${endX} ${midY} ${endX} ${midY + cornerRadius}`;
-                      d += ` L ${endX} ${endY}`;
-                    } else {
-                      d += ` L ${startX} ${midY}`;
-                      d += ` L ${endX + (isMovingRight ? -cornerRadius : cornerRadius)} ${midY}`;
-                      d += ` Q ${endX} ${midY} ${endX} ${midY + cornerRadius}`;
-                      d += ` L ${endX} ${endY}`;
-                    }
-                  }
-
-                  return (
-                    <g key={`conn-${index}`}>
-                      {/* Visible connection line */}
-                      <path
-                        d={d}
-                        fill="none"
-                        stroke="#6b7280"
-                        strokeWidth={4}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      {/* Invisible wider path for hover detection - only when not in edit mode */}
-                      {!isEditMode && (
-                        <path
-                          d={d}
-                          fill="none"
-                          stroke="transparent"
-                          strokeWidth={20}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
-                          onMouseEnter={() => setHoveredConnectionParentId(from.id)}
-                          onMouseLeave={() => setHoveredConnectionParentId(null)}
-                        />
-                      )}
-                    </g>
-                  );
-                })}
-              </svg>
-              
-              {/* Collapse buttons (shown when hovering over connection) */}
-              {!isEditMode && hoveredConnectionParentId && (() => {
-                const parentNode = nodes.find(n => n.id === hoveredConnectionParentId);
-                if (!parentNode) return null;
-                
-                const originalNode = findNodeById(currentConfig.tree.nodes, hoveredConnectionParentId);
-                const hasChildren = originalNode && originalNode.children && originalNode.children.length > 0;
-                const isCollapsed = collapsedNodeIds.has(hoveredConnectionParentId);
-                
-                if (!hasChildren || isCollapsed) return null;
-                
-                // Find the first child node to calculate vertical center
-                const firstChildId = originalNode!.children![0].id;
-                const firstChildNode = nodes.find(n => n.id === firstChildId);
-                
-                const buttonX = parentNode.x + parentNode.width / 2;
-                // Position vertically centered between parent bottom and first child top
-                const parentBottom = parentNode.y + parentNode.height;
-                const childTop = firstChildNode ? firstChildNode.y : parentBottom + 60;
-                const buttonY = parentBottom + (childTop - parentBottom) / 2;
-                
-                return (
-                  <div
-                    className="absolute z-30 cursor-pointer transform -translate-x-1/2 -translate-y-1/2 flex items-center justify-center bg-white/95 backdrop-blur-sm border border-gray-300 shadow-md hover:bg-gray-50 hover:scale-110 hover:shadow-lg transition-all duration-150"
-                    style={{
-                      left: buttonX,
-                      top: buttonY,
-                      borderRadius: '50%',
-                      width: '28px',
-                      height: '28px',
-                    }}
-                    onMouseEnter={() => setHoveredConnectionParentId(hoveredConnectionParentId)}
-                    onMouseLeave={() => setHoveredConnectionParentId(null)}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleNodeCollapse(hoveredConnectionParentId, true);
-                      setHoveredConnectionParentId(null);
-                    }}
-                  >
-                    <svg className="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                    </svg>
-                  </div>
-                );
-              })()}
-
-              {/* Drop Position Ghost Placeholder - shows exactly where node will land */}
-              <DragGhost 
-                dragState={dragState} 
-                nodes={nodes} 
-                config={currentConfig} 
-              />
-
-              {/* Nodes Layer */}
-              {nodes.map(node => {
-                // Check if this node is being dragged
-                const isDraggingThisNode = dragState.isDragging && dragState.draggedNode?.id === node.id;
-                
-                // Check if this node is a descendant of the dragged node (should also be greyed out)
-                // Check if this node is a descendant of the dragged node (should also be greyed out)
-                const isDescendantOfDragged = !!(dragState.isDragging && dragState.draggedNode && 
-                  dragState.draggedNodeWithChildren?.children && 
-                  (() => {
-                    const checkDescendant = (children: typeof currentConfig.tree.nodes): boolean => {
-                      for (const child of children) {
-                        if (child.id === node.id) return true;
-                        if (child.children && checkDescendant(child.children)) return true;
-                      }
-                      return false;
-                    };
-                    return checkDescendant(dragState.draggedNodeWithChildren.children);
-                  })());
-                
-                // Check if this node should be visually shifted because ghost is taking its place
-                // Siblings shift horizontally (translateX), not vertically
-                const isShiftedRight = dragState.isDragging && 
-                  dragState.dropTarget?.targetNodeId === node.id && 
-                  dragState.dropTarget?.position === 'before';
-                
-                return (
-                <React.Fragment key={node.id}>
-                  <div
-                    style={{
-                      transform: isShiftedRight ? `translateX(${NODE_WIDTH + SIBLING_SPACING}px)` : 'none',
-                      transition: 'transform 0.2s ease-out'
-                    }}
-                  >
-                  <CanvasNode
-                    node={node}
-                    status={getStatusForNode(node)}
-                    scale={transform.scale}
-                    isSelected={false}
-                    isEditMode={isEditMode}
-                    isNewlyAdded={node.id === newlyAddedNodeId}
-                    isExpanding={expandingNodeIds.has(node.id)}
-                    isDeleting={node.id === deletingNodeId}
-                    isDragging={isDraggingThisNode}
-                    isDescendantOfDragged={isDescendantOfDragged}
-                    accentColor={currentConfig.appearance?.accentColor || '#3b82f6'}
-                    onNodeClick={(n) => {
-                      if (dragState.isDragging) return; // Don't handle clicks while dragging
-                      if (isEditMode) {
-                        handleEditNode(n.id);
-                      } else {
-                        openNodeUrl(n);
-                      }
-                    }}
-                    onEditClick={(n) => handleEditNode(n.id)}
-                    onAddChildClick={(n) => handleAddChildNode(n.id)}
-                    onDeleteClick={(n) => handleQuickDeleteNode(n.id)}
-                    onDragStart={handleDragStart}
-                    onHistoryClick={(n) => {
-                      setHistoryModal({ nodeId: n.id, nodeName: n.title });
-                    }}
-                    onReorderKeyboard={(n, dir) => handleKeyboardReorder(n.id, dir)}
-                  />
-                </div>
-                  
-                  {/* Collapse/Expand Button - Hidden in edit mode */}
-                  {!isEditMode && (() => {
-                    const originalNode = findNodeById(currentConfig.tree.nodes, node.id);
-                    const hasChildren = originalNode && originalNode.children && originalNode.children.length > 0;
-                    const isCollapsed = collapsedNodeIds.has(node.id);
-                    
-                    if (!hasChildren) return null;
-
-                    // Calculate position for the placeholder node (where a child would be)
-                    // VERTICAL_SPACING is 40 in layoutUtils, assuming similar spacing here
-                    const buttonX = node.x + node.width / 2;
-                    const buttonY = node.y + node.height + 40; 
-                    
-                    // Get stats for all nested children
-                    const stats = getNestedNodeStats(originalNode!);
-                    // Only show expand button when collapsed
-                    if (!isCollapsed) {
-                      return null;
-                    }
-                    
-                    return (
-                      <React.Fragment key={`expand-btn-${node.id}`}>
-                        {/* Vertical Connecting Line */}
-                        <div
-                          className="absolute z-20 pointer-events-none"
-                          style={{
-                            left: node.x + node.width / 2 - 2, // Centered (4px width)
-                            top: node.y + node.height,
-                            width: 4,
-                            height: 40, // Matches vertical spacing
-                            backgroundColor: '#9ca3af', // Matches connection line color (gray-400)
-                          }}
-                        />
-                        
-                        {/* Expand Button / Placeholder Node */}
-                        <div
-                          className="absolute z-30 cursor-pointer transform -translate-x-1/2 flex items-center justify-between px-2 bg-white/95 backdrop-blur-sm border shadow-sm hover:shadow-md transform transition-all duration-200 hover:scale-[1.02]"
-                          style={{
-                            left: buttonX,
-                            top: buttonY,
-                            width: `${NODE_WIDTH}px`,
-                            height: '48px',
-                            borderRadius: '9999px',
-                            borderColor: '#e5e7eb', // Default border color
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            // Get all child node IDs to animate
-                            const getChildIds = (n: TreeNode): string[] => {
-                              const ids: string[] = [];
-                              if (n.children) {
-                                for (const child of n.children) {
-                                  ids.push(child.id);
-                                  ids.push(...getChildIds(child));
-                                }
-                              }
-                              return ids;
-                            };
-                            const childIds = originalNode ? getChildIds(originalNode) : [];
-                            
-                            // Set expanding animation for children
-                            setExpandingNodeIds(new Set(childIds));
-                            
-                            // Expand the node
-                            toggleNodeCollapse(node.id, false);
-                            
-                            // Clear animation after it completes
-                            setTimeout(() => {
-                              setExpandingNodeIds(new Set());
-                            }, 300);
-                          }}
-                        >
-                          <div className="flex items-center justify-between w-full px-1">
-                            {/* Donut Chart Indicator - Size matched to arrow circle */}
-                            <DonutChart online={stats.online} offline={stats.offline} checking={stats.checking} backup={stats.backup} />
-                            
-                            {/* Text */}
-                            <div className="font-medium text-sm text-gray-600 transition-colors" style={{ color: 'inherit' }}>
-                               {stats.total} hidden nodes
-                            </div>
-                            
-                            {/* Arrow Circle */}
-                            <div 
-                               className="w-8 h-8 rounded-full flex items-center justify-center transition-colors"
-                               style={{ backgroundColor: `${currentConfig.appearance.accentColor}15` }}
-                            >
-                              <svg 
-                                className="w-5 h-5" 
-                                style={{ color: currentConfig.appearance.accentColor }}
-                                fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                              >
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                              </svg>
-                            </div>
-                          </div>
-                        </div>
-                      </React.Fragment>
-                    );
-                  })()}
-                </React.Fragment>
-              );
-              })}
-            </div>
-          </div>
-          
-          {/* Empty nodes fallback for desktop */}
-          {currentConfig.tree.nodes.length === 0 && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-              <div className="pointer-events-auto">
-                <EmptyNodesFallback 
-                  onCreateStartingNode={handleCreateStartingNode}
-                  appConfig={currentConfig}
-                  onRestoreConfig={handleLoadConfig}
-                />
-              </div>
-            </div>
-          )}
-          
-          {/* Edit Mode Indicator + usage hint - Top Center (UX-5: make drag-reorder discoverable) */}
-          {isEditMode && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center gap-1.5">
-              <div
-                className="text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2"
-                style={{ backgroundColor: currentConfig.appearance?.accentColor || '#3b82f6' }}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-                <span className="text-sm font-medium">Edit Mode Active</span>
-              </div>
-              <div className="bg-white/90 backdrop-blur-sm text-gray-600 text-xs px-3 py-1 rounded-full shadow font-roboto whitespace-nowrap">
-                Drag a node to reorder · Click to edit · <span className="font-semibold">+</span> to add a child
-              </div>
-            </div>
-          )}
-          
-          {/* Controls - only show when user has moved away from initial position */}
-          {hasMovedFromInitial() && (
-            <div className="absolute bottom-4 left-4 z-40">
-              <button
-                onClick={resetView}
-                className="bg-white/90 hover:bg-white text-gray-800 px-3 py-2 rounded-lg shadow-md transition-colors text-sm font-medium font-roboto"
-              >
-                Reset View
-              </button>
-            </div>
-          )}
-          
-          {/* Edit Mode FAB Button */}
-          <div className="absolute bottom-4 right-4 z-40">
-            {/* Edit FAB Button */}
-            <button
-              onClick={async () => {
-                if (!isEditMode) {
-                  // Authenticate before entering edit mode
-                  const isAuth = await authenticate();
-                  if (isAuth) {
-                    setIsEditMode(true);
-                  }
-                } else {
-                  setIsEditMode(false);
-                }
-              }}
-              className={`h-12 rounded-full shadow-lg flex items-center justify-center gap-2 px-5 transition-all duration-200 ${
-                isEditMode 
-                  ? 'text-white' 
-                  : 'bg-white hover:bg-gray-50 text-gray-700'
-              }`}
-              style={isEditMode ? { 
-                backgroundColor: currentConfig.appearance?.accentColor || '#3b82f6',
-                boxShadow: `0 0 0 4px ${(currentConfig.appearance?.accentColor || '#3b82f6')}33`
-              } : undefined}
-              title={isEditMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
-            >
-              {isEditMode ? (
-                <>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  <span className="font-medium text-sm">Done</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  <span className="font-medium text-sm">Edit</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* ── Filtered view overlay ── */}
-          {filteredNodes !== null && (
-            <div className="absolute inset-0 z-20 overflow-y-auto" style={{ background: 'rgba(250,250,252,0.92)', backdropFilter: 'blur(4px)' }}>
-              {/* Sticky filter banner */}
-              <div className="sticky top-0 z-10 flex justify-center pt-5 pb-3 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(250,250,252,0.96) 60%, transparent)' }}>
-                <div
-                  className="pointer-events-auto flex items-center gap-3 px-5 py-2.5 rounded-full shadow-lg bg-white border"
-                  style={{ borderColor: `${filterColor}55` }}
-                >
-                  <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: filterColor }} />
-                  <span className="text-sm font-semibold text-gray-700 font-roboto">{filterLabel} nodes</span>
-                  <span className="text-xs font-medium text-white px-2 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: filterColor }}>
-                    {filteredNodes.length}
-                  </span>
-                  <div className="w-px h-4 bg-gray-200 flex-shrink-0" />
-                  <button
-                    onClick={() => setActiveFilter(null)}
-                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 font-roboto transition-colors"
-                  >
-                    <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
-                      <path d="M2 2L9 9M9 2L2 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                    </svg>
-                    Clear filter
-                  </button>
-                </div>
-              </div>
-
-              {/* Node grid */}
-              <div className="flex flex-wrap justify-center gap-4 px-8 pb-16 -mt-1">
-                {filteredNodes.length > 0 ? (
-                  filteredNodes.map(node => {
-                    const nodeStatus = getNodeStatus(node.id);
-                    return (
-                      <div key={node.id} style={{ width: NODE_WIDTH }}>
-                        <NodeCard
-                          node={node}
-                          status={nodeStatus}
-                          onClick={(n) => {
-                            if (isEditMode) { handleEditNode(n.id); return; }
-                            const url = getNodeTargetUrl(n);
-                            if (!url) return;
-                            if (currentConfig.general?.openNodesAsOverlay) {
-                              setIframeOverlay({ url, title: n.title });
-                            } else {
-                              window.open(url, '_blank');
-                            }
-                          }}
-                          isInteractable={!!getNodeTargetUrl(node)}
-                          accentColor={currentConfig.appearance?.accentColor}
-                          style={{ height: 88 }}
-                        />
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-28 text-gray-400">
-                    <svg className="w-14 h-14 mb-4 text-gray-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <p className="text-sm font-roboto">No {filterLabel.toLowerCase()} nodes</p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Mobile view with vertical list */}
-      {isMobile && (
-        <div className="h-full relative">
-          {/* Background image for mobile view - covers entire screen */}
-          <div 
-            className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none" 
-            style={{ 
-              backgroundImage: `url(${assetUrl(currentConfig.appearance?.backgroundImage || 'background.png')})`,
-              opacity: 0.3,
-              backgroundSize: 'cover'
-            }} 
-          />
-          
-          {/* Single scrollable container with status card and nodes */}
-          <div className="relative z-10 h-full overflow-auto bg-transparent">
-            {currentConfig.tree.nodes.length === 0 ? (
-              <div className="flex flex-col h-full">
-                {/* Status card for mobile when no nodes - edge to edge */}
-                <div>
-                  <StatusCard
-                    onOpenSettings={handleOpenSettings}
-                    appConfig={currentConfig}
-                    statuses={statuses}
-                    isLoading={isLoading}
-                    error={error}
-                    isConnected={isConnected}
-                    nextCheckCountdown={nextCheckCountdown}
-                    totalInterval={totalInterval}
-                    isQuerying={isQuerying}
-                    isMobile={true}
-                    activeFilter={activeFilter}
-                    onFilterChange={setActiveFilter}
-                  />
-                </div>
-                
-                {/* Empty nodes fallback for mobile */}
-                <div className="flex-1 flex items-center justify-center p-4">
-                  <EmptyNodesFallback 
-                    onCreateStartingNode={handleCreateStartingNode}
-                    appConfig={currentConfig}
-                    onRestoreConfig={handleLoadConfig}
-                  />
-                </div>
-              </div>
-            ) : (
-              <MobileNodeList
-                nodes={currentConfig.tree.nodes}
-                statuses={statuses}
-                onNodeClick={(node) => {
-                  if (isEditMode) {
-                    handleEditNode(node.id);
-                  } else {
-                    handleMobileNodeClick(node);
-                  }
-                }}
-                isEditMode={isEditMode}
-                accentColor={currentConfig.appearance?.accentColor || '#3b82f6'}
-                appConfig={currentConfig}
-                activeFilter={activeFilter}
-                filteredNodes={filteredNodes}
-                onFilterChange={setActiveFilter}
-                statusCard={
-                  <StatusCard
-                    onOpenSettings={handleOpenSettings}
-                    appConfig={currentConfig}
-                    statuses={statuses}
-                    isLoading={isLoading}
-                    error={error}
-                    isConnected={isConnected}
-                    nextCheckCountdown={nextCheckCountdown}
-                    totalInterval={totalInterval}
-                    isQuerying={isQuerying}
-                    isMobile={true}
-                    activeFilter={activeFilter}
-                    onFilterChange={setActiveFilter}
-                  />
-                }
-              />
-            )}
-          </div>
-          
-          {/* Mobile Edit Mode Indicator - Top Center */}
-          {isEditMode && (
-            <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40">
-              <div 
-                className="text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-pulse"
-                style={{ backgroundColor: currentConfig.appearance?.accentColor || '#3b82f6' }}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-                <span className="text-sm font-medium">Edit Mode</span>
-              </div>
-            </div>
-          )}
-          
-          {/* Mobile Edit Mode FAB Button */}
-          <div className="absolute bottom-4 right-4 z-40">
-            <button
-              onClick={async () => {
-                if (!isEditMode) {
-                  const isAuth = await authenticate();
-                  if (isAuth) {
-                    setIsEditMode(true);
-                  }
-                } else {
-                  setIsEditMode(false);
-                }
-              }}
-              className={`w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-200 ${
-                isEditMode 
-                  ? 'text-white' 
-                  : 'bg-white hover:bg-gray-50 text-gray-700'
-              }`}
-              style={isEditMode ? { 
-                backgroundColor: currentConfig.appearance?.accentColor || '#3b82f6',
-                boxShadow: `0 0 0 4px ${(currentConfig.appearance?.accentColor || '#3b82f6')}33`
-              } : undefined}
-              title={isEditMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
-            >
-              {isEditMode ? (
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                </svg>
-              )}
-            </button>
-          </div>
-        </div>
-      )}
-      
-      {/* Status Card - only show on desktop, mobile has it embedded */}
-      {!isMobile && (
-        <div className="absolute top-4 right-4 z-30">
-          <StatusCard
-            onOpenSettings={handleOpenSettings}
-            onOpenHistory={() => setHistoryModal({ nodeId: null })}
-            appConfig={currentConfig}
-            statuses={statuses}
-            isLoading={isLoading}
-            error={error}
-            isConnected={isConnected}
-            nextCheckCountdown={nextCheckCountdown}
-            totalInterval={totalInterval}
-            isQuerying={isQuerying}
-            activeFilter={activeFilter}
-            onFilterChange={setActiveFilter}
-          />
-        </div>
-      )}
-
-      {/* Desktop Logo - top left corner */}
-      {!isMobile && (
-        <div className="absolute top-4 left-4 z-20">
-          {(currentConfig?.appearance?.logo || currentConfig?.appearance?.favicon) ? (
-            <img 
-              src={assetUrl(currentConfig.appearance.logo || currentConfig.appearance.favicon)} 
-              alt={currentConfig.general?.title || 'Logo'}
-              className="max-h-20 max-w-32 opacity-90 filter drop-shadow-lg bg-white/20 backdrop-blur-sm rounded-xl p-3 object-contain"
-              onError={(e) => {
-                // Fallback to default icon
-                console.warn('Logo failed to load, trying fallback');
-                e.currentTarget.src = 'nautilusIcon.png';
-              }}
-            />
-          ) : (
-            <img 
-              src="nautilusIcon.png" 
-              alt="Nautilus" 
-              className="max-h-20 max-w-32 opacity-90 filter drop-shadow-lg bg-white/20 backdrop-blur-sm rounded-xl p-3 object-contain"
-              onError={(e) => {
-                // Hide if fallback also fails
-                e.currentTarget.style.display = 'none';
-              }}
-            />
-          )}
-        </div>
-      )}
-
       {/* Settings Modal - Rendered at root level for full page overlay */}
       <Settings
         isOpen={isSettingsOpen}
@@ -1936,6 +892,7 @@ const Canvas: React.FC = () => {
         }}
         initialConfig={currentConfig}
         onSave={handleSaveConfig}
+        onRestore={handleRestoreConfig}
         focusNodeId={focusNodeId}
       />
 
@@ -1987,57 +944,6 @@ const Canvas: React.FC = () => {
           onClose={() => setIframeOverlay(null)}
           onOpenHistory={(nodeId, nodeName) => setHistoryModal({ nodeId, nodeName })}
         />
-      )}
-
-      {/* Drag Ghost - follows cursor while dragging */}
-      {dragState.isDragging && dragState.draggedNode && (
-        <div
-          className="drag-ghost pointer-events-none"
-          style={{
-            left: dragState.currentPos.x - 140, // Center on cursor
-            top: dragState.currentPos.y - 45,
-            width: 280,
-            height: 90,
-          }}
-        >
-          {/* Stacked cards behind to show children */}
-          {dragState.draggedNodeWithChildren && dragState.draggedNodeWithChildren.children && dragState.draggedNodeWithChildren.children.length > 0 && (
-            <>
-              <div className="drag-ghost-stacked" style={{ transform: 'translate(8px, 8px)' }} />
-              {dragState.draggedNodeWithChildren.children.length > 1 && (
-                <div className="drag-ghost-stacked" style={{ transform: 'translate(4px, 4px)' }} />
-              )}
-            </>
-          )}
-          
-          {/* Main dragged card */}
-          <div className="relative w-full h-full bg-white rounded-xl shadow-xl border-2 overflow-hidden"
-            style={{ borderColor: currentConfig.appearance?.accentColor || '#3b82f6' }}
-          >
-            <div className="p-3 h-full flex flex-col justify-center">
-              <div className="flex items-center gap-2">
-                <span className="text-lg font-semibold text-gray-800 truncate">
-                  {dragState.draggedNode.title}
-                </span>
-              </div>
-              {dragState.draggedNode.subtitle && (
-                <div className="text-sm text-gray-500 truncate">
-                  {dragState.draggedNode.subtitle}
-                </div>
-              )}
-            </div>
-            
-            {/* Child count badge */}
-            {dragState.draggedNodeWithChildren && dragState.draggedNodeWithChildren.children && dragState.draggedNodeWithChildren.children.length > 0 && (
-              <div 
-                className="absolute -top-2 -right-2 px-2 py-0.5 rounded-full text-xs font-bold text-white shadow-lg"
-                style={{ backgroundColor: currentConfig.appearance?.accentColor || '#3b82f6' }}
-              >
-                +{countDescendants(dragState.draggedNodeWithChildren)}
-              </div>
-            )}
-          </div>
-        </div>
       )}
 
       {/* Delete Confirmation Dialog */}

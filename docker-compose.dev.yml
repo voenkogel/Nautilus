@@ -1,0 +1,21 @@
+# Run with: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3071:3070"
+    environment:
+      NAUTILUS_API_TARGET: http://nautilus:3069
+      NAUTILUS_WATCH_POLLING: "true"
+    volumes:
+      - ./src:/app/src:ro
+      - ./public:/app/public:ro
+      - ./index.html:/app/index.html:ro
+      - ./vite.config.ts:/app/vite.config.ts:ro
+      - ./tailwind.config.js:/app/tailwind.config.js:ro
+      - ./postcss.config.js:/app/postcss.config.js:ro
+    depends_on:
+      - nautilus
+    restart: unless-stopped

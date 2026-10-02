@@ -37,11 +37,12 @@ export const Stepper: React.FC<StepperProps> = ({ currentPhase, accentColor }) =
                       ? 'border-green-500 bg-green-500 text-white'
                       : status === 'active'
                       ? 'border-2 text-white'
-                      : 'border-gray-300 bg-gray-100 text-gray-400'
+                      : 'border-line bg-raised text-muted'
                   }`}
                   style={{
                     borderColor: status === 'active' ? accentColor : undefined,
                     backgroundColor: status === 'active' ? accentColor : undefined,
+                    color: status === 'active' ? '#07141e' : undefined,
                   }}
                 >
                   {status === 'completed' ? (
@@ -58,10 +59,10 @@ export const Stepper: React.FC<StepperProps> = ({ currentPhase, accentColor }) =
                   )}
                 </div>
                 <div className="text-center mt-2">
-                  <div className={`text-sm font-semibold ${status === 'active' ? 'text-gray-800' : status === 'completed' ? 'text-green-600' : 'text-gray-400'}`}>
+                  <div className={`text-sm font-semibold ${status === 'active' ? 'text-ink' : status === 'completed' ? 'text-positive' : 'text-muted'}`}>
                     {step.label}
                   </div>
-                  <div className={`text-xs ${status === 'active' ? 'text-gray-600' : 'text-gray-400'}`}>
+                  <div className={`text-xs ${status === 'active' ? 'text-muted' : 'text-muted'}`}>
                     {step.description}
                   </div>
                 </div>
@@ -76,8 +77,8 @@ export const Stepper: React.FC<StepperProps> = ({ currentPhase, accentColor }) =
                       (getStepStatus(steps[index + 1].id) === 'active' && status === 'completed')
                         ? 'bg-green-500'
                         : getStepStatus(steps[index + 1].id) === 'active'
-                        ? 'bg-gray-300'
-                        : 'bg-gray-300'
+                        ? 'bg-line'
+                        : 'bg-line'
                     }`}
                     style={{
                       backgroundColor: getStepStatus(steps[index + 1].id) === 'active' && status === 'completed' ? accentColor : undefined

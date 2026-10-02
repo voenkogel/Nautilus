@@ -25,9 +25,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onCancel,
 }) => {
   const variantStyles = {
-    danger: { icon: 'text-red-500', iconBg: 'bg-red-100', button: 'bg-red-600 hover:bg-red-700 focus:ring-red-500' },
-    warning: { icon: 'text-amber-500', iconBg: 'bg-amber-100', button: 'bg-amber-600 hover:bg-amber-700 focus:ring-amber-500' },
-    info: { icon: 'text-blue-500', iconBg: 'bg-blue-100', button: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500' },
+    danger: { icon: 'text-negative', iconBg: 'bg-negative/15', button: 'bg-red-600 hover:bg-red-700 focus:ring-red-500' },
+    warning: { icon: 'text-amber-500', iconBg: 'bg-warning/15', button: 'bg-amber-600 hover:bg-amber-700 focus:ring-amber-500' },
+    info: { icon: 'text-accent', iconBg: 'bg-accent/15', button: 'bg-action hover:bg-action focus:ring-blue-500' },
   };
   const styles = variantStyles[variant];
 
@@ -35,11 +35,11 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onCancel}
-      zIndexClassName="z-[100]"
+      zIndexClassName="z-[11000]"
       role="alertdialog"
       ariaLabelledBy="confirm-dialog-title"
       ariaDescribedBy="confirm-dialog-message"
-      containerClassName="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-scale-in"
+      containerClassName="bg-surface rounded-xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-scale-in"
     >
       {/* Content */}
       <div className="p-6">
@@ -48,10 +48,10 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             <AlertTriangle className={`w-5 h-5 ${styles.icon}`} />
           </div>
           <div className="flex-1 min-w-0">
-            <h3 id="confirm-dialog-title" className="text-lg font-semibold text-gray-900">
+            <h3 id="confirm-dialog-title" className="text-lg font-semibold text-ink">
               {title}
             </h3>
-            <p id="confirm-dialog-message" className="mt-2 text-sm text-gray-600">
+            <p id="confirm-dialog-message" className="mt-2 text-sm text-muted">
               {message}
             </p>
           </div>
@@ -59,11 +59,11 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-3 px-6 py-4 bg-gray-50 border-t border-gray-100">
+      <div className="flex items-center justify-end gap-3 px-6 py-4 bg-abyss border-t border-line">
         <Button variant="secondary" onClick={onCancel}>
           {cancelLabel}
         </Button>
-        <Button variant="primary" className={styles.button} onClick={onConfirm}>
+        <Button variant={variant === 'danger' ? 'danger' : 'primary'} accentColor={variant === 'warning' ? '#ebc47f' : '#65d7e8'} className={styles.button} onClick={onConfirm}>
           {confirmLabel}
         </Button>
       </div>

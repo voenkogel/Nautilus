@@ -42,3 +42,8 @@ last_scan_results.json
 
 # Hashed admin credentials (set from Settings → Account)
 credentials.json
+
+# Browser verification artifacts
+test-results/
+test-results-inspector/
+playwright-report/

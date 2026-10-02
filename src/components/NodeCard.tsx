@@ -101,7 +101,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
 
   return (
     <div 
-      className={`relative flex items-center p-3 bg-white/90 border border-gray-100 overflow-hidden ${getNodeCardStyle(type)} ${className} transition-all duration-200 ease-out ${
+      className={`relative flex items-center p-3 bg-surface/90 border border-line overflow-hidden ${getNodeCardStyle(type)} ${className} transition-all duration-200 ease-out ${
         shouldHover 
           ? 'shadow-md hover:shadow-xl hover:scale-[1.02] cursor-pointer' 
           : 'shadow-sm'
@@ -139,19 +139,19 @@ const NodeCard: React.FC<NodeCardProps> = ({
         <div className="flex-1 min-w-0 flex flex-col justify-center h-full">
           {/* Title row */}
           <div className="flex items-center gap-2 mb-1 min-w-0">
-            <div className="font-semibold text-gray-900 truncate text-base leading-tight min-w-0 flex-shrink" title={title}>{title}</div>
+            <div className="font-semibold text-ink truncate text-base leading-tight min-w-0 flex-shrink" title={title}>{title}</div>
             
             {/* Status Badge */}
             {status && status.statusChangedAt && !isMonitoringDisabled && (
               <div
                 className={`px-2 py-0.5 rounded text-xs font-medium shadow-sm flex-shrink-0 ${
                   status.status === 'online'
-                    ? 'bg-green-200 text-green-800'
+                    ? 'bg-positive/20 text-positive'
                     : status.status === 'offline'
-                      ? 'bg-red-200 text-red-800'
+                      ? 'bg-negative/20 text-negative'
                       : status.status === 'backup'
-                        ? 'bg-violet-200 text-violet-800'
-                        : 'bg-gray-200 text-gray-600'
+                        ? 'bg-maintenance/20 text-maintenance'
+                        : 'bg-raised text-muted'
                 }`}
               >
                 {statusLabels[status.status]} for {formatTimeSince(status.statusChangedAt || status.lastChecked)}
@@ -161,12 +161,12 @@ const NodeCard: React.FC<NodeCardProps> = ({
 
           {/* Only show subtitle if it exists */}
           {subtitle && (
-            <div className="text-sm text-gray-600 truncate min-w-0" title={subtitle}>{subtitle}</div>
+            <div className="text-sm text-muted truncate min-w-0" title={subtitle}>{subtitle}</div>
           )}
           
           {/* Details Row - Only show external address if configured */}
           {displayAddress && (
-            <div className="mt-2 flex items-center text-xs text-gray-500 min-w-0">
+            <div className="mt-2 flex items-center text-xs text-muted min-w-0">
               <svg className="mr-1 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10" />
                 <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
